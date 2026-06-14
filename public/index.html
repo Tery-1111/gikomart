@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GikoMart — Sell locally. Reach instantly.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<!-- ░░░ TOP BAR ░░░ -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="#" class="logo">
+      <span class="logo-mark">G</span>
+      <span class="logo-text">Giko<span class="logo-accent">Mart</span></span>
+    </a>
+    <nav class="topnav">
+      <button class="nav-link active" data-view="browse">Browse</button>
+      <button class="nav-link" data-view="sell">Sell</button>
+      <button class="nav-link" data-view="dashboard">My Listings</button>
+    </nav>
+    <div class="topbar-cta">
+      <span class="campus-tag">📍 Egerton University</span>
+    </div>
+  </div>
+
+  <!-- Signature element: live broadcast pulse ticker -->
+  <div class="pulse-ticker">
+    <div class="pulse-track" id="pulseTrack">
+      <!-- populated by JS -->
+    </div>
+  </div>
+</header>
+
+<!-- ░░░ HERO ░░░ -->
+<section class="hero" id="heroSection">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="hero-eyebrow">Campus Distribution Network</p>
+      <h1 class="hero-title">Post once.<br>Reach the <span class="underline-pop">whole campus.</span></h1>
+      <p class="hero-sub">Every listing on GikoMart broadcasts straight to Egerton WhatsApp groups and channels — buyers see it before they even open the app.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" data-view="sell">List something →</button>
+        <button class="btn btn-ghost" data-view="browse">Browse listings</button>
+      </div>
+      <div class="hero-stats">
+        <div class="stat"><span class="stat-num" id="statListings">—</span><span class="stat-label">active listings</span></div>
+        <div class="stat"><span class="stat-num" id="statCats">14</span><span class="stat-label">categories</span></div>
+        <div class="stat"><span class="stat-num">30s</span><span class="stat-label">to WhatsApp</span></div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="phone-mock">
+        <div class="phone-notch"></div>
+        <div class="wa-header-mock">
+          <div class="wa-avatar">G</div>
+          <div class="wa-name">
+            <strong>GikoMart Campus</strong>
+            <small>Channel · 1,204 followers</small>
+          </div>
+        </div>
+        <div class="wa-body-mock">
+          <div class="wa-bubble-mock">
+            <strong>🆕 NEW AT GikoMart</strong>
+            <p id="mockTitle">Samsung Galaxy S22</p>
+            <p>💰 KSh <span id="mockPrice">38,000</span></p>
+            <p>📍 Egerton University, Njoro</p>
+            <span class="wa-time">just now</span>
+          </div>
+        </div>
+      </div>
+      <div class="floaty floaty-1">🛋️</div>
+      <div class="floaty floaty-2">📱</div>
+      <div class="floaty floaty-3">📚</div>
+    </div>
+  </div>
+</section>
+
+<!-- ░░░ MAIN APP ░░░ -->
+<main class="app-shell">
+
+  <!-- ===== BROWSE VIEW ===== -->
+  <section class="view active" id="view-browse">
+    <div class="view-header">
+      <h2>Browse listings</h2>
+      <p class="view-sub">Fresh from campus — updated the moment someone posts.</p>
+    </div>
+
+    <div class="filters">
+      <div class="search-box">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" placeholder="Search for textbooks, mattresses, phones…">
+      </div>
+      <div class="cat-pills" id="catPills">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <div class="listing-grid" id="listingGrid">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
+  <!-- ===== SELL VIEW ===== -->
+  <section class="view" id="view-sell">
+    <div class="view-header">
+      <h2>List something new</h2>
+      <p class="view-sub">Takes under a minute. We'll broadcast it for you.</p>
+    </div>
+
+    <div class="sell-layout">
+      <form class="sell-form" id="sellForm">
+
+        <div class="field-group">
+          <label>Photo</label>
+          <div class="image-upload" id="imageUploadBox">
+            <input type="file" id="f-image" accept="image/*" hidden>
+            <div class="image-upload-placeholder" id="imageUploadPlaceholder">
+              <span class="image-upload-icon">📷</span>
+              <span class="image-upload-text">Click to add a photo</span>
+              <span class="image-upload-hint">JPG or PNG, up to 5MB</span>
+            </div>
+            <img id="imagePreviewImg" class="image-preview-img" alt="">
+            <button type="button" class="image-remove-btn" id="imageRemoveBtn" hidden>✕</button>
+          </div>
+          <div class="image-upload-status" id="imageUploadStatus"></div>
+        </div>
+
+        <div class="field-group">
+          <label>What are you selling?</label>
+          <input type="text" id="f-title" placeholder="e.g. Samsung Galaxy S22, 128GB" required>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Category</label>
+            <select id="f-category" required>
+              <option value="">Choose a category</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Condition</label>
+            <select id="f-condition" required>
+              <option value="New">New / Sealed</option>
+              <option value="Like New">Like New</option>
+              <option value="Excellent" selected>Excellent</option>
+              <option value="Good">Good</option>
+              <option value="Fair">Fair</option>
+              <option value="Poor">Poor</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Price (KSh)</label>
+            <input type="number" id="f-price" placeholder="e.g. 38000" required min="0">
+          </div>
+          <div class="field-group">
+            <label>Location</label>
+            <input type="text" id="f-location" placeholder="e.g. Njoro, Hostel C">
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label>Description</label>
+          <textarea id="f-description" placeholder="Condition details, what's included, why you're selling…" required></textarea>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group">
+            <label>Your name</label>
+            <input type="text" id="f-seller" placeholder="e.g. Teryl" required>
+          </div>
+          <div class="field-group">
+            <label>WhatsApp number</label>
+            <input type="text" id="f-whatsapp" placeholder="+254 7XX XXX XXX" required>
+          </div>
+        </div>
+
+        <div class="broadcast-toggle">
+          <div class="broadcast-toggle-text">
+            <strong>📢 Broadcast to WhatsApp</strong>
+            <span>Sends to the category group + campus channel within 30 seconds</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="f-broadcast" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="submitBtn">Publish listing</button>
+        <div class="form-status" id="formStatus"></div>
+      </form>
+
+      <!-- Live WhatsApp preview -->
+      <div class="preview-card">
+        <p class="preview-label">Live preview — what campus will see</p>
+        <div class="phone-mock phone-mock-small">
+          <div class="phone-notch"></div>
+          <div class="wa-header-mock">
+            <div class="wa-avatar">G</div>
+            <div class="wa-name">
+              <strong>GikoMart Campus</strong>
+              <small>Channel · 1,204 followers</small>
+            </div>
+          </div>
+          <div class="wa-body-mock">
+            <div class="wa-bubble-mock">
+              <img id="prev-image" class="wa-bubble-image" alt="" hidden>
+              <strong>🆕 NEW AT GikoMart</strong>
+              <p id="prev-title">Your item title</p>
+              <p>💰 KSh <span id="prev-price">0</span></p>
+              <p id="prev-category">📂 Category</p>
+              <p id="prev-desc">"Description preview…"</p>
+              <p id="prev-location">📍 Location</p>
+              <span class="wa-time">sending…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== DASHBOARD VIEW ===== -->
+  <section class="view" id="view-dashboard">
+    <div class="view-header">
+      <h2>My listings</h2>
+      <p class="view-sub">Track views and broadcast status for everything you've posted.</p>
+    </div>
+    <div class="dash-stats">
+      <div class="dash-stat">
+        <span class="dash-num" id="dashTotal">0</span>
+        <span class="dash-label">total listings</span>
+      </div>
+      <div class="dash-stat">
+        <span class="dash-num" id="dashViews">0</span>
+        <span class="dash-label">total views</span>
+      </div>
+      <div class="dash-stat dash-stat-accent">
+        <span class="dash-num" id="dashBroadcasts">0</span>
+        <span class="dash-label">WhatsApp broadcasts sent</span>
+      </div>
+    </div>
+    <div class="listing-grid" id="myListingGrid">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
+</main>
+
+<!-- ░░░ LISTING DETAIL MODAL ░░░ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-card" id="modalCard">
+    <!-- populated by JS -->
+  </div>
+</div>
+
+<!-- ░░░ TOAST ░░░ -->
+<div class="toast" id="toast"></div>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
