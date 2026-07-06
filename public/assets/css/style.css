@@ -1025,6 +1025,137 @@ img { max-width: 100%; display: block; }
 
 .contact-btn:hover { background: var(--wa-green-dark); }
 
+/* ===== Boost UI ===== */
+.boost-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.boost-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.boost-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.boost-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.boost-option:hover {
+  border-color: var(--marigold);
+}
+
+.boost-option.selected {
+  border-color: var(--marigold);
+  background: var(--cream-deep);
+}
+
+.boost-option-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.boost-option-info strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.boost-option-info span {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.boost-option-price {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--marigold-dark);
+  white-space: nowrap;
+}
+
+.boost-phone-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 14px;
+  background: var(--cream);
+  margin-bottom: 10px;
+}
+
+.boost-phone-input:focus {
+  outline: none;
+  border-color: var(--marigold);
+  background: var(--white);
+}
+
+.boost-pay-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--marigold);
+  color: var(--white);
+  border: none;
+  border-radius: 100px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.boost-pay-btn:hover { background: var(--marigold-dark); }
+.boost-pay-btn:disabled { background: var(--border); color: var(--ink-soft); cursor: not-allowed; }
+
+.boost-status {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  min-height: 18px;
+}
+
+.boost-status.pending { color: var(--marigold-dark); }
+.boost-status.success { color: var(--wa-green-dark); }
+.boost-status.error { color: var(--coral); }
+
+/* Featured badge on cards */
+.featured-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: var(--marigold);
+  color: var(--white);
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rush-badge { background: var(--coral); }
 /* ============================================
    TOAST
    ============================================ */

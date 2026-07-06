@@ -35,6 +35,12 @@ const CATEGORY_ICONS = {
   'Student Essentials': '📚', 'Hostel Living': '🛏️', 'Free Stuff': '🎁',
 };
 
+const BOOST_OPTIONS = [
+  { id: 'featured', label: 'Featured (24h)', desc: 'Pin to top of category & search', price: 50 },
+  { id: 'rush', label: 'Semester Rush Boost (72h)', desc: 'Top placement during move-out rush', price: 80 },
+  { id: 'priority_broadcast', label: 'Priority Broadcast', desc: 'Extra WhatsApp broadcast at peak hours', price: 30 },
+];
+
 let allListings = [];
 let myListings = [];
 let activeCategory = '';
@@ -196,10 +202,14 @@ function listingCardHTML(l) {
   const imageContent = hasImage
     ? `<img src="${l.images[0]}" alt="${escapeHTML(l.title)}">`
     : l.icon;
+  const badgeHTML = l.featured
+    ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
+    : '';
   return `
     <div class="listing-card" data-id="${l._id}">
       <div class="listing-image">
         ${imageContent}
+        ${badgeHTML}
         <span class="condition-badge ${condClass}">${l.condition}</span>
       </div>
       <div class="listing-body">
@@ -248,6 +258,7 @@ function openListingModal(id, source) {
     <button class="contact-btn" onclick="contactSeller('${listing.sellerWhatsapp}', '${escapeHTML(listing.title).replace(/'/g, "\\'")}')">
       💬 Contact seller on WhatsApp
     </button>
+    ${listing.featured ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
 
@@ -267,6 +278,74 @@ function contactSeller(whatsapp, title) {
   window.open(`https://wa.me/${cleanNumber}?text=${message}`, '_blank');
 }
 
+function boostSectionHTML(listingId) {
+  const optionsHTML = BOOST_OPTIONS.map((opt, i) => `
+    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-boost="${opt.id}" data-price="${opt.price}" onclick="selectBoost(this)">
+      <div class="boost-option-info">
+        <strong>${opt.label}</strong>
+        <span>${opt.desc}</span>
+      </div>
+      <div class="boost-option-price">KSh ${opt.price}</div>
+    </div>
+  `).join('');
+
+  return `
+    <div class="boost-section">
+      <div class="boost-label">⚡ Boost this listing</div>
+      <div class="boost-options" id="boostOptions">${optionsHTML}</div>
+      <input type="text" class="boost-phone-input" id="boostPhone" placeholder="M-Pesa number e.g. 0712345678">
+      <button class="boost-pay-btn" id="boostPayBtn" onclick="initiateBoost('${listingId}')">Pay with M-Pesa</button>
+      <div class="boost-status" id="boostStatus"></div>
+    </div>
+  `;
+}
+
+function selectBoost(el) {
+  document.querySelectorAll('.boost-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+async function initiateBoost(listingId) {
+  const selected = document.querySelector('.boost-option.selected');
+  const phone = document.getElementById('boostPhone').value.trim();
+  const statusEl = document.getElementById('boostStatus');
+  const btn = document.getElementById('boostPayBtn');
+
+  if (!selected) {
+    statusEl.textContent = 'Choose a boost option';
+    statusEl.className = 'boost-status error';
+    return;
+  }
+  if (!phone || phone.length < 9) {
+    statusEl.textContent = 'Enter a valid M-Pesa number';
+    statusEl.className = 'boost-status error';
+    return;
+  }
+
+  const boostType = selected.dataset.boost;
+  btn.disabled = true;
+  statusEl.textContent = 'Sending payment request…';
+  statusEl.className = 'boost-status pending';
+
+  try {
+    const res = await fetch(`${API_BASE}/payments/boost`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ listingId, phoneNumber: phone, boostType }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Payment failed');
+
+    statusEl.textContent = '📲 Check your phone for the M-Pesa prompt to complete payment.';
+    statusEl.className = 'boost-status success';
+    btn.textContent = 'Request sent';
+  } catch (err) {
+    statusEl.textContent = `⚠️ ${err.message}`;
+    statusEl.className = 'boost-status error';
+    btn.disabled = false;
+  }
+}
 // ============================================
 // SELL FORM + LIVE PREVIEW
 // ============================================
@@ -461,7 +540,37 @@ async function handleSubmit(e) {
     document.getElementById('f-broadcast').checked = true;
     resetImageUpload();
     updatePreview();
-    renderListings();
+    function renderListings() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = allListings.filter(l => {
+    const matchCat = !activeCategory || l.category === activeCategory;
+    const matchSearch = !search ||
+      l.title.toLowerCase().includes(search) ||
+      l.description.toLowerCase().includes(search);
+    return matchCat && matchSearch;
+  });
+
+  // Pin featured listings to the top, preserving existing order otherwise
+  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+
+  const grid = document.getElementById('listingGrid');
+
+  if (!filtered.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🔍</span>
+        <p><strong>Nothing here yet.</strong></p>
+        <p>Try a different search or category — or be the first to list one.</p>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(l => listingCardHTML(l)).join('');
+
+  grid.querySelectorAll('.listing-card').forEach(card => {
+    card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
+  });
+};
 
   } catch (err) {
     console.warn('Publish failed, saving locally:', err.message);
@@ -487,7 +596,37 @@ async function handleSubmit(e) {
     document.getElementById('f-broadcast').checked = true;
     resetImageUpload();
     updatePreview();
-    renderListings();
+    function renderListings() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = allListings.filter(l => {
+    const matchCat = !activeCategory || l.category === activeCategory;
+    const matchSearch = !search ||
+      l.title.toLowerCase().includes(search) ||
+      l.description.toLowerCase().includes(search);
+    return matchCat && matchSearch;
+  });
+
+  // Pin featured listings to the top, preserving existing order otherwise
+  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+
+  const grid = document.getElementById('listingGrid');
+
+  if (!filtered.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🔍</span>
+        <p><strong>Nothing here yet.</strong></p>
+        <p>Try a different search or category — or be the first to list one.</p>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(l => listingCardHTML(l)).join('');
+
+  grid.querySelectorAll('.listing-card').forEach(card => {
+    card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
+  });
+});
   }
 }
 
