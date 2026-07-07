@@ -4,9 +4,11 @@
    ============================================ */
 
 // Change this to your deployed backend URL when you go live
-const API_BASE = 'http://localhost:5000/api';
-
-const CATEGORIES = [
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:5000/api'
+  : 'https://gikomart.onrender.com/api';
+  
+  const CATEGORIES = [
   { id: 'elec',  name: 'Electronics',     icon: '📱' },
   { id: 'furn',  name: 'Furniture',       icon: '🛋️' },
   { id: 'cloth', name: 'Clothing',        icon: '👕' },
