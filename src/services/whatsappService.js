@@ -4,6 +4,10 @@ const WHAPI_URL = 'https://gate.whapi.cloud';
 
 // Format the broadcast message
 function formatMessage(listing) {
+  const cleanNumber = listing.sellerWhatsapp.replace(/[\s+]/g, '');
+  const prefilledMsg = encodeURIComponent(`Hi! I saw your listing "${listing.title}" on GikoMart. Is it still available?`);
+  const contactLink = `https://wa.me/${cleanNumber}?text=${prefilledMsg}`;
+
   return `📦 *NEW AT GikoMart*: ${listing.title}
 💰 *Price:* KSh ${listing.price.toLocaleString()}
 📂 *Category:* ${listing.category}
@@ -11,7 +15,9 @@ function formatMessage(listing) {
 📝 "${listing.description.slice(0, 100)}${listing.description.length > 100 ? '...' : ''}"
 📍 *Location:* ${listing.location}
 👤 *Seller:* ${listing.sellerName}
-🔗 View & contact seller on GikoMart:
+💬 Contact seller directly:
+${contactLink}
+🔗 See more on GikoMart:
 https://gikomart.onrender.com
 👉 _Sent via GikoMart – Sell locally. Reach instantly._`;
 }
