@@ -131,7 +131,6 @@ function buildPulseTicker() {
     { item: 'Leather Jacket', dest: 'Clothing group' },
   ];
   const track = document.getElementById('pulseTrack');
-  // duplicate items so the scroll loops seamlessly
   const html = [...items, ...items].map(i => `
     <span class="pulse-item">
       <span class="pulse-dot"></span>
@@ -176,6 +175,9 @@ function renderListings() {
       l.description.toLowerCase().includes(search);
     return matchCat && matchSearch;
   });
+
+  // Pin featured listings to the top, preserving existing order otherwise
+  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
 
   const grid = document.getElementById('listingGrid');
 
@@ -262,7 +264,6 @@ function openListingModal(id, source) {
   `;
   document.getElementById('modalOverlay').classList.add('open');
 
-  // bump views via API if real listing
   if (!usingDemoData && !id.startsWith('demo')) {
     fetch(`${API_BASE}/listings/${id}`).catch(() => {});
   }
@@ -346,6 +347,7 @@ async function initiateBoost(listingId) {
     btn.disabled = false;
   }
 }
+
 // ============================================
 // SELL FORM + LIVE PREVIEW
 // ============================================
@@ -386,7 +388,6 @@ function setupImageUpload() {
       return;
     }
 
-    // Show local preview immediately
     const reader = new FileReader();
     reader.onload = (e) => {
       previewImg.src = e.target.result;
@@ -395,7 +396,6 @@ function setupImageUpload() {
       box.classList.add('has-image');
       removeBtn.hidden = false;
 
-      // also reflect in the WhatsApp preview
       const prevImg = document.getElementById('prev-image');
       prevImg.src = e.target.result;
       prevImg.hidden = false;
@@ -403,7 +403,6 @@ function setupImageUpload() {
     };
     reader.readAsDataURL(file);
 
-    // Upload to Cloudinary via backend
     status.textContent = 'Uploading photo…';
     status.className = 'image-upload-status';
 
@@ -487,7 +486,6 @@ function updatePreview() {
     : '"Description preview…"';
   document.getElementById('prev-location').textContent = `📍 ${location}`;
 
-  // Also update hero mock occasionally for fun consistency
   document.getElementById('mockTitle').textContent = title !== 'Your item title' ? title : 'Samsung Galaxy S22';
   document.getElementById('mockPrice').textContent = price !== '0' ? Number(price).toLocaleString() : '38,000';
 }
@@ -540,42 +538,11 @@ async function handleSubmit(e) {
     document.getElementById('f-broadcast').checked = true;
     resetImageUpload();
     updatePreview();
-    function renderListings() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = allListings.filter(l => {
-    const matchCat = !activeCategory || l.category === activeCategory;
-    const matchSearch = !search ||
-      l.title.toLowerCase().includes(search) ||
-      l.description.toLowerCase().includes(search);
-    return matchCat && matchSearch;
-  });
-
-  // Pin featured listings to the top, preserving existing order otherwise
-  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
-
-  const grid = document.getElementById('listingGrid');
-
-  if (!filtered.length) {
-    grid.innerHTML = `
-      <div class="empty-state">
-        <span class="empty-icon">🔍</span>
-        <p><strong>Nothing here yet.</strong></p>
-        <p>Try a different search or category — or be the first to list one.</p>
-      </div>`;
-    return;
-  }
-
-  grid.innerHTML = filtered.map(l => listingCardHTML(l)).join('');
-
-  grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
-  });
-};
+    renderListings();
 
   } catch (err) {
     console.warn('Publish failed, saving locally:', err.message);
 
-    // Fallback: still let the user see it work locally
     const localListing = {
       ...payload,
       _id: 'local-' + Date.now(),
@@ -596,37 +563,7 @@ async function handleSubmit(e) {
     document.getElementById('f-broadcast').checked = true;
     resetImageUpload();
     updatePreview();
-    function renderListings() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = allListings.filter(l => {
-    const matchCat = !activeCategory || l.category === activeCategory;
-    const matchSearch = !search ||
-      l.title.toLowerCase().includes(search) ||
-      l.description.toLowerCase().includes(search);
-    return matchCat && matchSearch;
-  });
-
-  // Pin featured listings to the top, preserving existing order otherwise
-  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
-
-  const grid = document.getElementById('listingGrid');
-
-  if (!filtered.length) {
-    grid.innerHTML = `
-      <div class="empty-state">
-        <span class="empty-icon">🔍</span>
-        <p><strong>Nothing here yet.</strong></p>
-        <p>Try a different search or category — or be the first to list one.</p>
-      </div>`;
-    return;
-  }
-
-  grid.innerHTML = filtered.map(l => listingCardHTML(l)).join('');
-
-  grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
-  });
-});
+    renderListings();
   }
 }
 
