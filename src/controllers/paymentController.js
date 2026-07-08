@@ -40,6 +40,13 @@ exports.initiateBoost = async (req, res) => {
 // Webhook: IntaSend calls this when payment status changes
 exports.handleWebhook = async (req, res) => {
   try {
+    // Verify the challenge to confirm this request genuinely came from IntaSend
+    const receivedChallenge = req.body.challenge;
+    if (receivedChallenge !== process.env.INTASEND_WEBHOOK_CHALLENGE) {
+      console.error('Webhook challenge mismatch. Full payload for debugging:', JSON.stringify(req.body));
+      return res.status(401).json({ success: false, error: 'Invalid webhook challenge' });
+    }
+
     const { invoice_id, state } = req.body;
 
     const payment = await Payment.findOne({ invoiceId: invoice_id });
@@ -56,11 +63,11 @@ exports.handleWebhook = async (req, res) => {
         if (payment.boostType === 'featured') {
           listing.featured = true;
           listing.boostType = 'standard';
-          listing.featuredUntil = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+          listing.featuredUntil = new Date(Date.now() + 24 * 60 * 60 * 1000);
         } else if (payment.boostType === 'rush') {
           listing.featured = true;
           listing.boostType = 'rush';
-          listing.featuredUntil = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
+          listing.featuredUntil = new Date(Date.now() + 72 * 60 * 60 * 1000);
         } else if (payment.boostType === 'priority_broadcast') {
           listing.priorityBroadcast = true;
         }
