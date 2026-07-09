@@ -4,7 +4,6 @@ const { broadcastListing } = require('../services/whatsappService');
 exports.createListing = async (req, res) => {
   try {
     const listing = await Listing.create(req.body);
-    // Trigger WhatsApp broadcast
     broadcastListing(listing).catch(err =>
       console.error('Broadcast failed:', err.message)
     );
@@ -13,26 +12,33 @@ exports.createListing = async (req, res) => {
     res.status(400).json({ success: false, error: err.message });
   }
 };
-// Get all listings
+// Get all listings (paginated, high default limit so current usage is unaffected)
 exports.getListings = async (req, res) => {
   try {
-    const { category, condition, search } = req.query;
-
-    // Lazily expire boosts whose featuredUntil has passed.
-    // Self-healing: no cron needed, runs on every read.
+    const { category, condition, search, page = 1, limit = 500 } = req.query;
     await Listing.updateMany(
       { featured: true, featuredUntil: { $ne: null, $lt: new Date() } },
       { $set: { featured: false, boostType: null } }
     );
-
     let filter = { status: 'active' };
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (search) filter.title = { $regex: search, $options: 'i' };
-
-    // Featured listings sorted to top, newest first within each group
-    const listings = await Listing.find(filter).sort({ featured: -1, createdAt: -1 });
-    res.json({ success: true, count: listings.length, listings });
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(500, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+    const [listings, total] = await Promise.all([
+      Listing.find(filter).sort({ featured: -1, createdAt: -1 }).skip(skip).limit(limitNum),
+      Listing.countDocuments(filter),
+    ]);
+    res.json({
+      success: true,
+      count: listings.length,
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum),
+      listings,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
