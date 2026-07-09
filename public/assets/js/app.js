@@ -204,7 +204,7 @@ function listingCardHTML(l) {
   const condClass = 'cond-' + l.condition.replace(/\s+/g, '-');
   const hasImage = l.images && l.images.length > 0;
   const imageContent = hasImage
-    ? `<img src="${l.images[0]}" alt="${escapeHTML(l.title)}">`
+    ? `<img src="${l.images[0]}" alt="${escapeHTML(l.title)}" loading="lazy">`
     : l.icon;
   const badgeHTML = l.featured
     ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
@@ -243,7 +243,7 @@ function openListingModal(id, source) {
   const condClass = 'cond-' + listing.condition.replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
-    ? `<img src="${listing.images[0]}" alt="${escapeHTML(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`
+    ? `<img src="${listing.images[0]}" alt="${escapeHTML(listing.title)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
