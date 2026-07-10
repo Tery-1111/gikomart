@@ -7,11 +7,18 @@ const intasend = new IntaSend(
   process.env.INTASEND_TEST_MODE === 'true'
 );
 
-// Boost pricing (KSh)
+// Boost pricing (KSh) — independent of listing duration
 const BOOST_PRICES = {
   featured: 50,
   rush: 80,
   priority_broadcast: 30,
+};
+
+// Listing duration pricing (KSh) — required to post any listing
+const LISTING_PRICES = {
+  quick: { amount: 30, durationMs: 24 * 60 * 60 * 1000 },        // 24 hours
+  standard: { amount: 50, durationMs: 7 * 24 * 60 * 60 * 1000 }, // 7 days
+  premium: { amount: 150, durationMs: 30 * 24 * 60 * 60 * 1000 }, // 30 days
 };
 
 async function initiateBoostPayment({ phoneNumber, boostType, apiRef }) {
@@ -32,10 +39,28 @@ async function initiateBoostPayment({ phoneNumber, boostType, apiRef }) {
   return { response, amount };
 }
 
+async function initiateListingPayment({ phoneNumber, package: pkg, apiRef }) {
+  const pricing = LISTING_PRICES[pkg];
+  if (!pricing) throw new Error('Invalid listing package');
+
+  const collection = intasend.collection();
+  const response = await collection.mpesaStkPush({
+    first_name: 'GikoMart',
+    last_name: 'Seller',
+    email: 'seller@gikomart.com',
+    host: process.env.APP_URL || 'https://gikomart.onrender.com',
+    amount: pricing.amount,
+    phone_number: phoneNumber,
+    api_ref: apiRef,
+  });
+
+  return { response, amount: pricing.amount };
+}
+
 async function checkPaymentStatus(invoiceId) {
   const collection = intasend.collection();
   const response = await collection.status(invoiceId);
   return response;
 }
 
-module.exports = { initiateBoostPayment, checkPaymentStatus, BOOST_PRICES };
+module.exports = { initiateBoostPayment, initiateListingPayment, checkPaymentStatus, BOOST_PRICES, LISTING_PRICES };
