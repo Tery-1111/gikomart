@@ -13,14 +13,18 @@ const listingSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'sold', 'deleted'], default: 'active' },
   views: { type: Number, default: 0 },
   broadcastSent: { type: Boolean, default: false },
-  // Monetization fields
+  // Listing lifecycle (paid duration)
+  package: { type: String, enum: ['quick', 'standard', 'premium'], required: true },
+  expiresAt: { type: Date, required: true },
+  // Monetization fields (boosts — independent of listing expiry)
   featured: { type: Boolean, default: false },
   featuredUntil: { type: Date, default: null },
   boostType: { type: String, enum: ['standard', 'rush', null], default: null },
   priorityBroadcast: { type: Boolean, default: false },
 }, { timestamps: true });
-// Compound index matching the actual getListings query shape:
-// filters on status/category, sorts by featured then createdAt
+
 listingSchema.index({ status: 1, category: 1, featured: -1, createdAt: -1 });
 listingSchema.index({ sellerWhatsapp: 1 });
+listingSchema.index({ expiresAt: 1 }); // for the cleanup job
+
 module.exports = mongoose.model('Listing', listingSchema);
