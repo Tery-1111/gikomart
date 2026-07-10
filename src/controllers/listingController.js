@@ -1,17 +1,4 @@
 const Listing = require('../models/Listing');
-const { broadcastListing } = require('../services/whatsappService');
-// Create listing
-exports.createListing = async (req, res) => {
-  try {
-    const listing = await Listing.create(req.body);
-    broadcastListing(listing).catch(err =>
-      console.error('Broadcast failed:', err.message)
-    );
-    res.status(201).json({ success: true, listing });
-  } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-};
 // Get all listings (paginated, high default limit so current usage is unaffected)
 exports.getListings = async (req, res) => {
   try {
