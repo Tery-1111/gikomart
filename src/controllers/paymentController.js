@@ -107,8 +107,8 @@ exports.handleWebhook = async (req, res) => {
           expiresAt: new Date(Date.now() + pricing.durationMs),
         });
         broadcastListing(listing).catch(err =>
-          console.error('Broadcast failed:', err.message)
-        );
+  console.warn('WhatsApp broadcast skipped (Whapi unavailable):', err.message)
+);
       } else if (payment.type === 'boost') {
         const listing = await Listing.findById(payment.listingId);
         if (listing) {

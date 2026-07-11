@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const compression = require('compression');
 require('dotenv').config();
+const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 const app = express();
 
@@ -12,7 +13,10 @@ app.use(express.json());
 app.use(express.static('public'));
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
+  .then(() => {
+    console.log('MongoDB connected');
+    startCleanupScheduler();
+  })
   .catch(err => console.log('DB Error:', err));
 
 // Routes
