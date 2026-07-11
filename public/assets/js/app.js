@@ -307,6 +307,43 @@ function selectBoost(el) {
   el.classList.add('selected');
 }
 
+function packageSectionHTML() {
+  return `
+    <div class="boost-section" style="margin-top:16px;">
+      <div class="boost-label">💳 Choose a listing plan</div>
+      <div class="boost-options" id="packageOptions">
+        <div class="boost-option selected" data-package="quick" onclick="selectPackage(this)">
+          <div class="boost-option-info">
+            <strong>Quick Sale (24h)</strong>
+            <span>Food, tickets, urgent sales</span>
+          </div>
+          <div class="boost-option-price">KSh 30</div>
+        </div>
+        <div class="boost-option" data-package="standard" onclick="selectPackage(this)">
+          <div class="boost-option-info">
+            <strong>Standard (7 days)</strong>
+            <span>Most student-to-student sales</span>
+          </div>
+          <div class="boost-option-price">KSh 50</div>
+        </div>
+        <div class="boost-option" data-package="premium" onclick="selectPackage(this)">
+          <div class="boost-option-info">
+            <strong>Premium (30 days)</strong>
+            <span>Hostel rooms, electronics, long-term</span>
+          </div>
+          <div class="boost-option-price">KSh 150</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function selectPackage(el) {
+  document.querySelectorAll('#packageOptions .boost-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+
 async function initiateBoost(listingId) {
   const selected = document.querySelector('.boost-option.selected');
   const phone = document.getElementById('boostPhone').value.trim();
@@ -358,6 +395,7 @@ function setupForm() {
     document.getElementById(id).addEventListener('input', updatePreview);
   });
 
+  document.getElementById('packageSection').innerHTML = packageSectionHTML();
   setupImageUpload();
   document.getElementById('sellForm').addEventListener('submit', handleSubmit);
   updatePreview();
@@ -494,7 +532,7 @@ function updatePreview() {
 async function handleSubmit(e) {
   e.preventDefault();
 
-  const payload = {
+  const listingData = {
     title: document.getElementById('f-title').value.trim(),
     category: document.getElementById('f-category').value,
     condition: document.getElementById('f-condition').value,
@@ -506,65 +544,41 @@ async function handleSubmit(e) {
     images: uploadedImageUrl ? [uploadedImageUrl] : [],
   };
 
-  const statusEl = document.getElementById('formStatus');
-  const broadcast = document.getElementById('f-broadcast').checked;
+  const selectedPackage = document.querySelector('#packageOptions .boost-option.selected');
+  const pkg = selectedPackage ? selectedPackage.dataset.package : 'standard';
 
-  statusEl.textContent = 'Publishing…';
+  const statusEl = document.getElementById('formStatus');
+  statusEl.textContent = 'Sending payment request…';
   statusEl.className = 'form-status';
 
   try {
-    const res = await fetch(`${API_BASE}/listings`, {
+    const res = await fetch(`${API_BASE}/payments/initiate-listing`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        phoneNumber: listingData.sellerWhatsapp,
+        package: pkg,
+        listingData,
+      }),
     });
 
-    if (!res.ok) throw new Error('Could not save listing');
     const data = await res.json();
-    const newListing = { ...data.listing, icon: CATEGORY_ICONS[data.listing.category] || '📦' };
+    if (!res.ok || !data.success) throw new Error(data.error || 'Payment request failed');
 
-    allListings.unshift(newListing);
-    myListings.unshift(newListing);
-    document.getElementById('statListings').textContent = allListings.length;
-
-    statusEl.textContent = broadcast
-      ? '✅ Published! Broadcasting to WhatsApp now…'
-      : '✅ Published to GikoMart (broadcast skipped).';
+    statusEl.textContent = `📲 Check your phone for the M-Pesa prompt (KSh ${data.amount}). Your listing will go live once payment is confirmed.`;
     statusEl.classList.add('success');
-
-    showToast(broadcast ? '📢 Listing sent to WhatsApp groups!' : '✅ Listing published');
+    showToast('📲 Payment request sent — check your phone');
 
     e.target.reset();
     document.getElementById('f-condition').value = 'Excellent';
-    document.getElementById('f-broadcast').checked = true;
     resetImageUpload();
     updatePreview();
-    renderListings();
 
   } catch (err) {
-    console.warn('Publish failed, saving locally:', err.message);
-
-    const localListing = {
-      ...payload,
-      _id: 'local-' + Date.now(),
-      icon: CATEGORY_ICONS[payload.category] || '📦',
-      views: 0,
-      broadcastSent: broadcast,
-    };
-    allListings.unshift(localListing);
-    myListings.unshift(localListing);
-    document.getElementById('statListings').textContent = allListings.length;
-
-    statusEl.textContent = '✅ Saved locally (backend offline) — will sync once connected.';
-    statusEl.classList.add('success');
-    showToast('Listing saved locally');
-
-    e.target.reset();
-    document.getElementById('f-condition').value = 'Excellent';
-    document.getElementById('f-broadcast').checked = true;
-    resetImageUpload();
-    updatePreview();
-    renderListings();
+    console.error('Listing payment failed:', err.message);
+    statusEl.textContent = `⚠️ ${err.message}. Please try again.`;
+    statusEl.className = 'form-status error';
+    showToast('⚠️ Payment request failed');
   }
 }
 
