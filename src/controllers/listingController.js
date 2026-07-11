@@ -1,4 +1,6 @@
 const Listing = require('../models/Listing');
+const cloudinary = require('../config/cloudinary');
+
 // Get all listings (paginated, high default limit so current usage is unaffected)
 exports.getListings = async (req, res) => {
   try {
@@ -30,6 +32,7 @@ exports.getListings = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 // Get single listing
 exports.getListing = async (req, res) => {
   try {
@@ -44,6 +47,7 @@ exports.getListing = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 // Update listing
 exports.updateListing = async (req, res) => {
   try {
@@ -54,10 +58,27 @@ exports.updateListing = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
-// Delete listing
+
+// Delete listing — hard delete (no archiving). Removes Cloudinary images first, then the DB record.
 exports.deleteListing = async (req, res) => {
   try {
-    await Listing.findByIdAndUpdate(req.params.id, { status: 'deleted' });
+    const listing = await Listing.findById(req.params.id);
+    if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
+
+    if (listing.images && listing.images.length > 0) {
+      for (const imageUrl of listing.images) {
+        const match = imageUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
+        if (match) {
+          try {
+            await cloudinary.uploader.destroy(match[1]);
+          } catch (err) {
+            console.warn('Failed to delete Cloudinary image:', err.message);
+          }
+        }
+      }
+    }
+
+    await Listing.deleteOne({ _id: req.params.id });
     res.json({ success: true, message: 'Listing deleted' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
