@@ -7,19 +7,25 @@ const intasend = new IntaSend(
   process.env.INTASEND_TEST_MODE === 'true'
 );
 
-// Boost pricing (KSh) — independent of listing duration
 const BOOST_PRICES = {
   featured: 50,
   rush: 80,
   priority_broadcast: 30,
 };
 
-// Listing duration pricing (KSh) — required to post any listing
 const LISTING_PRICES = {
-  quick: { amount: 30, durationMs: 24 * 60 * 60 * 1000 },        // 24 hours
-  standard: { amount: 50, durationMs: 7 * 24 * 60 * 60 * 1000 }, // 7 days
-  premium: { amount: 150, durationMs: 30 * 24 * 60 * 60 * 1000 }, // 30 days
+  quick: { amount: 30, durationMs: 24 * 60 * 60 * 1000 },
+  standard: { amount: 50, durationMs: 7 * 24 * 60 * 60 * 1000 },
+  premium: { amount: 150, durationMs: 30 * 24 * 60 * 60 * 1000 },
 };
+
+// Normalize any Kenyan number format (+254 7XX XXX XXX, 07XXXXXXXX, etc.) to 2547XXXXXXXX
+function normalizePhone(phone) {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('0')) digits = '254' + digits.slice(1);
+  if (digits.startsWith('7') || digits.startsWith('1')) digits = '254' + digits;
+  return digits;
+}
 
 async function initiateBoostPayment({ phoneNumber, boostType, apiRef }) {
   const amount = BOOST_PRICES[boostType];
@@ -32,7 +38,7 @@ async function initiateBoostPayment({ phoneNumber, boostType, apiRef }) {
     email: 'seller@gikomart.com',
     host: process.env.APP_URL || 'https://gikomart.onrender.com',
     amount,
-    phone_number: phoneNumber,
+    phone_number: normalizePhone(phoneNumber),
     api_ref: apiRef,
   });
 
@@ -50,7 +56,7 @@ async function initiateListingPayment({ phoneNumber, package: pkg, apiRef }) {
     email: 'seller@gikomart.com',
     host: process.env.APP_URL || 'https://gikomart.onrender.com',
     amount: pricing.amount,
-    phone_number: phoneNumber,
+    phone_number: normalizePhone(phoneNumber),
     api_ref: apiRef,
   });
 

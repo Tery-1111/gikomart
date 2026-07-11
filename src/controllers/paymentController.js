@@ -3,6 +3,10 @@ const Payment = require('../models/Payment');
 const { broadcastListing } = require('../services/whatsappService');
 const { initiateBoostPayment, initiateListingPayment, BOOST_PRICES, LISTING_PRICES } = require('../services/paymentService');
 
+function extractErrorMessage(err) {
+  return err.message || err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Unknown payment error';
+}
+
 // Initiate a boost payment (existing listing)
 exports.initiateBoost = async (req, res) => {
   try {
@@ -34,8 +38,9 @@ exports.initiateBoost = async (req, res) => {
 
     res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount });
   } catch (err) {
-    console.error('Boost payment error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    const errMsg = extractErrorMessage(err);
+    console.error('Boost payment error:', errMsg);
+    res.status(500).json({ success: false, error: errMsg });
   }
 };
 
@@ -68,8 +73,9 @@ exports.initiateListing = async (req, res) => {
 
     res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount });
   } catch (err) {
-    console.error('Listing payment error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    const errMsg = extractErrorMessage(err);
+    console.error('Listing payment error:', errMsg);
+    res.status(500).json({ success: false, error: errMsg });
   }
 };
 
@@ -94,7 +100,6 @@ exports.handleWebhook = async (req, res) => {
       await payment.save();
 
       if (payment.type === 'listing') {
-        // Create the listing now that payment has confirmed
         const pricing = LISTING_PRICES[payment.package];
         const listing = await Listing.create({
           ...payment.listingData,

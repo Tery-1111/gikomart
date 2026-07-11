@@ -3,12 +3,11 @@
    Connects to the Express + MongoDB backend
    ============================================ */
 
-// Change this to your deployed backend URL when you go live
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:5000/api'
   : 'https://gikomart.onrender.com/api';
-  
-  const CATEGORIES = [
+
+const CATEGORIES = [
   { id: 'elec',  name: 'Electronics',     icon: '📱' },
   { id: 'furn',  name: 'Furniture',       icon: '🛋️' },
   { id: 'cloth', name: 'Clothing',        icon: '👕' },
@@ -21,7 +20,6 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
   { id: 'free',  name: 'Free Stuff',      icon: '🎁' },
 ];
 
-// Fallback demo data — used if the API isn't reachable yet
 const DEMO_LISTINGS = [
   { _id: 'demo1', title: 'Samsung Galaxy S22', category: 'Electronics', condition: 'Excellent', price: 38000, description: '128GB, no cracks, charger included.', location: 'Njoro', sellerName: 'Brian', sellerWhatsapp: '+254712345678', views: 42, icon: '📱', broadcastSent: true },
   { _id: 'demo2', title: 'Study Desk + Chair', category: 'Furniture', condition: 'Good', price: 6500, description: 'Wooden desk, adjustable chair. Minor scratches.', location: 'Nakuru CBD', sellerName: 'Grace', sellerWhatsapp: '+254723456789', views: 19, icon: '🛋️', broadcastSent: true },
@@ -49,9 +47,6 @@ let activeCategory = '';
 let usingDemoData = false;
 let uploadedImageUrl = null;
 
-// ============================================
-// INIT
-// ============================================
 document.addEventListener('DOMContentLoaded', () => {
   buildCategoryPills();
   buildCategorySelect();
@@ -62,9 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
   loadListings();
 });
 
-// ============================================
-// NAVIGATION
-// ============================================
 function setupNav() {
   document.querySelectorAll('[data-view]').forEach(el => {
     el.addEventListener('click', () => switchView(el.dataset.view));
@@ -81,9 +73,6 @@ function switchView(view) {
   window.scrollTo({ top: document.querySelector('.app-shell').offsetTop - 20, behavior: 'smooth' });
 }
 
-// ============================================
-// CATEGORY PILLS + SELECT
-// ============================================
 function buildCategoryPills() {
   const container = document.getElementById('catPills');
   const allPill = document.createElement('button');
@@ -121,9 +110,6 @@ function filterByCategory(catName, el) {
   renderListings();
 }
 
-// ============================================
-// PULSE TICKER (signature element)
-// ============================================
 function buildPulseTicker() {
   const items = [
     { item: 'Samsung Galaxy S22', dest: 'Electronics group + Campus Channel' },
@@ -143,9 +129,6 @@ function buildPulseTicker() {
   track.innerHTML = html;
 }
 
-// ============================================
-// LOAD LISTINGS FROM API
-// ============================================
 async function loadListings() {
   try {
     const res = await fetch(`${API_BASE}/listings`);
@@ -165,9 +148,6 @@ async function loadListings() {
   renderListings();
 }
 
-// ============================================
-// RENDER LISTINGS
-// ============================================
 function renderListings() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const filtered = allListings.filter(l => {
@@ -178,7 +158,6 @@ function renderListings() {
     return matchCat && matchSearch;
   });
 
-  // Pin featured listings to the top, preserving existing order otherwise
   filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
 
   const grid = document.getElementById('listingGrid');
@@ -227,9 +206,6 @@ function listingCardHTML(l) {
     </div>`;
 }
 
-// ============================================
-// MODAL
-// ============================================
 function setupModal() {
   document.getElementById('modalOverlay').addEventListener('click', (e) => {
     if (e.target.id === 'modalOverlay') closeModal();
@@ -243,7 +219,8 @@ function openListingModal(id, source) {
   const condClass = 'cond-' + listing.condition.replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
-? `<img src="${cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto')}" alt="${escapeHTML(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`    : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
+    ? `<img src="${cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto')}" alt="${escapeHTML(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`
+    : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
     <button class="modal-close" onclick="closeModal()">✕</button>
@@ -334,6 +311,9 @@ function packageSectionHTML() {
           <div class="boost-option-price">KSh 150</div>
         </div>
       </div>
+      <label style="display:block; margin-top:12px; font-size:14px; font-weight:600;">M-Pesa number to pay with</label>
+      <input type="text" class="boost-phone-input" id="listingPhone" placeholder="e.g. 0712345678">
+      <span style="font-size:12px; color:var(--ink-soft); display:block; margin-top:4px;">Can be different from your WhatsApp contact number above</span>
     </div>
   `;
 }
@@ -342,7 +322,6 @@ function selectPackage(el) {
   document.querySelectorAll('#packageOptions .boost-option').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
 }
-
 
 async function initiateBoost(listingId) {
   const selected = document.querySelector('.boost-option.selected');
@@ -386,9 +365,6 @@ async function initiateBoost(listingId) {
   }
 }
 
-// ============================================
-// SELL FORM + LIVE PREVIEW
-// ============================================
 function setupForm() {
   const fields = ['f-title', 'f-category', 'f-price', 'f-description', 'f-location'];
   fields.forEach(id => {
@@ -401,9 +377,6 @@ function setupForm() {
   updatePreview();
 }
 
-// ============================================
-// IMAGE UPLOAD
-// ============================================
 function setupImageUpload() {
   const box = document.getElementById('imageUploadBox');
   const input = document.getElementById('f-image');
@@ -547,7 +520,17 @@ async function handleSubmit(e) {
   const selectedPackage = document.querySelector('#packageOptions .boost-option.selected');
   const pkg = selectedPackage ? selectedPackage.dataset.package : 'standard';
 
+  const listingPhoneInput = document.getElementById('listingPhone').value.trim();
+  const paymentPhone = listingPhoneInput || listingData.sellerWhatsapp;
+
   const statusEl = document.getElementById('formStatus');
+
+  if (!paymentPhone) {
+    statusEl.textContent = '⚠️ Enter an M-Pesa number to pay with.';
+    statusEl.className = 'form-status error';
+    return;
+  }
+
   statusEl.textContent = 'Sending payment request…';
   statusEl.className = 'form-status';
 
@@ -556,7 +539,7 @@ async function handleSubmit(e) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        phoneNumber: listingData.sellerWhatsapp,
+        phoneNumber: paymentPhone,
         package: pkg,
         listingData,
       }),
@@ -582,9 +565,6 @@ async function handleSubmit(e) {
   }
 }
 
-// ============================================
-// DASHBOARD
-// ============================================
 function renderDashboard() {
   const grid = document.getElementById('myListingGrid');
   const total = myListings.length;
@@ -611,9 +591,6 @@ function renderDashboard() {
   });
 }
 
-// ============================================
-// UTILITIES
-// ============================================
 function showToast(msg) {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
@@ -628,7 +605,6 @@ function escapeHTML(str) {
   return div.innerHTML;
 }
 
-// Insert Cloudinary transformation params into an existing image URL
 function cloudinaryResize(url, transform) {
   if (!url || !url.includes('/upload/')) return url;
   return url.replace('/upload/', `/upload/${transform}/`);
