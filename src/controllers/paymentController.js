@@ -52,9 +52,29 @@ exports.initiateListing = async (req, res) => {
     if (!LISTING_PRICES[pkg]) {
       return res.status(400).json({ success: false, error: 'Invalid listing package' });
     }
-    if (!listingData || !listingData.title || !listingData.sellerWhatsapp) {
+    if (!listingData || typeof listingData !== 'object') {
       return res.status(400).json({ success: false, error: 'Missing listing details' });
     }
+
+    // Validate every field the Listing model requires BEFORE starting the STK push —
+    // once payment completes, the webhook creates the listing from this data, and a
+    // failed create at that point would mean the user paid but got nothing.
+    const VALID_CONDITIONS = ['New', 'Like New', 'Excellent', 'Good', 'Fair', 'Poor'];
+    const errors = [];
+    if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
+    if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
+    if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
+    const price = Number(listingData.price);
+    if (!Number.isFinite(price) || price < 0) errors.push('price');
+    if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
+    if (typeof listingData.sellerName !== 'string' || !listingData.sellerName.trim()) errors.push('sellerName');
+    if (typeof listingData.sellerWhatsapp !== 'string' || !listingData.sellerWhatsapp.trim()) errors.push('sellerWhatsapp');
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid or missing listing details: ${errors.join(', ')}` });
+    }
+    // Normalize price to a proper number so it round-trips through the Mixed-type
+    // payment record into Listing.create() cleanly.
+    listingData.price = price;
 
     const apiRef = `listing_${Date.now()}`;
     const { response, amount } = await initiateListingPayment({ phoneNumber, package: pkg, apiRef });
@@ -90,14 +110,30 @@ exports.handleWebhook = async (req, res) => {
 
     const { invoice_id, state } = req.body;
 
-    const payment = await Payment.findOne({ invoiceId: invoice_id });
-    if (!payment) {
-      return res.status(404).json({ success: false, error: 'Payment record not found' });
-    }
-
     if (state === 'COMPLETE') {
-      payment.status = 'completed';
-      await payment.save();
+      // Atomic idempotency guard: transition the payment to 'completed' and mark
+      // it as claimed in a single operation. Webhooks can be delivered more than
+      // once (provider retries, duplicate notifications) and possibly concurrently.
+      // Because the filter excludes payments already 'completed', only ONE of the
+      // concurrent deliveries can match and update the document — the loser gets
+      // null back and skips all side effects (listing creation, broadcast, boosts).
+      // This closes the check-then-act race between reading the status and saving it.
+      const payment = await Payment.findOneAndUpdate(
+        { invoiceId: invoice_id, status: { $ne: 'completed' } },
+        { status: 'completed' },
+        { new: true }
+      );
+
+      if (!payment) {
+        // The atomic update matched nothing. Find out why: either the payment
+        // record doesn't exist (404) or it was already processed by a duplicate
+        // delivery (200). Either way, return before any side effects.
+        const existing = await Payment.findOne({ invoiceId: invoice_id });
+        if (!existing) {
+          return res.status(404).json({ success: false, error: 'Payment record not found' });
+        }
+        return res.status(200).json({ success: true, message: 'Payment already processed' });
+      }
 
       if (payment.type === 'listing') {
         const pricing = LISTING_PRICES[payment.package];
@@ -127,6 +163,10 @@ exports.handleWebhook = async (req, res) => {
         }
       }
     } else if (state === 'FAILED') {
+      const payment = await Payment.findOne({ invoiceId: invoice_id });
+      if (!payment) {
+        return res.status(404).json({ success: false, error: 'Payment record not found' });
+      }
       payment.status = 'failed';
       await payment.save();
     }

@@ -1,6 +1,12 @@
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 
+// Escape special regex characters in user input so it can be safely embedded
+// in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Get all listings (paginated, high default limit so current usage is unaffected)
 exports.getListings = async (req, res) => {
   try {
@@ -12,9 +18,9 @@ exports.getListings = async (req, res) => {
     let filter = { status: 'active' };
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
-    if (search) filter.title = { $regex: search, $options: 'i' };
-    const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.min(500, Math.max(1, parseInt(limit)));
+    if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(500, Math.max(1, Number.parseInt(limit, 10) || 500));
     const skip = (pageNum - 1) * limitNum;
     const [listings, total] = await Promise.all([
       Listing.find(filter).sort({ featured: -1, createdAt: -1 }).skip(skip).limit(limitNum),
@@ -49,9 +55,31 @@ exports.getListing = async (req, res) => {
 };
 
 // Update listing
+// Whitelist of user-editable fields — prevents API callers from tampering with
+// monetization/lifecycle/system fields (featured, featuredUntil, boostType, views,
+// status, package, expiresAt, broadcastSent, priorityBroadcast, timestamps, _id).
+const UPDATABLE_FIELDS = [
+  'title',
+  'category',
+  'subcategory',
+  'condition',
+  'price',
+  'description',
+  'images',
+  'sellerName',
+  'sellerWhatsapp',
+  'location',
+];
+
 exports.updateListing = async (req, res) => {
   try {
-    const listing = await Listing.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
+    const updates = {};
+    for (const field of UPDATABLE_FIELDS) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+    const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
     res.json({ success: true, listing });
   } catch (err) {
