@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
+const logger = require('../config/logger');
 
 // Extract the Cloudinary public_id from a stored secure_url
 // e.g. https://res.cloudinary.com/xxx/image/upload/v123/gikomart/abc.webp -> gikomart/abc
@@ -23,7 +24,7 @@ async function deleteExpiredListings() {
             try {
               await cloudinary.uploader.destroy(publicId);
             } catch (err) {
-              console.warn(`Failed to delete Cloudinary image ${publicId}:`, err.message);
+              logger.warn('Failed to delete Cloudinary image', { publicId, error: err.message });
             }
           }
         }
@@ -31,16 +32,16 @@ async function deleteExpiredListings() {
       await Listing.deleteOne({ _id: listing._id });
     }
 
-    console.log(`Cleanup: deleted ${expired.length} expired listing(s)`);
+    logger.info('Cleanup: deleted expired listings', { count: expired.length });
   } catch (err) {
-    console.error('Cleanup job error:', err.message);
+    logger.error('Cleanup job error', { error: err.message });
   }
 }
 
 function startCleanupScheduler() {
   // Runs every 30 minutes
   cron.schedule('*/30 * * * *', deleteExpiredListings);
-  console.log('Listing cleanup scheduler started (every 30 min)');
+  logger.info('Listing cleanup scheduler started (every 30 min)');
 }
 
 module.exports = { startCleanupScheduler, deleteExpiredListings };

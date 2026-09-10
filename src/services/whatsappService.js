@@ -1,4 +1,5 @@
 const axios = require('axios');
+const logger = require('../config/logger');
 const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
 const WHAPI_URL = 'https://gate.whapi.cloud';
 
@@ -41,7 +42,7 @@ async function sendToGroup(groupId, message, imageUrl) {
     }
     return { success: true, data: response.data };
   } catch (err) {
-    console.error('WhatsApp broadcast error:', err.message);
+    logger.error('WhatsApp broadcast error', { error: err.message });
     return { success: false, error: err.message };
   }
 }
@@ -52,7 +53,7 @@ async function broadcastListing(listing) {
   const imageUrl = listing.images && listing.images.length > 0 ? listing.images[0] : null;
   const groups = process.env.WHATSAPP_GROUPS ? process.env.WHATSAPP_GROUPS.split(',') : [];
   if (!groups.length) {
-    console.log('No WhatsApp groups configured — skipping broadcast');
+    logger.info('No WhatsApp groups configured — skipping broadcast');
     return;
   }
   const results = [];
@@ -61,7 +62,7 @@ async function broadcastListing(listing) {
     results.push({ groupId, ...result });
     await new Promise(r => setTimeout(r, 1000));
   }
-  console.log('Broadcast results:', results);
+  logger.info('Broadcast results', { results });
   return results;
 }
 

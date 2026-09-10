@@ -1212,3 +1212,39 @@ textarea:focus-visible {
   outline: 3px solid var(--marigold);
   outline-offset: 2px;
 }
+
+/* ============================================
+   OWNER CONTROLS (token-gated edit/delete)
+   ============================================ */
+.owner-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.owner-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.owner-btn.edit {
+  background: var(--marigold, #f5b301);
+  color: #1a1a1a;
+}
+
+.owner-btn.delete {
+  background: rgba(220, 53, 69, 0.12);
+  color: #dc3545;
+}
+
+.owner-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}

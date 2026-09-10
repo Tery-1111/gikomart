@@ -11,6 +11,10 @@ const listingSchema = new mongoose.Schema({
   sellerWhatsapp: { type: String, required: true },
   location: { type: String, default: 'Egerton University, Njoro' },
   status: { type: String, enum: ['active', 'sold', 'deleted'], default: 'active' },
+  // Content moderation: flagged/removed listings are hidden from public queries
+  // until an admin resolves them. Defaults to 'approved' so existing listings
+  // remain visible and new listings go live immediately unless flagged.
+  moderationStatus: { type: String, enum: ['approved', 'flagged', 'removed'], default: 'approved' },
   views: { type: Number, default: 0 },
   broadcastSent: { type: Boolean, default: false },
   // Listing lifecycle (paid duration)
@@ -21,6 +25,10 @@ const listingSchema = new mongoose.Schema({
   featuredUntil: { type: Date, default: null },
   boostType: { type: String, enum: ['standard', 'rush', null], default: null },
   priorityBroadcast: { type: Boolean, default: false },
+  // Ownership gate for update/delete — sha256 of the owner token handed to the
+  // payer at payment-initiation time. select:false keeps it out of every
+  // public query/response; controllers opt in with .select('+ownerTokenHash').
+  ownerTokenHash: { type: String, select: false },
 }, { timestamps: true });
 
 listingSchema.index({ status: 1, category: 1, featured: -1, createdAt: -1 });

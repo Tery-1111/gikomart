@@ -115,6 +115,14 @@
     <div class="sell-layout">
       <form class="sell-form" id="sellForm">
 
+        <!-- Honeypot anti-bot field: visually hidden, autofill disabled.
+             Humans never touch it; scrapers/bots that fill every field do,
+             and the server quietly drops those submissions. -->
+        <div style="position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden;">
+          <label for="website">Leave this field empty</label>
+          <input type="text" id="website" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        </div>
+
         <div class="field-group">
           <label>Photo</label>
           <div class="image-upload" id="imageUploadBox">

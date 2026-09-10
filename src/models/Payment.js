@@ -9,6 +9,9 @@ const paymentSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   boostType: { type: String, enum: ['featured', 'rush', 'priority_broadcast'] }, // used only for type:'boost'
   invoiceId: { type: String },
+  // sha256 of the raw ownership token returned ONCE in the initiate-listing
+  // response. The raw token is NEVER stored server-side.
+  ownerTokenHash: { type: String },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
 }, { timestamps: true });
 

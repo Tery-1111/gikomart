@@ -4,10 +4,19 @@ const {
   getListings,
   getListing,
   updateListing,
-  deleteListing
+  deleteListing,
+  moderateListing,
 } = require('../controllers/listingController');
+const adminAuth = require('../middleware/adminAuth');
+const { paymentLimiter } = require('../middleware/rateLimiter');
+
 router.get('/', getListings);
 router.get('/:id', getListing);
-router.put('/:id', updateListing);
-router.delete('/:id', deleteListing);
+// Mutations are token-gated (X-Owner-Token / X-Admin-Key) AND rate-limited
+// so an attacker can't brute-force tokens or hammer the endpoint.
+router.put('/:id', paymentLimiter, updateListing);
+router.delete('/:id', paymentLimiter, deleteListing);
+// Admin-only moderation — requires full admin auth (2FA session once enabled).
+router.put('/:id/moderate', adminAuth, moderateListing);
+
 module.exports = router;

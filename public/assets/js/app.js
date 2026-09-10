@@ -7,6 +7,16 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
   ? 'http://localhost:5000/api'
   : 'https://gikomart.onrender.com/api';
 
+// Ownership tokens: after a listing payment completes, the server hands back a
+// one-time owner token. It is stored only in this browser (localStorage) and
+// sent back as X-Owner-Token on edit/delete. Before the listing's id is known,
+// the token waits keyed by the payment's invoiceId ("pending"), then is
+// re-keyed to the listing id once the status poll reveals it.
+const OWNER_TOKEN_PREFIX = 'gikomart_ownerToken:';
+const PENDING_TOKEN_PREFIX = 'gikomart_pendingToken:';
+const STATUS_POLL_INTERVAL_MS = 3000;
+const STATUS_POLL_MAX_ATTEMPTS = 100; // ~5 minutes
+
 const CATEGORIES = [
   { id: 'elec',  name: 'Electronics',     icon: '📱' },
   { id: 'furn',  name: 'Furniture',       icon: '🛋️' },
@@ -55,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupForm();
   setupModal();
   loadListings();
+  recoverPendingTokens();
 });
 
 function setupNav() {
@@ -129,6 +140,79 @@ function buildPulseTicker() {
   track.innerHTML = html;
 }
 
+// ---- Owner token storage --------------------------------------------------
+
+function saveOwnerToken(listingId, token) {
+  try { localStorage.setItem(OWNER_TOKEN_PREFIX + listingId, token); } catch (err) { console.warn('Could not save owner token:', err); }
+}
+
+function getOwnerToken(listingId) {
+  try { return localStorage.getItem(OWNER_TOKEN_PREFIX + listingId); } catch (err) { return null; }
+}
+
+function hasOwnerToken(listingId) {
+  return Boolean(getOwnerToken(listingId));
+}
+
+// Move a pending token (keyed by invoiceId) onto its listing id once the
+// status endpoint reveals which listing the payment created.
+function adoptPendingToken(invoiceId, listingId) {
+  let token = null;
+  try { token = localStorage.getItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+  if (!token) return;
+  saveOwnerToken(listingId, token);
+  try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+}
+
+// After payment completes, the webhook creates the listing server-side. Poll
+// the status endpoint until it reports the new listing id, then re-key the
+// saved token so edit/delete controls appear for that listing.
+function pollListingStatus(invoiceId, attempt = 0) {
+  if (attempt >= STATUS_POLL_MAX_ATTEMPTS) {
+    showToast('⏳ Still waiting for payment confirmation — your listing will appear after a refresh');
+    return;
+  }
+  fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
+    .then(res => (res.ok ? res.json() : null))
+    .then(data => {
+      if (data && data.success && data.listingId) {
+        adoptPendingToken(invoiceId, data.listingId);
+        showToast('✅ Payment confirmed — your listing is live!');
+        loadListings();
+        return;
+      }
+      if (data && data.success && data.status === 'failed') {
+        try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+        showToast('❌ Payment failed — nothing was listed');
+        return;
+      }
+      setTimeout(() => pollListingStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS);
+    })
+    .catch(() => setTimeout(() => pollListingStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS));
+}
+
+// One-time recovery for tokens left pending by a closed tab (e.g. the user
+// navigated away before the payment webhook landed).
+function recoverPendingTokens() {
+  let pendingInvoiceIds = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(PENDING_TOKEN_PREFIX)) {
+        pendingInvoiceIds.push(key.slice(PENDING_TOKEN_PREFIX.length));
+      }
+    }
+  } catch (err) { return; }
+  pendingInvoiceIds.forEach(invoiceId => {
+    fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data && data.success && data.listingId) adoptPendingToken(invoiceId, data.listingId);
+      })
+      .catch(() => {});
+  });
+}
+
 async function loadListings() {
   try {
     const res = await fetch(`${API_BASE}/listings`);
@@ -144,6 +228,7 @@ async function loadListings() {
     allListings = DEMO_LISTINGS;
     usingDemoData = true;
   }
+  myListings = allListings.filter(l => hasOwnerToken(l._id));
   document.getElementById('statListings').textContent = allListings.length;
   renderListings();
 }
@@ -188,6 +273,13 @@ function listingCardHTML(l) {
   const badgeHTML = l.featured
     ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
     : '';
+  // Only listings this browser holds an owner token for get edit/delete controls.
+  const owned = !usingDemoData && hasOwnerToken(l._id);
+  const ownerControlsHTML = owned ? `
+        <div class="owner-controls">
+          <button class="owner-btn edit" onclick="event.stopPropagation(); editListing('${l._id}')">✏️ Edit</button>
+          <button class="owner-btn delete" onclick="event.stopPropagation(); deleteListing('${l._id}')">🗑️ Delete</button>
+        </div>` : '';
   return `
     <div class="listing-card" data-id="${l._id}">
       <div class="listing-image">
@@ -202,6 +294,7 @@ function listingCardHTML(l) {
           <span>📍 ${escapeHTML(l.location || 'Egerton')}</span>
           ${l.broadcastSent ? '<span class="broadcast-chip">📢 Broadcast</span>' : `<span>👁️ ${l.views || 0}</span>`}
         </div>
+        ${ownerControlsHTML}
       </div>
     </div>`;
 }
@@ -209,6 +302,16 @@ function listingCardHTML(l) {
 function setupModal() {
   document.getElementById('modalOverlay').addEventListener('click', (e) => {
     if (e.target.id === 'modalOverlay') closeModal();
+  });
+  // Delegated handler for contact buttons. They carry the seller number and
+  // listing title in data-attributes (never in inline JS strings) so that
+  // user-controlled values can't break out into executable JS (stored XSS).
+  // The modalCard element itself persists across renders — only its innerHTML
+  // is replaced — so this single listener works for every listing modal.
+  document.getElementById('modalCard').addEventListener('click', (e) => {
+    const btn = e.target.closest('.contact-btn');
+    if (!btn) return;
+    contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '');
   });
 }
 
@@ -235,15 +338,31 @@ function openListingModal(id, source) {
       <span>👁️ ${listing.views || 0} views</span>
     </div>
     <p class="modal-desc">${escapeHTML(listing.description)}</p>
-    <button class="contact-btn" onclick="contactSeller('${listing.sellerWhatsapp}', '${escapeHTML(listing.title).replace(/'/g, "\\'")}')">
+    <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}">
       💬 Contact seller on WhatsApp
     </button>
+    ${!usingDemoData && hasOwnerToken(listing._id) ? `
+    <div class="owner-controls">
+      <button class="owner-btn edit" onclick="editListing('${listing._id}')">✏️ Edit listing</button>
+      <button class="owner-btn delete" onclick="deleteListing('${listing._id}')">🗑️ Delete listing</button>
+    </div>` : ''}
     ${listing.featured ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
 
   if (!usingDemoData && !id.startsWith('demo')) {
-    fetch(`${API_BASE}/listings/${id}`).catch(() => {});
+    // List responses intentionally omit sellerWhatsapp (anti-scraping); the
+    // per-listing detail endpoint is the only source of the contact number.
+    // Fetch it and backfill the contact button once it arrives.
+    fetch(`${API_BASE}/listings/${id}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data && data.success && data.listing && data.listing.sellerWhatsapp) {
+          const btn = card.querySelector('.contact-btn');
+          if (btn) btn.dataset.whatsapp = data.listing.sellerWhatsapp;
+        }
+      })
+      .catch(() => {});
   }
 }
 
@@ -252,6 +371,7 @@ function closeModal() {
 }
 
 function contactSeller(whatsapp, title) {
+  if (!whatsapp) { showToast('⏳ Loading contact details…'); return; }
   const cleanNumber = whatsapp.replace(/[\s+]/g, '');
   const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
   window.open(`https://wa.me/${cleanNumber}?text=${message}`, '_blank');
@@ -542,11 +662,22 @@ async function handleSubmit(e) {
         phoneNumber: paymentPhone,
         package: pkg,
         listingData,
+        // Honeypot: must be empty for real humans; the hidden input is read here
+        // and the server drops any submission that filled it.
+        website: (document.getElementById('website') || {}).value || '',
       }),
     });
 
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || 'Payment request failed');
+
+    // Save the one-time owner token immediately, keyed by invoiceId (the only
+    // id the client has at this point). Once the status poll reports the
+    // created listing's id, the token is re-keyed to that listing.
+    if (data.ownerToken && data.invoiceId) {
+      try { localStorage.setItem(PENDING_TOKEN_PREFIX + data.invoiceId, data.ownerToken); } catch (err) { console.warn('Could not save owner token:', err); }
+      pollListingStatus(data.invoiceId);
+    }
 
     statusEl.textContent = `📲 Check your phone for the M-Pesa prompt (KSh ${data.amount}). Your listing will go live once payment is confirmed.`;
     statusEl.classList.add('success');
@@ -562,6 +693,76 @@ async function handleSubmit(e) {
     statusEl.textContent = `⚠️ ${err.message}. Please try again.`;
     statusEl.className = 'form-status error';
     showToast('⚠️ Payment request failed');
+  }
+}
+
+// ---- Owner edit/delete (token-gated) ---------------------------------------
+
+async function editListing(id) {
+  const token = getOwnerToken(id);
+  if (!token) { showToast('⚠️ No owner token saved for this listing'); return; }
+  const listing = allListings.find(l => l._id === id) || myListings.find(l => l._id === id);
+  if (!listing) return;
+
+  const newTitle = prompt('Edit title:', listing.title);
+  if (newTitle === null) return;
+  const newPriceRaw = prompt('Edit price (KSh):', listing.price);
+  if (newPriceRaw === null) return;
+  const newPrice = Number(newPriceRaw);
+  if (!Number.isFinite(newPrice) || newPrice < 0) { showToast('⚠️ Invalid price'); return; }
+  const newDescription = prompt('Edit description:', listing.description);
+  if (newDescription === null) return;
+
+  const updates = {};
+  if (newTitle.trim() && newTitle.trim() !== listing.title) updates.title = newTitle.trim();
+  if (newPrice !== listing.price) updates.price = newPrice;
+  if (newDescription.trim() && newDescription.trim() !== listing.description) updates.description = newDescription.trim();
+  if (!Object.keys(updates).length) { showToast('No changes made'); return; }
+
+  try {
+    const res = await fetch(`${API_BASE}/listings/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Owner-Token': token },
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Update failed');
+
+    const idx = allListings.findIndex(l => l._id === id);
+    if (idx !== -1) allListings[idx] = { ...allListings[idx], ...data.listing, icon: CATEGORY_ICONS[data.listing.category] || allListings[idx].icon };
+    renderListings();
+    closeModal();
+    showToast('✅ Listing updated');
+  } catch (err) {
+    console.error('Listing update failed:', err.message);
+    showToast(`⚠️ ${err.message}`);
+  }
+}
+
+async function deleteListing(id) {
+  const token = getOwnerToken(id);
+  if (!token) { showToast('⚠️ No owner token saved for this listing'); return; }
+  const listing = allListings.find(l => l._id === id);
+  if (!window.confirm(`Delete "${listing ? listing.title : 'this listing'}"? This cannot be undone.`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/listings/${id}`, {
+      method: 'DELETE',
+      headers: { 'X-Owner-Token': token },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Delete failed');
+
+    allListings = allListings.filter(l => l._id !== id);
+    myListings = myListings.filter(l => l._id !== id);
+    try { localStorage.removeItem(OWNER_TOKEN_PREFIX + id); } catch (err) {}
+    document.getElementById('statListings').textContent = allListings.length;
+    renderListings();
+    closeModal();
+    showToast('🗑️ Listing deleted');
+  } catch (err) {
+    console.error('Listing delete failed:', err.message);
+    showToast(`⚠️ ${err.message}`);
   }
 }
 
@@ -603,6 +804,21 @@ function escapeHTML(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// Escape a value for safe interpolation into a double-quoted HTML attribute.
+// escapeHTML() is NOT sufficient here: the div.innerHTML trick leaves double
+// quotes unencoded, which would allow attribute breakout. Entity-encoded
+// attribute values are decoded back to their raw characters when read via
+// element.dataset, so the delegated click listener receives the original text.
+function escapeAttr(str) {
+  if (str === undefined || str === null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function cloudinaryResize(url, transform) {
