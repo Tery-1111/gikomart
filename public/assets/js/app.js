@@ -3,9 +3,10 @@
    Connects to the Express + MongoDB backend
    ============================================ */
 
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:5000/api'
-  : 'https://gikomart.onrender.com/api';
+// Same-origin: Express serves both the SPA (express.static('public')) and the
+// /api routes, so the API base is always the page's origin — no hard-coded
+// host or port. Works on localhost, Render, or any dev port.
+const API_BASE = '/api';
 
 // Ownership tokens: after a listing payment completes, the server hands back a
 // one-time owner token. It is stored only in this browser (localStorage) and
@@ -51,6 +52,31 @@ const BOOST_OPTIONS = [
   { id: 'priority_broadcast', label: 'Priority Broadcast', desc: 'Extra WhatsApp broadcast at peak hours', price: 30 },
 ];
 
+// ─── Store constants ────────────────────────────────────────────────────────
+const STORE_OWNER_TOKEN_PREFIX = 'gikomart_storeToken:';
+
+const STORE_CATEGORIES = [
+  { id: 'fashion', name: 'Fashion & Accessories', icon: '👗' },
+  { id: 'electronics', name: 'Electronics & Technology', icon: '💻' },
+  { id: 'academic', name: 'Academic', icon: '📖' },
+  { id: 'food', name: 'Food & Groceries', icon: '🍎' },
+  { id: 'beauty', name: 'Beauty & Personal Care', icon: '💄' },
+  { id: 'home', name: 'Home & Living', icon: '🏠' },
+  { id: 'services', name: 'Services', icon: '🔧' },
+  { id: 'creative', name: 'Creative & Events', icon: '🎨' },
+  { id: 'accommodation', name: 'Accommodation', icon: '🛏️' },
+  { id: 'transport', name: 'Transport & Delivery', icon: '🚗' },
+  { id: 'rentals', name: 'Rentals', icon: '🔑' },
+  { id: 'other', name: 'Other', icon: '📦' },
+];
+
+const STORE_PLANS = [
+  { id: 'starter_weekly', label: 'Starter Weekly', price: 150, duration: '1 week', maxListings: 5 },
+  { id: 'standard_weekly', label: 'Standard Weekly', price: 200, duration: '1 week', maxListings: 10 },
+  { id: 'standard_monthly', label: 'Standard Monthly', price: 200, duration: '1 month', maxListings: 10 },
+  { id: 'pro_monthly', label: 'Pro Monthly', price: 300, duration: '1 month', maxListings: 15 },
+];
+
 let allListings = [];
 let myListings = [];
 let activeCategory = '';
@@ -64,6 +90,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setupNav();
   setupForm();
   setupModal();
+  setupStoreModal();
+  setupActionDelegation();
   loadListings();
   recoverPendingTokens();
 });
@@ -81,6 +109,7 @@ function switchView(view) {
   document.querySelectorAll(`.nav-link[data-view="${view}"]`).forEach(n => n.classList.add('active'));
 
   if (view === 'dashboard') renderDashboard();
+  if (view === 'mystore') renderMyStore();
   window.scrollTo({ top: document.querySelector('.app-shell').offsetTop - 20, behavior: 'smooth' });
 }
 
@@ -154,6 +183,33 @@ function hasOwnerToken(listingId) {
   return Boolean(getOwnerToken(listingId));
 }
 
+// ─── Store token storage ────────────────────────────────────────────────────
+
+function saveStoreToken(storeId, token) {
+  try { localStorage.setItem(STORE_OWNER_TOKEN_PREFIX + storeId, token); } catch (err) {}
+}
+
+function getStoreToken(storeId) {
+  try { return localStorage.getItem(STORE_OWNER_TOKEN_PREFIX + storeId); } catch (err) { return null; }
+}
+
+function hasStoreToken(storeId) {
+  return Boolean(getStoreToken(storeId));
+}
+
+function getAllMyStoreIds() {
+  const ids = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(STORE_OWNER_TOKEN_PREFIX)) {
+        ids.push(key.slice(STORE_OWNER_TOKEN_PREFIX.length));
+      }
+    }
+  } catch (err) {}
+  return ids;
+}
+
 // Move a pending token (keyed by invoiceId) onto its listing id once the
 // status endpoint reveals which listing the payment created.
 function adoptPendingToken(invoiceId, listingId) {
@@ -208,6 +264,14 @@ function recoverPendingTokens() {
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (data && data.success && data.listingId) adoptPendingToken(invoiceId, data.listingId);
+        if (data && data.success && data.storeId) {
+          let token = null;
+          try { token = localStorage.getItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+          if (token) {
+            saveStoreToken(data.storeId, token);
+            try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+          }
+        }
       })
       .catch(() => {});
   });
@@ -273,12 +337,15 @@ function listingCardHTML(l) {
   const badgeHTML = l.featured
     ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
     : '';
+  const storeBadgeHTML = l.store_name
+    ? `<span class="store-badge" data-action="open-store-page" data-slug="${escapeAttr(l.store_slug)}" data-stop="1">🏪 ${escapeHTML(l.store_name)}</span>`
+    : '';
   // Only listings this browser holds an owner token for get edit/delete controls.
   const owned = !usingDemoData && hasOwnerToken(l._id);
   const ownerControlsHTML = owned ? `
         <div class="owner-controls">
-          <button class="owner-btn edit" onclick="event.stopPropagation(); editListing('${l._id}')">✏️ Edit</button>
-          <button class="owner-btn delete" onclick="event.stopPropagation(); deleteListing('${l._id}')">🗑️ Delete</button>
+          <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${l._id}" data-stop="1">✏️ Edit</button>
+          <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${l._id}" data-stop="1">🗑️ Delete</button>
         </div>` : '';
   return `
     <div class="listing-card" data-id="${l._id}">
@@ -288,6 +355,7 @@ function listingCardHTML(l) {
         <span class="condition-badge ${condClass}">${l.condition}</span>
       </div>
       <div class="listing-body">
+        ${storeBadgeHTML}
         <div class="listing-title">${escapeHTML(l.title)}</div>
         <div class="listing-price">KSh ${Number(l.price).toLocaleString()}</div>
         <div class="listing-meta">
@@ -326,7 +394,7 @@ function openListingModal(id, source) {
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
-    <button class="modal-close" onclick="closeModal()">✕</button>
+    <button class="modal-close" data-action="close-modal">✕</button>
     <div class="modal-image">${modalImageContent}</div>
     <span class="condition-badge ${condClass}">${listing.condition}</span>
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
@@ -343,8 +411,8 @@ function openListingModal(id, source) {
     </button>
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
     <div class="owner-controls">
-      <button class="owner-btn edit" onclick="editListing('${listing._id}')">✏️ Edit listing</button>
-      <button class="owner-btn delete" onclick="deleteListing('${listing._id}')">🗑️ Delete listing</button>
+      <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${listing._id}">✏️ Edit listing</button>
+      <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${listing._id}">🗑️ Delete listing</button>
     </div>` : ''}
     ${listing.featured ? '' : boostSectionHTML(listing._id)}
   `;
@@ -370,6 +438,56 @@ function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
 }
 
+function setupStoreModal() {
+  document.getElementById('storeModalOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'storeModalOverlay') closeStoreModal();
+  });
+  // The store creation form is re-innerHTML'd into the persistent card, so a
+  // delegated submit listener here survives every render (same pattern as the
+  // listing modal's contact-button delegation). Avoids an inline onsubmit,
+  // which the CSP blocks just like inline onclick.
+  document.getElementById('storeModalCard').addEventListener('submit', (e) => {
+    if (e.target.id !== 'storeCreationForm') return;
+    handleStorePlanSubmit(e);
+  });
+}
+
+// Delegated click dispatch for action buttons. Inline onclick attributes are
+// blocked by the security CSP (Helmet's default script-src-attr 'none'), so
+// every interactive element carries a data-action + data-* payload and is
+// routed here — the same pattern the modal contact buttons already use (see
+// setupModal). Capture phase means an action nested inside a .listing-card
+// (store badge, owner edit/delete) can stopPropagation() before the card's own
+// click handler opens the listing modal; those elements carry data-stop="1".
+function setupActionDelegation() {
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    if (el.dataset.stop) e.stopPropagation();
+
+    switch (el.dataset.action) {
+      // ── Listing / boost ──
+      case 'close-modal': closeModal(); break;
+      case 'edit-listing': editListing(el.dataset.listingId); break;
+      case 'delete-listing': deleteListing(el.dataset.listingId); break;
+      case 'select-boost': selectBoost(el); break;
+      case 'select-package': selectPackage(el); break;
+      case 'initiate-boost': initiateBoost(el.dataset.listingId); break;
+      // ── Store ──
+      case 'open-store-creation': openStoreCreationModal(); break;
+      case 'open-store-page': openStorePage(el.dataset.slug); break;
+      case 'edit-store': openStoreEditForm(el.dataset.storeId); break;
+      case 'attach-listing': openAttachListingModal(el.dataset.storeId); break;
+      case 'store-listings': openStoreListings(el.dataset.storeId); break;
+      case 'delete-store': deleteStore(el.dataset.storeId); break;
+      case 'select-store-plan': selectStorePlan(el); break;
+      case 'close-store-modal': closeStoreModal(); break;
+      case 'save-store-edit': saveStoreEdit(el.dataset.storeId); break;
+      case 'attach-listing-to-store': attachListingToStore(el.dataset.storeId, el.dataset.listingId); break;
+    }
+  }, true);
+}
+
 function contactSeller(whatsapp, title) {
   if (!whatsapp) { showToast('⏳ Loading contact details…'); return; }
   const cleanNumber = whatsapp.replace(/[\s+]/g, '');
@@ -379,7 +497,7 @@ function contactSeller(whatsapp, title) {
 
 function boostSectionHTML(listingId) {
   const optionsHTML = BOOST_OPTIONS.map((opt, i) => `
-    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-boost="${opt.id}" data-price="${opt.price}" onclick="selectBoost(this)">
+    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-boost="${opt.id}" data-price="${opt.price}" data-action="select-boost">
       <div class="boost-option-info">
         <strong>${opt.label}</strong>
         <span>${opt.desc}</span>
@@ -393,7 +511,7 @@ function boostSectionHTML(listingId) {
       <div class="boost-label">⚡ Boost this listing</div>
       <div class="boost-options" id="boostOptions">${optionsHTML}</div>
       <input type="text" class="boost-phone-input" id="boostPhone" placeholder="M-Pesa number e.g. 0712345678">
-      <button class="boost-pay-btn" id="boostPayBtn" onclick="initiateBoost('${listingId}')">Pay with M-Pesa</button>
+      <button class="boost-pay-btn" id="boostPayBtn" data-action="initiate-boost" data-listing-id="${listingId}">Pay with M-Pesa</button>
       <div class="boost-status" id="boostStatus"></div>
     </div>
   `;
@@ -409,21 +527,21 @@ function packageSectionHTML() {
     <div class="boost-section" style="margin-top:16px;">
       <div class="boost-label">💳 Choose a listing plan</div>
       <div class="boost-options" id="packageOptions">
-        <div class="boost-option selected" data-package="quick" onclick="selectPackage(this)">
+        <div class="boost-option selected" data-package="quick" data-action="select-package">
           <div class="boost-option-info">
             <strong>Quick Sale (24h)</strong>
             <span>Food, tickets, urgent sales</span>
           </div>
           <div class="boost-option-price">KSh 30</div>
         </div>
-        <div class="boost-option" data-package="standard" onclick="selectPackage(this)">
+        <div class="boost-option" data-package="standard" data-action="select-package">
           <div class="boost-option-info">
             <strong>Standard (7 days)</strong>
             <span>Most student-to-student sales</span>
           </div>
           <div class="boost-option-price">KSh 50</div>
         </div>
-        <div class="boost-option" data-package="premium" onclick="selectPackage(this)">
+        <div class="boost-option" data-package="premium" data-action="select-package">
           <div class="boost-option-info">
             <strong>Premium (30 days)</strong>
             <span>Hostel rooms, electronics, long-term</span>
@@ -547,16 +665,39 @@ function setupImageUpload() {
         body: formData,
       });
 
-      if (!res.ok) throw new Error('Upload failed');
+      // Surface the server's actual rejection instead of a generic status. upload.js
+      // answers 400/429 with { success:false, error }, and that message is the only
+      // way a user learns e.g. that their image format isn't supported.
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => '');
+        let serverError = '';
+        try { serverError = (JSON.parse(bodyText) || {}).error || ''; } catch (_e) {}
+        const err = new Error(serverError || `Upload failed (HTTP ${res.status})`);
+        err.status = res.status;
+        err.serverError = serverError;
+        err.body = bodyText; // kept for the log — full response for context
+        throw err;
+      }
       const data = await res.json();
 
       uploadedImageUrl = data.url;
       status.textContent = '✅ Photo uploaded';
       status.className = 'image-upload-status success';
     } catch (err) {
-      console.warn('Image upload failed:', err.message);
       uploadedImageUrl = null;
-      status.textContent = '⚠️ Could not upload photo — listing will be posted without it';
+      // err.status is set only when the request reached the server and it answered
+      // non-2xx; without it the failure was client-side (network/CSP/CORS) and only
+      // err.message is meaningful. Log the real evidence and surface the server's
+      // own wording in the UI instead of a generic catchall.
+      if (err && err.status) {
+        console.warn(`Image upload failed: HTTP ${err.status} — ${err.body}`);
+        status.textContent = err.serverError
+          ? `⚠️ ${err.serverError} — listing will be posted without it`
+          : `⚠️ Upload failed (HTTP ${err.status}) — listing will be posted without it`;
+      } else {
+        console.warn('Image upload failed:', (err && err.message) || 'unknown error');
+        status.textContent = '⚠️ Could not upload photo — listing will be posted without it';
+      }
       status.className = 'image-upload-status error';
     }
   });
@@ -824,4 +965,484 @@ function escapeAttr(str) {
 function cloudinaryResize(url, transform) {
   if (!url || !url.includes('/upload/')) return url;
   return url.replace('/upload/', `/upload/${transform}/`);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STORE FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── My Store view ──────────────────────────────────────────────────────────
+
+async function renderMyStore() {
+  const container = document.getElementById('mystoreContent');
+  const myStoreIds = getAllMyStoreIds();
+
+  if (myStoreIds.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <span class="empty-icon">🏪</span>
+        <p><strong>You don't have a store yet.</strong></p>
+        <p>Open a storefront on GikoMart to organize your listings and build your brand on campus.</p>
+        <button class="btn btn-primary" data-action="open-store-creation" style="margin-top:16px;">Open a Store →</button>
+      </div>`;
+    return;
+  }
+
+  // Load the store (one-store-per-token enforced server-side)
+  const storeId = myStoreIds[0];
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}`, {
+      headers: { 'X-Store-Owner-Token': getStoreToken(storeId) }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    container.innerHTML = renderStoreManagementPanel(data.store, data.listingCount);
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${escapeHTML(err.message)}</p>
+      <button class="btn btn-primary" data-action="open-store-creation" style="margin-top:16px;">Open a Store →</button></div>`;
+  }
+}
+
+function renderStoreManagementPanel(store, listingCount) {
+  const isActive = store.status === 'active';
+  const daysLeft = Math.max(0, Math.ceil((new Date(store.expires_at) - new Date()) / (1000 * 60 * 60 * 24)));
+  const statusBadge = isActive
+    ? '<span style="color:var(--success); font-weight:600;">● Active</span>'
+    : `<span style="color:var(--danger); font-weight:600;">● ${store.status.charAt(0).toUpperCase() + store.status.slice(1)}</span>`;
+
+  return `
+    <div style="background:var(--card); border-radius:var(--radius-lg); padding:24px; margin-bottom:20px; box-shadow:var(--shadow-soft);">
+      <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
+        ${store.logo_url
+          ? `<img src="${cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto')}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
+          : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px;">🏪</div>'}
+        <div>
+          <h3 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h3>
+          <p style="margin:4px 0 0; color:var(--ink-soft); font-size:14px;">${escapeHTML(store.category)} · ${statusBadge}</p>
+        </div>
+      </div>
+
+      <div class="dash-stats" style="margin-bottom:16px;">
+        <div class="dash-stat">
+          <span class="dash-num">${listingCount}</span>
+          <span class="dash-label">listings in store</span>
+        </div>
+        <div class="dash-stat">
+          <span class="dash-num">${store.listing_limit}</span>
+          <span class="dash-label">max listings (${store.plan.replace(/_/g, ' ')})</span>
+        </div>
+        <div class="dash-stat">
+          <span class="dash-num">${daysLeft}</span>
+          <span class="dash-label">days until expiry</span>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-ghost" data-action="edit-store" data-store-id="${store._id}">✏️ Edit Store</button>
+        <button class="btn btn-ghost" data-action="attach-listing" data-store-id="${store._id}">🔗 Attach Listing</button>
+        <button class="btn btn-ghost" data-action="store-listings" data-store-id="${store._id}">📋 Store Listings</button>
+        <button class="btn btn-ghost" data-action="open-store-page" data-slug="${escapeAttr(store.slug)}">🌐 Public Page</button>
+        <button class="btn btn-ghost" style="color:var(--danger);" data-action="delete-store" data-store-id="${store._id}">🗑️ Delete Store</button>
+      </div>
+    </div>
+
+    <div id="storeListingsSection"></div>
+  `;
+}
+
+// ─── Store creation modal ───────────────────────────────────────────────────
+
+function openStoreCreationModal() {
+  const card = document.getElementById('storeModalCard');
+  const categoriesHTML = STORE_CATEGORIES.map(c =>
+    `<option value="${c.name}">${c.icon} ${c.name}</option>`
+  ).join('');
+  const plansHTML = STORE_PLANS.map((p, i) => `
+    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-plan="${p.id}" data-action="select-store-plan">
+      <div class="boost-option-info">
+        <strong>${p.label}</strong>
+        <span>${p.duration} · up to ${p.maxListings} listings</span>
+      </div>
+      <div class="boost-option-price">KSh ${p.price}</div>
+    </div>
+  `).join('');
+
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 16px;">Open a Store</h3>
+    <form id="storeCreationForm">
+      <div class="field-group">
+        <label>Store name</label>
+        <input type="text" id="sc-name" placeholder="e.g. Teryl's Tech Shop" required>
+      </div>
+      <div class="field-group">
+        <label>Store category</label>
+        <select id="sc-category" required>${categoriesHTML}</select>
+      </div>
+      <div class="field-group">
+        <label>Description</label>
+        <textarea id="sc-description" placeholder="What does your store sell?" rows="3"></textarea>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>Contact phone</label>
+          <input type="text" id="sc-phone" placeholder="0712345678" required>
+        </div>
+        <div class="field-group">
+          <label>WhatsApp number</label>
+          <input type="text" id="sc-whatsapp" placeholder="0712345678" required>
+        </div>
+      </div>
+      <div class="field-group">
+        <label>Email (optional)</label>
+        <input type="email" id="sc-email" placeholder="you@email.com">
+      </div>
+      <div class="field-group">
+        <label>Location / campus area</label>
+        <input type="text" id="sc-location" placeholder="e.g. Njoro, near Main Gate">
+      </div>
+
+      <div class="boost-section" style="margin-top:16px;">
+        <div class="boost-label">💳 Choose a store plan</div>
+        <div class="boost-options" id="storePlanOptions">${plansHTML}</div>
+      </div>
+
+      <div class="field-group" style="margin-top:12px;">
+        <label>M-Pesa number to pay with</label>
+        <input type="text" id="sc-phoneNumber" placeholder="e.g. 0712345678" required>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="storeSubmitBtn" style="margin-top:16px;">Pay & Open Store</button>
+      <div class="form-status" id="storeFormStatus"></div>
+    </form>
+  `;
+  document.getElementById('storeModalOverlay').classList.add('open');
+}
+
+function selectStorePlan(el) {
+  document.querySelectorAll('#storePlanOptions .boost-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function closeStoreModal() {
+  document.getElementById('storeModalOverlay').classList.remove('open');
+}
+
+async function handleStorePlanSubmit(e) {
+  e.preventDefault();
+  const selectedPlan = document.querySelector('#storePlanOptions .boost-option.selected');
+  if (!selectedPlan) { showToast('⚠️ Select a store plan'); return; }
+
+  const storeData = {
+    name: document.getElementById('sc-name').value.trim(),
+    category: document.getElementById('sc-category').value,
+    description: document.getElementById('sc-description').value.trim(),
+    phone: document.getElementById('sc-phone').value.trim(),
+    whatsapp: document.getElementById('sc-whatsapp').value.trim(),
+    email: document.getElementById('sc-email').value.trim(),
+    location: document.getElementById('sc-location').value.trim(),
+  };
+
+  const phoneNumber = document.getElementById('sc-phoneNumber').value.trim();
+  const storePlan = selectedPlan.dataset.plan;
+  const statusEl = document.getElementById('storeFormStatus');
+  const btn = document.getElementById('storeSubmitBtn');
+
+  if (!phoneNumber || phoneNumber.length < 9) {
+    statusEl.textContent = '⚠️ Enter a valid M-Pesa number';
+    statusEl.className = 'form-status error';
+    return;
+  }
+
+  btn.disabled = true;
+  statusEl.textContent = 'Sending payment request…';
+  statusEl.className = 'form-status';
+
+  try {
+    const res = await fetch(`${API_BASE}/payments/initiate-store-plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, storePlan, storeData }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Payment failed');
+
+    // Save pending store token
+    if (data.ownerToken && data.invoiceId) {
+      try { localStorage.setItem(PENDING_TOKEN_PREFIX + data.invoiceId, data.ownerToken); } catch (err) {}
+      pollStoreStatus(data.invoiceId);
+    }
+
+    statusEl.textContent = `📲 Check your phone (KSh ${data.amount}). Your store opens once payment is confirmed.`;
+    statusEl.className = 'form-status success';
+    showToast('📲 Store payment request sent');
+    btn.textContent = 'Request sent';
+  } catch (err) {
+    statusEl.textContent = `⚠️ ${err.message}`;
+    statusEl.className = 'form-status error';
+    btn.disabled = false;
+  }
+}
+
+function pollStoreStatus(invoiceId, attempt = 0) {
+  if (attempt >= STATUS_POLL_MAX_ATTEMPTS) {
+    showToast('⏳ Still waiting — your store will appear after a refresh');
+    return;
+  }
+  fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
+    .then(res => (res.ok ? res.json() : null))
+    .then(data => {
+      if (data && data.success && data.storeId) {
+        // Adopt the pending token onto the store id
+        let token = null;
+        try { token = localStorage.getItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+        if (token) {
+          saveStoreToken(data.storeId, token);
+          try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+        }
+        closeStoreModal();
+        showToast('✅ Store created!');
+        renderMyStore();
+        return;
+      }
+      if (data && data.success && data.status === 'failed') {
+        try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+        showToast('❌ Store payment failed');
+        return;
+      }
+      setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS);
+    })
+    .catch(() => setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS));
+}
+
+// ─── Store management ───────────────────────────────────────────────────────
+
+async function openStoreEditForm(storeId) {
+  const token = getStoreToken(storeId);
+  if (!token) { showToast('⚠️ No store token'); return; }
+
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}`, {
+      headers: { 'X-Store-Owner-Token': token }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    const store = data.store;
+
+    const card = document.getElementById('storeModalCard');
+    card.innerHTML = `
+      <button class="modal-close" data-action="close-store-modal">✕</button>
+      <h3 style="font-family:var(--font-display); margin:0 0 16px;">Edit Store</h3>
+      <div class="field-group">
+        <label>Store name</label>
+        <input type="text" id="se-name" value="${escapeAttr(store.name)}">
+      </div>
+      <div class="field-group">
+        <label>Description</label>
+        <textarea id="se-description" rows="3">${escapeHTML(store.description)}</textarea>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>Phone</label>
+          <input type="text" id="se-phone" value="${escapeAttr(store.phone)}">
+        </div>
+        <div class="field-group">
+          <label>WhatsApp</label>
+          <input type="text" id="se-whatsapp" value="${escapeAttr(store.whatsapp)}">
+        </div>
+      </div>
+      <div class="field-group">
+        <label>Location</label>
+        <input type="text" id="se-location" value="${escapeAttr(store.location)}">
+      </div>
+      <button class="btn btn-primary btn-block" data-action="save-store-edit" data-store-id="${storeId}" style="margin-top:12px;">Save Changes</button>
+    `;
+    document.getElementById('storeModalOverlay').classList.add('open');
+  } catch (err) {
+    showToast(`⚠️ ${err.message}`);
+  }
+}
+
+async function saveStoreEdit(storeId) {
+  const token = getStoreToken(storeId);
+  const updates = {
+    name: document.getElementById('se-name').value.trim(),
+    description: document.getElementById('se-description').value.trim(),
+    phone: document.getElementById('se-phone').value.trim(),
+    whatsapp: document.getElementById('se-whatsapp').value.trim(),
+    location: document.getElementById('se-location').value.trim(),
+  };
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Store-Owner-Token': token },
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error);
+    closeStoreModal();
+    showToast('✅ Store updated');
+    renderMyStore();
+  } catch (err) {
+    showToast(`⚠️ ${err.message}`);
+  }
+}
+
+async function deleteStore(storeId) {
+  if (!window.confirm('Delete this store and ALL its listings? This cannot be undone.')) return;
+  const token = getStoreToken(storeId);
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}`, {
+      method: 'DELETE',
+      headers: { 'X-Store-Owner-Token': token },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error);
+    try { localStorage.removeItem(STORE_OWNER_TOKEN_PREFIX + storeId); } catch (err) {}
+    showToast('🗑️ Store deleted');
+    renderMyStore();
+    loadListings(); // refresh browse to remove deleted listings
+  } catch (err) {
+    showToast(`⚠️ ${err.message}`);
+  }
+}
+
+// ─── Attach / Detach listings ───────────────────────────────────────────────
+
+async function openAttachListingModal(storeId) {
+  const token = getStoreToken(storeId);
+  // Find standalone listings (owned by this browser, not in any store)
+  const owned = myListings.filter(l => !l.store_name);
+  if (!owned.length) {
+    showToast('No standalone listings to attach — create one first');
+    return;
+  }
+
+  const card = document.getElementById('storeModalCard');
+  const listHTML = owned.map(l => `
+    <div class="boost-option" data-action="attach-listing-to-store" data-store-id="${storeId}" data-listing-id="${l._id}" style="cursor:pointer;">
+      <div class="boost-option-info">
+        <strong>${escapeHTML(l.title)}</strong>
+        <span>KSh ${Number(l.price).toLocaleString()} · ${escapeHTML(l.category)}</span>
+      </div>
+    </div>
+  `).join('');
+
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 16px;">Attach a Listing</h3>
+    <p style="color:var(--ink-soft); margin-bottom:12px;">Select a listing to add to your store:</p>
+    ${listHTML}
+  `;
+  document.getElementById('storeModalOverlay').classList.add('open');
+}
+
+async function attachListingToStore(storeId, listingId) {
+  const storeToken = getStoreToken(storeId);
+  const listingToken = getOwnerToken(listingId);
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}/attach-listing`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Store-Owner-Token': storeToken,
+        'X-Owner-Token': listingToken,
+      },
+      body: JSON.stringify({ listingId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error);
+    closeStoreModal();
+    showToast('✅ Listing attached to store');
+    loadListings();
+    renderMyStore();
+  } catch (err) {
+    showToast(`⚠️ ${err.message}`);
+  }
+}
+
+async function openStoreListings(storeId) {
+  const section = document.getElementById('storeListingsSection');
+  if (!section) return;
+  section.innerHTML = '<div class="empty-state">Loading store listings…</div>';
+
+  try {
+    const res = await fetch(`${API_BASE}/listings?store_id=${storeId}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    if (!data.listings.length) {
+      section.innerHTML = '<div class="empty-state"><p>No listings in this store yet.</p></div>';
+      return;
+    }
+
+    section.innerHTML = `<h3 style="font-family:var(--font-display); margin-bottom:12px;">Store Listings (${data.listings.length})</h3>
+      <div class="listing-grid">${data.listings.map(l => listingCardHTML(l)).join('')}</div>`;
+    section.querySelectorAll('.listing-card').forEach(card => {
+      card.addEventListener('click', () => openListingModal(card.dataset.id, data.listings));
+    });
+  } catch (err) {
+    section.innerHTML = `<div class="empty-state"><p>⚠️ ${escapeHTML(err.message)}</p></div>`;
+  }
+}
+
+// ─── Public store page ──────────────────────────────────────────────────────
+
+async function openStorePage(slug) {
+  switchView('storepage');
+  const container = document.getElementById('storePageContent');
+  container.innerHTML = '<div class="empty-state">Loading store…</div>';
+
+  try {
+    const res = await fetch(`${API_BASE}/stores/slug/${encodeURIComponent(slug)}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+
+    const store = data.store;
+    container.innerHTML = `
+      <div style="background:var(--card); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-soft); margin-bottom:24px;">
+        ${store.cover_url
+          ? `<div style="height:200px; background:url('${cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto')}') center/cover;"></div>`
+          : '<div style="height:120px; background:linear-gradient(135deg, var(--marigold), var(--teal));"></div>'}
+        <div style="padding:24px;">
+          <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
+            ${store.logo_url
+              ? `<img src="${cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto')}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover; border:3px solid var(--card);">`
+              : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px; border:3px solid var(--card);">🏪</div>'}
+            <div>
+              <h2 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h2>
+              <p style="margin:4px 0 0; color:var(--ink-soft);">${escapeHTML(store.category)}${store.verification_status === 'verified' ? ' · ✅ Verified' : ''}</p>
+            </div>
+          </div>
+          ${store.description ? `<p style="color:var(--ink-soft); margin-bottom:16px;">${escapeHTML(store.description)}</p>` : ''}
+          <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:14px; color:var(--ink-soft);">
+            ${store.location ? `<span>📍 ${escapeHTML(store.location)}</span>` : ''}
+            ${store.opening_hours ? `<span>🕐 ${escapeHTML(store.opening_hours)}–${escapeHTML(store.closing_hours)}</span>` : ''}
+            ${store.open_days ? `<span>📅 ${escapeHTML(store.open_days)}</span>` : ''}
+            ${store.delivery_available ? '<span>🚚 Delivery</span>' : ''}
+            ${store.pickup_available ? '<span>📦 Pickup</span>' : ''}
+            ${store.whatsapp ? `<span>💬 WhatsApp</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <h3 style="font-family:var(--font-display); margin-bottom:12px;">Listings (${data.listingCount})</h3>
+      <div class="listing-grid" id="storePageListings"></div>
+    `;
+
+    // Load store listings
+    const listRes = await fetch(`${API_BASE}/listings?store_id=${store._id}`);
+    const listData = await listRes.json();
+    const grid = document.getElementById('storePageListings');
+    if (listData.success && listData.listings.length) {
+      grid.innerHTML = listData.listings.map(l => listingCardHTML(l)).join('');
+      grid.querySelectorAll('.listing-card').forEach(card => {
+        card.addEventListener('click', () => openListingModal(card.dataset.id, listData.listings));
+      });
+    } else {
+      grid.innerHTML = '<div class="empty-state"><p>No active listings in this store.</p></div>';
+    }
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span><p>${escapeHTML(err.message)}</p></div>`;
+  }
 }

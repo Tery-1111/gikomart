@@ -10,6 +10,11 @@ const crypto = require('crypto');
  *     session token (X-Admin-Session) is required INSTEAD, which was only
  *     issued after ADMIN_KEY + valid TOTP code.
  *
+ * authenticateAdmin() is the single source of truth for whether a request is
+ * admin-authorized. Both the middleware below and controllers that gate
+ * mutations inline (listingController.isOwnerOrAdmin, the store-delete admin
+ * override) call it, so the 2FA-aware rules live in exactly one place.
+ *
  * Phase 2C — Security Hardening
  */
 const Admin = require('../models/Admin');
@@ -53,28 +58,47 @@ function verifySession(token) {
   }
 }
 
+// Core admin authorization check. Shared by the middleware below and by
+// controllers that gate mutations inline (listing ownership check, store-delete
+// admin override). Returns { needs2fa, payload }:
+//   - needs2fa: whether TOTP 2FA is currently active. Callers use it to pick
+//     the right response status (401 when a session is required) and to name
+//     the credential actually required in 403 error messages.
+//   - payload:  the authenticated admin (truthy when authorized; this exact
+//     value is what the middleware stores on req.admin), or null when not.
+async function authenticateAdmin(req) {
+  const admins = await Admin.find({ totpEnabled: true }).select('username').lean();
+  const sessionToken = req.headers['x-admin-session'];
+  const payload = sessionToken ? verifySession(sessionToken) : null;
+
+  // 2FA active: the raw admin key is NOT enough — a valid session token only.
+  if (admins.length > 0) {
+    if (payload && payload.username === admins[0].username) {
+      return { needs2fa: true, payload };
+    }
+    return { needs2fa: true, payload: null };
+  }
+
+  // 2FA not yet configured — fall back to the raw admin key.
+  const adminKey = req.headers['x-admin-key'];
+  const expected = process.env.ADMIN_KEY;
+  if (adminKey && expected && safeEqual(adminKey, expected)) {
+    return { needs2fa: false, payload: { username: 'owner', method: 'admin-key' } };
+  }
+  return { needs2fa: false, payload: null };
+}
+
 async function adminAuth(req, res, next) {
   try {
-    // If an admin record with 2FA enabled exists, demand the session token.
-    const admins = await Admin.find({ totpEnabled: true }).select('username').lean();
-    if (admins.length > 0) {
-      const sessionToken = req.headers['x-admin-session'];
-      const payload = sessionToken ? verifySession(sessionToken) : null;
-      if (payload && payload.username === admins[0].username) {
-        req.admin = payload;
-        return next();
-      }
-      return res.status(401).json({ success: false, error: 'Admin 2FA required' });
-    }
-
-    // 2FA not yet configured — fall back to the raw admin key.
-    const adminKey = req.headers['x-admin-key'];
-    const expected = process.env.ADMIN_KEY;
-    if (adminKey && expected && safeEqual(adminKey, expected)) {
-      req.admin = { username: 'owner', method: 'admin-key' };
+    const { needs2fa, payload } = await authenticateAdmin(req);
+    if (payload) {
+      req.admin = payload;
       return next();
     }
-
+    // 2FA active but no valid session → 401; legacy key missing/mismatched → 403.
+    if (needs2fa) {
+      return res.status(401).json({ success: false, error: 'Admin 2FA required' });
+    }
     return res.status(403).json({ success: false, error: 'Admin authorization required' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Admin auth error' });
@@ -84,3 +108,4 @@ async function adminAuth(req, res, next) {
 module.exports = adminAuth;
 module.exports.verifySession = verifySession;
 module.exports.signSession = signSession;
+module.exports.authenticateAdmin = authenticateAdmin;

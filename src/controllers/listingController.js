@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
+const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
 // digest first, so crypto.timingSafeEqual never throws on length mismatch and
@@ -12,24 +13,46 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(hashA, hashB);
 }
 
-// Authorization for mutating a listing. Allows either:
+// Authorization for mutating a listing. Returns { authorized, credential, required }:
+//   - authorized: whether the request is authenticated
+//   - credential: the factor that actually granted access (for logs)
+//   - required:   the credential(s) that WOULD grant access under the current
+//                 2FA state (used only to render accurate 403 messages)
+//
+// Two acceptable factors:
 //  1) X-Owner-Token: sha256 of the provided raw token must equal the hash
 //     stored on the listing (compared with crypto.timingSafeEqual, not ===), or
-//  2) X-Admin-Key: must match process.env.ADMIN_KEY — and ONLY if ADMIN_KEY is
-//     actually configured. Comparing against an unset/empty value must never
-//     succeed, otherwise every request would be admin.
-function isOwnerOrAdmin(req, listing) {
+//  2) Admin auth — 2FA-aware logic consolidated in middleware/adminAuth.js
+//     (authenticateAdmin) so each mode's rules live in exactly one place:
+//     a) 2FA enabled: a valid X-Admin-Session HMAC token (issued by POST
+//        /api/admin/login after ADMIN_KEY + TOTP code) is required. The raw
+//        X-Admin-Key alone is rejected so a leaked key can't bypass 2FA.
+//     b) 2FA not enabled: the legacy X-Admin-Key is accepted as before.
+async function isOwnerOrAdmin(req, listing) {
+  // Owner path — always available regardless of 2FA state. Unchanged.
   const ownerToken = req.get('X-Owner-Token');
   if (ownerToken && listing.ownerTokenHash) {
     const providedHash = crypto.createHash('sha256').update(ownerToken).digest('hex');
-    if (safeEqual(providedHash, listing.ownerTokenHash)) return true;
+    if (safeEqual(providedHash, listing.ownerTokenHash)) {
+      return { authorized: true, credential: 'owner' };
+    }
   }
 
-  const adminKey = process.env.ADMIN_KEY;
-  const providedAdminKey = req.get('X-Admin-Key');
-  if (adminKey && providedAdminKey && safeEqual(providedAdminKey, adminKey)) return true;
-
-  return false;
+  // Admin path — shared 2FA-aware logic from middleware/adminAuth.js.
+  const admin = await authenticateAdmin(req);
+  if (admin.payload) {
+    return {
+      authorized: true,
+      credential: admin.needs2fa ? 'admin-session' : 'admin-key',
+    };
+  }
+  return {
+    authorized: false,
+    credential: null,
+    required: admin.needs2fa
+      ? 'a valid X-Owner-Token or X-Admin-Session header.'
+      : 'a valid X-Owner-Token or X-Admin-Key header.',
+  };
 }
 
 // Escape special regex characters in user input so it can be safely embedded
@@ -51,17 +74,28 @@ exports.getListings = async (req, res) => {
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
+    if (req.query.store_id) filter.store_id = req.query.store_id;
     const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
     const skip = (pageNum - 1) * limitNum;
     const [listings, total] = await Promise.all([
-      Listing.find(filter).sort({ featured: -1, createdAt: -1 }).skip(skip).limit(limitNum),
+      // .lean() makes these plain objects (NOT Mongoose documents). The list
+      // serialization below spreads each record, and spreading a Mongoose
+      // document only yields its internal fields ($__, _doc, $isNew) — never
+      // the actual data. .lean() avoids that entirely and skips document
+      // instantiation overhead.
+      Listing.find(filter).populate('store_id', 'name slug').sort({ featured: -1, createdAt: -1 }).skip(skip).limit(limitNum).lean(),
       Listing.countDocuments(filter),
     ]);
     // Anti-scraping: never expose contact numbers in list responses. Phone
     // numbers are only available from the per-listing detail endpoint, which
     // is individually rate-limited and costs a request per item.
-    const sanitized = listings.map(({ sellerWhatsapp, ...rest }) => rest);
+    // Also extract store info into flat fields for the frontend.
+    const sanitized = listings.map(({ sellerWhatsapp, store_id, ...rest }) => ({
+      ...rest,
+      store_name: store_id?.name || null,
+      store_slug: store_id?.slug || null,
+    }));
     res.json({
       success: true,
       count: sanitized.length,
@@ -113,8 +147,9 @@ exports.updateListing = async (req, res) => {
     // verified BEFORE any mutation is applied.
     const target = await Listing.findById(req.params.id).select('+ownerTokenHash');
     if (!target) return res.status(404).json({ success: false, error: 'Listing not found' });
-    if (!isOwnerOrAdmin(req, target)) {
-      return res.status(403).json({ success: false, error: 'Not authorized to edit this listing. Provide a valid X-Owner-Token or X-Admin-Key header.' });
+    const authz = await isOwnerOrAdmin(req, target);
+    if (!authz.authorized) {
+      return res.status(403).json({ success: false, error: `Not authorized to edit this listing. Provide ${authz.required}` });
     }
     const updates = {};
     for (const field of UPDATABLE_FIELDS) {
@@ -134,8 +169,9 @@ exports.deleteListing = async (req, res) => {
   try {
     const listing = await Listing.findById(req.params.id).select('+ownerTokenHash');
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
-    if (!isOwnerOrAdmin(req, listing)) {
-      return res.status(403).json({ success: false, error: 'Not authorized to delete this listing. Provide a valid X-Owner-Token or X-Admin-Key header.' });
+    const authz = await isOwnerOrAdmin(req, listing);
+    if (!authz.authorized) {
+      return res.status(403).json({ success: false, error: `Not authorized to delete this listing. Provide ${authz.required}` });
     }
 
     if (listing.images && listing.images.length > 0) {

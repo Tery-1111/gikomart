@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GikoMart — UI Preview · Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── PREVIEW PAGE TOKENS — mirror of the live app's design tokens ── */
+  :root {
+    --marigold: #FF9F1C;
+    --marigold-strong: #A56300;
+    --marigold-dark: #9A5600;
+    --marigold-light: #FFE3B8;
+    --teal: #0B6E6E;
+    --teal-light: #E3F3F2;
+    --wa-green: #25D366;
+    --wa-green-strong: #0D7F41;
+    --wa-green-strong-dark: #0B6A36;
+    --wa-green-dark: #1DA851;
+    --cream: #FFF8EE;
+    --cream-deep: #FFF1DC;
+    --ink: #2B2B2B;
+    --ink-soft: #6B6660;
+    --coral: #FF6B6B;
+    --white: #FFFFFF;
+    --card: var(--white);
+    --border: #EEE3D4;
+    --ink-faint: #D9D5D0;
+    --neutral: #C9C2B8;
+    --wa-chat-bg: #ECE5DD;
+
+    --success: #1D9A4A;
+    --success-bg: #E7F8ED;
+    --danger: #dc3545;
+    --danger-bg: #FFE6E6;
+    --warning-bg: #FFF3D9;
+
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+    --shadow-soft: 0 4px 20px rgba(43, 43, 43, 0.06);
+    --shadow-pop: 0 8px 28px rgba(255, 159, 28, 0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background: var(--cream);
+    color: var(--ink);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .pv-wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 100px; }
+
+  /* ── Masthead ── */
+  .pv-mast {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .pv-logo {
+    width: 46px; height: 46px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--marigold), var(--coral));
+    color: var(--white); display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-display); font-weight: 700; font-size: 24px;
+    box-shadow: var(--shadow-pop);
+  }
+  .pv-logo + div h1 {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700; margin: 0;
+  }
+  .pv-logo + div p { color: var(--ink-soft); font-size: 13px; margin: 0; }
+  .pv-badge {
+    margin-left: auto;
+    font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    background: var(--teal-light); color: var(--teal); padding: 8px 14px; border-radius: 100px;
+  }
+  .pv-note {
+    background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 14px 18px; font-size: 13px; color: var(--ink-soft); margin-bottom: 40px;
+    box-shadow: var(--shadow-soft);
+  }
+  .pv-note code { background: var(--cream); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 12px; color: var(--marigold-dark); }
+
+  /* ── Sections ── */
+  .pv-section { margin-bottom: 48px; }
+  .pv-section > h2 {
+    font-family: var(--font-display); font-size: 20px; font-weight: 700;
+    padding-bottom: 10px; border-bottom: 2px solid var(--border); margin-bottom: 22px;
+  }
+  .pv-section > h2 .step { color: var(--marigold-dark); margin-right: 8px; }
+  .pv-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .pv-token { flex: 1 1 240px; }
+
+  /* color chips */
+  .pv-color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+  .pv-color { border-radius: var(--radius-md); overflow: hidden; background: var(--white); border: 1px solid var(--border); box-shadow: var(--shadow-soft); }
+  .pv-color .swatch { height: 72px; }
+  .pv-color .meta { padding: 8px 10px; }
+  .pv-color .meta strong { font-size: 12.5px; display: block; }
+  .pv-color .meta span { font-size: 11px; color: var(--ink-soft); font-family: ui-monospace, monospace; }
+
+  /* type */
+  .pv-type { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
+  .pv-type:last-of-type { border-bottom: none; }
+  .pv-type .spec { font-size: 11px; color: var(--ink-soft); font-family: ui-monospace, monospace; }
+
+  /* component preview well */
+  .pv-well {
+    background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 28px; box-shadow: var(--shadow-soft);
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .pv-well.dark { background: var(--ink); }
+  .pv-label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+
+  .pv-split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px){ .pv-split { grid-template-columns: 1fr; } }
+
+  .fm { display: flex; flex-direction: column; gap: 14px; }
+
+  /* radius & shadow tiles */
+  .pv-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+  .pv-tile { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-soft); }
+  .pv-tile .shape { width: 64px; height: 64px; background: var(--marigold); margin-bottom: 10px; }
+  .pv-tile .name { font-size: 12.5px; font-weight: 700; }
+  .pv-tile .val { font-size: 11px; color: var(--ink-soft); font-family: ui-monospace, monospace; }
+
+  /* ---- replicated components from the live app ---- */
+
+  /* buttons */
+  .btn {
+    font-family: var(--font-body); font-weight: 700; font-size: 15px;
+    padding: 14px 26px; border-radius: 100px; border: none; cursor: pointer;
+    transition: all .2s ease; white-space: nowrap; color: var(--white);
+  }
+  .btn-primary { background: var(--marigold-strong); box-shadow: var(--shadow-pop); }
+  .btn-primary:hover { background: var(--marigold-dark); transform: translateY(-2px); }
+  .btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
+  .btn-ghost:hover { background: var(--ink); color: var(--white); }
+  .btn-wa { background: var(--wa-green-strong); }
+  .btn-wa:hover { background: var(--wa-green-strong-dark); }
+  .btn-sm { padding: 9px 18px; font-size: 13px; }
+
+  /* pills & marker */
+  .cr-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 100px; text-transform: uppercase; letter-spacing: .04em; }
+  .cr-pill.teal { background: var(--teal-light); color: var(--teal); }
+  .cr-pill.gold { background: var(--warning-bg); color: var(--marigold-dark); }
+  .cr-pill.green { background: var(--success-bg); color: var(--success); }
+  .cr-pill.red { background: var(--danger-bg); color: var(--coral); }
+  .cr-marker { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 100px; text-transform: uppercase; letter-spacing: .04em; background: var(--marigold); color: var(--ink); }
+
+  /* logo unit */
+  .logo-unit { display: flex; align-items: center; gap: 10px; }
+  .logo-unit .mark { width: 38px; height: 38px; border-radius: 11px; background: linear-gradient(135deg, var(--marigold), var(--coral)); color: #fff; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 20px; box-shadow: var(--shadow-pop); }
+  .logo-unit .text { font-family: var(--font-display); font-weight: 700; font-size: 21px; }
+  .logo-unit .text b { color: var(--teal); }
+
+  /* nav pill control */
+  .nav-track { display: inline-flex; gap: 4px; background: var(--cream); border-radius: 100px; padding: 4px; }
+  .nav-track button { border: none; background: transparent; padding: 9px 20px; border-radius: 100px; font-family: var(--font-body); font-weight: 600; font-size: 14px; color: var(--ink-soft); cursor: pointer; transition: all .2s ease; }
+  .nav-track button.active { background: var(--ink); color: var(--white); }
+
+  /* search + cat pills */
+  .search-pill { position: relative; max-width: 480px; width: 100%; }
+  .search-pill input { width: 100%; padding: 14px 18px 14px 46px; border: 2px solid var(--border); border-radius: 100px; font-family: var(--font-body); font-size: 14px; background: var(--white); outline: none; transition: border-color .2s; }
+  .search-pill input:focus { border-color: var(--marigold); }
+  .search-pill .glass { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--ink-soft); }
+  .cat-line { display: flex; gap: 10px; flex-wrap: wrap; }
+  .cat-pill { border: 2px solid var(--border); background: var(--white); padding: 9px 18px; border-radius: 100px; font-size: 13.5px; font-weight: 600; cursor: pointer; color: var(--ink); transition: all .2s ease; }
+  .cat-pill.act { background: var(--ink); border-color: var(--ink); color: var(--white); }
+
+  /* form fields */
+  .fg { display: flex; flex-direction: column; gap: 6px; }
+  .fg label { font-size: 13px; font-weight: 700; }
+  .fg input, .fg select, .fg textarea {
+    font-family: var(--font-body); font-size: 14px; padding: 12px 14px;
+    border: 2px solid var(--border); border-radius: var(--radius-sm); background: var(--cream);
+    transition: border-color .2s ease; color: var(--ink);
+  }
+  .fg input:focus, .fg select:focus, .fg textarea:focus { outline: none; border-color: var(--marigold); background: var(--white); }
+  .field-row { display: flex; gap: 16px; }
+  @media (max-width: 640px){ .field-row { flex-direction: column; } }
+
+  /* switch */
+  .switch { position: relative; display: inline-flex; align-items: center; gap: 12px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: relative; width: 46px; height: 26px; background: var(--neutral); border-radius: 100px; transition: .3s; cursor: pointer; flex-shrink: 0; }
+  .slider::before { content: ''; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px; background: var(--white); border-radius: 50%; transition: .3s; }
+  .switch input:checked + .slider { background: var(--wa-green); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+
+  /* card */
+  .pv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+  .bg-card {
+    background: var(--white); border-radius: var(--radius-lg); overflow: hidden;
+    border: 1px solid var(--border); box-shadow: var(--shadow-soft); transition: transform .2s, box-shadow .2s; cursor: pointer;
+  }
+  .bg-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(43,43,43,.1); }
+  .bg-card .img { height: 110px; background: var(--cream-deep); display: flex; align-items: center; justify-content: center; font-size: 34px; position: relative; }
+  .bg-card .img .cond { position: absolute; top: 10px; right: 10px; }
+  .bg-card .body { padding: 14px 16px 16px; }
+  .bg-card .title { font-family: var(--font-display); font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bg-card .price { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--marigold-dark); margin: 2px 0 8px; }
+  .bg-card .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-soft); }
+
+  /* modal mock */
+  .pv-modal {
+    background: var(--white); border-radius: var(--radius-lg); max-width: 460px; width: 100%;
+    max-height: 85vh; overflow: auto; padding: 28px; box-shadow: 0 20px 60px rgba(43,43,43,.25);
+    border: 1px solid var(--border);
+  }
+  .pv-modal .x { background: var(--cream); border: none; width: 34px; height: 34px; border-radius: 50%; font-size: 16px; cursor: pointer; float: right; }
+  .modal-img { height: 150px; background: var(--cream-deep); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: 52px; margin: 12px 0 14px; }
+  .modal-price { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: var(--marigold-dark); margin-bottom: 10px; }
+  .modal-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 14px; }
+  .modal-desc { font-size: 14px; margin-bottom: 18px; }
+  .contact-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; background: var(--wa-green-strong); color: var(--white); border: none; border-radius: 100px; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .2s; }
+  .contact-btn:hover { background: var(--wa-green-strong-dark); }
+
+  /* toast */
+  .pv-toast { display: inline-block; background: var(--ink); color: var(--white); padding: 14px 24px; border-radius: 100px; font-weight: 600; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+
+  /* pulse ticker */
+  .pv-ticker { background: var(--ink); overflow: hidden; white-space: nowrap; height: 40px; display: flex; align-items: center; border-radius: 12px; }
+  .pv-ticker .track { display: flex; gap: 40px; padding: 0 24px; }
+  .pv-ticker .item { font-size: 12.5px; font-weight: 500; color: var(--ink-faint); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .pv-ticker .item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--wa-green); box-shadow: 0 0 0 3px rgba(37,211,102,.2); }
+  .pv-ticker .item strong { color: var(--white); }
+  .pv-ticker .item .arrow { color: var(--marigold); }
+
+  /* phone mock */
+  .phone-mock { width: 240px; background: var(--white); border-radius: 28px; box-shadow: 0 20px 60px rgba(43,43,43,.15); overflow: hidden; border: 6px solid var(--ink); }
+  .phone-notch { height: 18px; background: var(--ink); border-radius: 0 0 14px 14px; width: 86px; margin: 0 auto; }
+  .wa-head { background: var(--teal); padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+  .wa-head .ava { width: 32px; height: 32px; border-radius: 50%; background: var(--marigold); color: #fff; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; flex-shrink: 0; }
+  .wa-head .nm strong { font-size: 13px; color: #fff; display: block; }
+  .wa-head .nm small { font-size: 10.5px; color: #fff; opacity: .75; }
+  .wa-body { background: var(--wa-chat-bg); padding: 16px 12px; min-height: 150px; }
+  .wa-bubble { background: var(--white); border-radius: 4px 14px 14px 14px; padding: 12px 14px; font-size: 12.5px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .wa-bubble strong { display: block; margin-bottom: 5px; color: var(--teal); font-family: var(--font-display); font-size: 12.5px; }
+  .wa-bubble p { margin: 3px 0; color: var(--ink); }
+  .wa-bubble .t { display: block; text-align: right; font-size: 10px; color: var(--ink-soft); margin-top: 5px; }
+
+  .pv-center { display: flex; justify-content: center; }
+  .foot { margin-top: 60px; padding-top: 20px; border-top: 2px solid var(--border); font-size: 12.5px; color: var(--ink-soft); display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+
+  :focus-visible { outline: 3px solid var(--marigold); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <header class="pv-mast">
+    <div class="pv-logo">G</div>
+    <div>
+      <h1>GikoMart — UI Preview</h1>
+      <p>Isolated design-system gallery · extracted from the live app (revision 8ac100a)</p>
+    </div>
+    <span class="pv-badge">Isolated · not the production UI</span>
+  </header>
+
+  <p class="pv-note">
+    <strong>What this is:</strong> a self-contained reference of GikoMart's design tokens and components.
+    It lives at <code>/ui-preview/</code> and shares no CSS with the app — every value below is documented so the
+    live app can be refactored toward one source of truth. Components are rendered inline; nothing on this page
+    calls the backend.
+  </p>
+
+  <!-- ── 01 COLOR ── -->
+  <section class="pv-section">
+    <h2><span class="step">01</span>Color tokens</h2>
+    <div class="pv-color-grid">
+      <div class="pv-color"><div class="swatch" style="background:#FF9F1C"></div><div class="meta"><strong>Marigold</strong><span>#FF9F1C · --marigold</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#A56300"></div><div class="meta"><strong>Marigold strong</strong><span>#A56300 · --marigold-strong</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#9A5600"></div><div class="meta"><strong>Marigold dark</strong><span>#9A5600 · --marigold-dark</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFE3B8"></div><div class="meta"><strong>Marigold light</strong><span>#FFE3B8 · --marigold-light</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#0B6E6E"></div><div class="meta"><strong>Deep Teal</strong><span>#0B6E6E · --teal</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#E3F3F2"></div><div class="meta"><strong>Teal light</strong><span>#E3F3F2 · --teal-light</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#25D366"></div><div class="meta"><strong>WhatsApp green</strong><span>#25D366 · --wa-green</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#0D7F41"></div><div class="meta"><strong>WhatsApp green strong</strong><span>#0D7F41 · --wa-green-strong</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#0B6A36"></div><div class="meta"><strong>WhatsApp green strong dark</strong><span>#0B6A36 · --wa-green-strong-dark</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#1DA851"></div><div class="meta"><strong>WhatsApp green dark</strong><span>#1DA851 · --wa-green-dark</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFF8EE"></div><div class="meta"><strong>Cream</strong><span>#FFF8EE · --cream</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFF1DC"></div><div class="meta"><strong>Cream deep</strong><span>#FFF1DC · --cream-deep</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#2B2B2B"></div><div class="meta"><strong>Ink</strong><span>#2B2B2B · --ink</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#6B6660"></div><div class="meta"><strong>Ink soft</strong><span>#6B6660 · --ink-soft</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FF6B6B"></div><div class="meta"><strong>Coral</strong><span>#FF6B6B · --coral</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFFFFF; border-bottom:1px solid var(--border)"></div><div class="meta"><strong>White</strong><span>#FFFFFF · --white</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#EEE3D4"></div><div class="meta"><strong>Border</strong><span>#EEE3D4 · --border</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#D9D5D0"></div><div class="meta"><strong>Ink faint</strong><span>#D9D5D0 · --ink-faint</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#C9C2B8"></div><div class="meta"><strong>Neutral</strong><span>#C9C2B8 · --neutral</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#ECE5DD"></div><div class="meta"><strong>WA chat bg</strong><span>#ECE5DD · --wa-chat-bg</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#1D9A4A"></div><div class="meta"><strong>Success</strong><span>#1D9A4A · --success</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#E7F8ED; border-bottom:1px solid var(--border)"></div><div class="meta"><strong>Success bg</strong><span>#E7F8ED · --success-bg</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#dc3545"></div><div class="meta"><strong>Danger</strong><span>#dc3545 · --danger</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFE6E6; border-bottom:1px solid var(--border)"></div><div class="meta"><strong>Danger bg</strong><span>#FFE6E6 · --danger-bg</span></div></div>
+      <div class="pv-color"><div class="swatch" style="background:#FFF3D9; border-bottom:1px solid var(--border)"></div><div class="meta"><strong>Warning bg</strong><span>#FFF3D9 · --warning-bg</span></div></div>
+    </div>
+  </section>
+
+  <!-- ── 02 TYPOGRAPHY ── -->
+  <section class="pv-section">
+    <h2><span class="step">02</span>Typography</h2>
+    <div class="pv-well">
+      <div class="pv-type"><span style="font-family:var(--font-display); font-size:56px; font-weight:700; line-height:1.08">Post once. Reach the whole campus.</span><span class="spec">Space Grotesk 700 · 56/1.08 · hero title · — 40 @900 · 32 @640</span></div>
+      <div class="pv-type"><span style="font-family:var(--font-display); font-size:32px; font-weight:700">Browse listings</span><span class="spec">Space Grotesk 700 · 32 · view header h2</span></div>
+      <div class="pv-type"><span style="font-family:var(--font-display); font-size:30px; font-weight:700; color:var(--marigold-dark)">42 · 1,204 · KSh 38,000</span><span class="spec">Space Grotesk 700 · 30 · stat/dash numbers · 18 listing price · 26 modal price</span></div>
+      <div class="pv-type"><span style="font-size:17px; color:var(--ink-soft)">Every listing broadcasts straight to Egerton WhatsApp groups — buyers see it before they open the app.</span><span class="spec">Inter 400 · 17 · hero sub</span></div>
+      <div class="pv-type"><span style="font-size:14px; font-weight:600">Sell · Browse · My Listings · My Store</span><span class="spec">Inter 600 · 14 · nav / buttons 15 · inputs 14</span></div>
+      <div class="pv-type"><span style="font-size:13px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--teal)">CAMPUS DISTRIBUTION NETWORK</span><span class="spec">Inter 700 · 13 · uppercase .12em · eyebrow</span></div>
+      <div class="pv-type"><span style="font-size:12px; color:var(--ink-soft)">Njoro · Broadcast · 📍 Hostel C · 42 views</span><span class="spec">Inter · 10.5–13 · meta / badges 10.5–11</span></div>
+      <p class="pv-label" style="margin-top:14px">Font stacks</p>
+      <div class="field-row">
+        <div class="fg pv-token"><label>Display</label><input value="'Space Grotesk', sans-serif" readonly></div>
+        <div class="fg pv-token"><label>Body</label><input value="'Inter', sans-serif" readonly></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 03 RADIUS & SHADOW ── -->
+  <section class="pv-section">
+    <h2><span class="step">03</span>Radius &amp; shadow</h2>
+    <div class="pv-tile-grid">
+      <div class="pv-tile"><div class="shape" style="border-radius:8px"></div><div class="name">Radius small</div><div class="val">8px · inputs</div></div>
+      <div class="pv-tile"><div class="shape" style="border-radius:14px"></div><div class="name">Radius medium</div><div class="val">14px · upload/stat cards</div></div>
+      <div class="pv-tile"><div class="shape" style="border-radius:22px"></div><div class="name">Radius large</div><div class="val">22px · cards/modals</div></div>
+      <div class="pv-tile"><div class="shape" style="border-radius:100px; width:110px"></div><div class="name">Pill</div><div class="val">100px · buttons/tags</div></div>
+      <div class="pv-tile"><div class="shape" style="border-radius:14px; box-shadow:0 4px 20px rgba(43,43,43,.06)"></div><div class="name">Shadow soft</div><div class="val">0 4px 20px rgb(43,43,43,.06)</div></div>
+      <div class="pv-tile"><div class="shape" style="border-radius:14px; box-shadow:0 8px 28px rgba(255,159,28,.18)"></div><div class="name">Shadow pop</div><div class="val">0 8px 28px rgb(255,159,28,.18)</div></div>
+    </div>
+  </section>
+
+  <!-- ── 04 BUTTONS ── -->
+  <section class="pv-section">
+    <h2><span class="step">04</span>Buttons</h2>
+    <div class="pv-well">
+      <div class="pv-row">
+        <button class="btn btn-primary">List something →</button>
+        <button class="btn btn-ghost" style="color:var(--ink)">Browse listings</button>
+        <button class="btn btn-wa">💬 Contact seller on WhatsApp</button>
+        <button class="btn btn-primary btn-sm">Boost</button>
+      </div>
+      <p class="pv-label">Focus state (press Tab)</p>
+      <div class="pv-row">
+        <button class="btn btn-primary">Focused</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 05 NAV / PILLS / SEARCH ── -->
+  <section class="pv-section">
+    <h2><span class="step">05</span>Navigation · pills · search</h2>
+    <div class="pv-well">
+      <div class="pv-row" style="align-items:center">
+        <div class="logo-unit"><span class="mark">G</span><span class="text">Giko<b>Mart</b></span></div>
+        <nav class="nav-track">
+          <button class="active">Browse</button>
+          <button>Sell</button>
+          <button>My Listings</button>
+          <button>My Store</button>
+        </nav>
+      </div>
+      <div class="search-pill"><span class="glass">⌕</span><input placeholder="Search for textbooks, mattresses, phones…"></div>
+      <div class="cat-line">
+        <span class="cat-pill act">All</span>
+        <span class="cat-pill">📱 Electronics</span>
+        <span class="cat-pill">📚 Student Essentials</span>
+        <span class="cat-pill">🛏️ Hostel Living</span>
+        <span class="cat-pill">🌾 Agriculture</span>
+      </div>
+      <p class="pv-label">Campus tag</p>
+      <span style="font-size:13px; font-weight:600; color:var(--teal); background:var(--teal-light); padding:8px 14px; border-radius:100px">📍 Egerton University</span>
+    </div>
+  </section>
+
+  <!-- ── 06 FORM CONTROLS ── -->
+  <section class="pv-section">
+    <h2><span class="step">06</span>Form controls</h2>
+    <div class="pv-split">
+      <div class="pv-well fm">
+        <div class="field-row">
+          <div class="fg"><label>Category</label><select><option>Choose a category</option><option>📱 Electronics</option><option>🛋️ Furniture</option></select></div>
+          <div class="fg"><label>Condition</label><select><option>Excellent</option><option>Good</option><option>Fair</option></select></div>
+        </div>
+        <div class="field-row">
+          <div class="fg"><label>Price (KSh)</label><input placeholder="e.g. 38000" type="number"></div>
+          <div class="fg"><label>Location</label><input placeholder="e.g. Njoro, Hostel C"></div>
+        </div>
+        <div class="fg"><label>Description</label><textarea placeholder="Condition details, what's included, why you're selling…" rows="3"></textarea></div>
+      </div>
+      <div class="pv-well fm">
+        <p class="pv-label">Toggle</p>
+        <label class="switch"><input type="checkbox" checked><span class="slider"></span><span style="font-size:14px; font-weight:600">Broadcast to WhatsApp</span></label>
+        <p class="pv-label">Photo upload zone</p>
+        <div style="border:2px dashed var(--border); border-radius:var(--radius-md); background:var(--cream); min-height:120px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; color:var(--ink-soft)">
+          <span style="font-size:28px">📷</span>
+          <span style="font-size:14px; font-weight:700; color:var(--ink)">Click to add a photo</span>
+          <span style="font-size:12px">JPG or PNG, up to 5MB</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 07 CARDS & BADGES ── -->
+  <section class="pv-section">
+    <h2><span class="step">07</span>Listing cards &amp; badges</h2>
+    <div class="pv-cards">
+      <div class="bg-card">
+        <div class="img">📱 <span class="cond cr-pill green">Excellent</span></div>
+        <div class="body">
+          <div class="title">Samsung Galaxy S22, 128GB</div>
+          <div class="price">KSh 38,000</div>
+          <div class="meta"><span>📍 Njoro</span><span class="cr-pill teal" style="text-transform:none">📢 Broadcast</span></div>
+        </div>
+      </div>
+      <div class="bg-card">
+        <div class="img">🛋️ <span class="cond cr-pill gold">Good</span><span class="cr-marker" style="position:absolute; top:10px; left:10px">⭐ Featured</span></div>
+        <div class="body">
+          <div class="title">Study Desk + Chair</div>
+          <div class="price">KSh 6,500</div>
+          <div class="meta"><span>📍 Nakuru CBD</span><span>👁️ 19</span></div>
+        </div>
+      </div>
+      <div class="bg-card">
+        <div class="img">📚 <span class="cond cr-pill red">Fair</span></div>
+        <div class="body">
+          <div class="title">Calculus Textbook Bundle</div>
+          <div class="price">KSh 1,200</div>
+          <div class="meta"><span>📍 Egerton Uni</span><span class="cr-pill teal" style="text-transform:none">🏪 Shop</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 08 MODAL ── -->
+  <section class="pv-section">
+    <h2><span class="step">08</span>Listing detail modal</h2>
+    <div class="pv-center">
+      <div class="pv-modal">
+        <button class="x">✕</button>
+        <div class="modal-img">📱</div>
+        <span class="cr-pill green">Excellent</span>
+        <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px">Samsung Galaxy S22, 128GB</h3>
+        <div class="modal-price">KSh 38,000</div>
+        <div class="modal-meta">
+          <span>📂 Electronics</span><span>📍 Njoro</span><span>👤 Brian</span><span>👁️ 42 views</span>
+        </div>
+        <p class="modal-desc">128GB, no cracks, charger included. Barely used one semester.</p>
+        <button class="contact-btn">💬 Contact seller on WhatsApp</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 09 STATUS / TOAST / TICKER ── -->
+  <section class="pv-section">
+    <h2><span class="step">09</span>Status &amp; feedback</h2>
+    <div class="pv-well">
+      <p class="pv-label">Condition / status chips</p>
+      <div class="pv-row">
+        <span class="cr-pill teal">Like New</span><span class="cr-pill green">New</span><span class="cr-pill gold">Good</span><span class="cr-pill red">Fair · Poor</span><span class="cr-marker">⭐ Featured</span><span class="cr-marker" style="background:var(--coral)">🚀 Rush</span>
+      </div>
+      <p class="pv-label">Toast</p>
+      <div class="pv-row"><span class="pv-toast">✅ Payment confirmed — your listing is live!</span></div>
+      <p class="pv-label">Pulse ticker (signature element)</p>
+      <div class="pv-ticker">
+        <div class="track">
+          <span class="item"><span class="dot"></span>📢 Just posted: <strong>Samsung Galaxy S22</strong><span class="arrow">→</span> Electronics group + Campus Channel</span>
+          <span class="item"><span class="dot"></span>📢 Just posted: <strong>Mattress — 4x6</strong><span class="arrow">→</span> Hostel Living group</span>
+          <span class="item"><span class="dot"></span>📢 Just posted: <strong>Leather Jacket</strong><span class="arrow">→</span> Clothing group</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 10 SIGNATURE: WhatsApp PHONE MOCK ── -->
+  <section class="pv-section">
+    <h2><span class="step">10</span>Signature — WhatsApp broadcast phone mock</h2>
+    <div class="pv-well pv-center">
+      <div class="phone-mock">
+        <div class="phone-notch"></div>
+        <div class="wa-head">
+          <div class="ava">G</div>
+          <div class="nm"><strong>GikoMart Campus</strong><small>Channel · 1,204 followers</small></div>
+        </div>
+        <div class="wa-body">
+          <div class="wa-bubble">
+            <strong>🆕 NEW AT GikoMart</strong>
+            <p><b>💡 &nbsp;Desk Lamp + Stand</b></p>
+            <p>💰 KSh 1,800</p>
+            <p>📍 Egerton University, Njoro</p>
+            <span class="t">just now</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>GikoMart UI Preview — extracted 2026-09-12 · serves at <code>/ui-preview/</code></span>
+    <span>Source of truth doc: <code>docs/ui-audit/design-system.md</code></span>
+  </footer>
+
+</div>
+</body>
+</html>

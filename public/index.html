@@ -22,6 +22,7 @@
       <button class="nav-link active" data-view="browse">Browse</button>
       <button class="nav-link" data-view="sell">Sell</button>
       <button class="nav-link" data-view="dashboard">My Listings</button>
+      <button class="nav-link" data-view="mystore">My Store</button>
     </nav>
     <div class="topbar-cta">
       <span class="campus-tag">📍 Egerton University</span>
@@ -251,7 +252,32 @@
     </div>
   </section>
 
+  <!-- ===== MY STORE VIEW ===== -->
+  <section class="view" id="view-mystore">
+    <div class="view-header">
+      <h2>My Store</h2>
+      <p class="view-sub">Manage your campus storefront.</p>
+    </div>
+    <div id="mystoreContent">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
+  <!-- ===== STORE PAGE VIEW ===== -->
+  <section class="view" id="view-storepage">
+    <div id="storePageContent">
+      <!-- populated by JS -->
+    </div>
+  </section>
+
 </main>
+
+<!-- ░░░ STORE CREATION MODAL ░░░ -->
+<div class="modal-overlay" id="storeModalOverlay">
+  <div class="modal-card" id="storeModalCard" style="max-width:560px; max-height:90vh; overflow-y:auto;">
+    <!-- populated by JS -->
+  </div>
+</div>
 
 <!-- ░░░ LISTING DETAIL MODAL ░░░ -->
 <div class="modal-overlay" id="modalOverlay">

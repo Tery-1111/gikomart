@@ -29,10 +29,13 @@ const listingSchema = new mongoose.Schema({
   // payer at payment-initiation time. select:false keeps it out of every
   // public query/response; controllers opt in with .select('+ownerTokenHash').
   ownerTokenHash: { type: String, select: false },
+  // Optional store linkage — NULL means standalone listing
+  store_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Store', default: null },
 }, { timestamps: true });
 
 listingSchema.index({ status: 1, category: 1, featured: -1, createdAt: -1 });
 listingSchema.index({ sellerWhatsapp: 1 });
 listingSchema.index({ expiresAt: 1 }); // for the cleanup job
+listingSchema.index({ store_id: 1 }); // store listing queries
 
 module.exports = mongoose.model('Listing', listingSchema);

@@ -4,7 +4,14 @@ const Payment = require('../models/Payment');
 const logger = require('../config/logger');
 const { broadcastListing } = require('../services/whatsappService');
 const { checkListing } = require('../services/moderationService');
-const { initiateBoostPayment, initiateListingPayment, BOOST_PRICES, LISTING_PRICES } = require('../services/paymentService');
+const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
+
+// Constant-time comparison (same pattern as listingController.js)
+function safeEqual(a, b) {
+  const hashA = crypto.createHash('sha256').update(String(a)).digest();
+  const hashB = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
 
 function extractErrorMessage(err) {
   return err.message || err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Unknown payment error';
@@ -110,6 +117,67 @@ exports.initiateListing = async (req, res) => {
   }
 };
 
+// Initiate a store plan payment (new store — created only after payment confirms)
+exports.initiateStorePlan = async (req, res) => {
+  try {
+    const { phoneNumber, storePlan, storeData } = req.body;
+
+    if (!STORE_PLANS[storePlan]) {
+      return res.status(400).json({ success: false, error: 'Invalid store plan' });
+    }
+    if (!storeData || typeof storeData !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing store details' });
+    }
+
+    // Validate required store fields
+    const errors = [];
+    if (typeof storeData.name !== 'string' || !storeData.name.trim()) errors.push('name');
+    if (typeof storeData.category !== 'string' || !storeData.category.trim()) errors.push('category');
+    if (typeof storeData.phone !== 'string' || !storeData.phone.trim()) errors.push('phone');
+    if (typeof storeData.whatsapp !== 'string' || !storeData.whatsapp.trim()) errors.push('whatsapp');
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid or missing store details: ${errors.join(', ')}` });
+    }
+
+    // Generate store owner token
+    const rawOwnerToken = crypto.randomBytes(24).toString('hex');
+    const ownerTokenHash = crypto.createHash('sha256').update(rawOwnerToken).digest('hex');
+
+    // Generate slug
+    let base = storeData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!base) base = 'store';
+    const Store = require('../models/Store');
+    let slug = base;
+    let counter = 2;
+    while (await Store.findOne({ slug })) {
+      slug = `${base}-${counter}`;
+      counter++;
+    }
+
+    const apiRef = `store_${Date.now()}`;
+    const { response, amount } = await initiateStorePlanPayment({ phoneNumber, storePlan, apiRef });
+
+    const invoiceId = response?.invoice?.invoice_id || response?.id || null;
+
+    await Payment.create({
+      type: 'store',
+      phoneNumber,
+      amount,
+      storePlan,
+      storeData: { ...storeData, slug },
+      ownerTokenHash,
+      invoiceId,
+      status: 'pending',
+    });
+
+    res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount, ownerToken: rawOwnerToken });
+  } catch (err) {
+    const errMsg = extractErrorMessage(err);
+    logger.error('Store plan payment error', { error: errMsg });
+    res.status(500).json({ success: false, error: errMsg });
+  }
+};
+
 // Webhook: IntaSend calls this when payment status changes
 exports.handleWebhook = async (req, res) => {
   try {
@@ -187,6 +255,34 @@ exports.handleWebhook = async (req, res) => {
           }
           await listing.save();
         }
+      } else if (payment.type === 'store') {
+        const Store = require('../models/Store');
+        const pricing = STORE_PLANS[payment.storePlan];
+
+        const store = await Store.create({
+          name: payment.storeData.name,
+          slug: payment.storeData.slug,
+          description: payment.storeData.description || '',
+          category: payment.storeData.category,
+          subcategories: payment.storeData.subcategories || [],
+          phone: payment.storeData.phone || '',
+          whatsapp: payment.storeData.whatsapp || '',
+          email: payment.storeData.email || '',
+          campus: payment.storeData.campus || 'Egerton University',
+          location: payment.storeData.location || '',
+          pickup_location: payment.storeData.pickup_location || '',
+          ownerTokenHash: payment.ownerTokenHash,
+          plan: payment.storePlan,
+          plan_price: pricing.amount,
+          plan_duration: pricing.durationMs,
+          listing_limit: pricing.listingLimit,
+          started_at: new Date(),
+          expires_at: new Date(Date.now() + pricing.durationMs),
+          status: 'active',
+        });
+
+        payment.storeId = store._id;
+        await payment.save();
       }
     } else if (state === 'FAILED') {
       const payment = await Payment.findOne({ invoiceId: invoice_id });
@@ -220,6 +316,7 @@ exports.checkPaymentStatus = async (req, res) => {
       type: payment.type,
       status: payment.status,
       listingId: payment.listingId || null,
+      storeId: payment.storeId || null,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

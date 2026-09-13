@@ -1,0 +1,3 @@
+[    1421ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5000/favicon.ico:0
+[  369974ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5000/api/upload:0
+[  369981ms] [WARNING] Image upload failed: HTTP 400 — {"success":false,"error":"Only JPG, PNG, WEBP, or GIF images are allowed"} @ http://localhost:5000/assets/js/app.js:692
