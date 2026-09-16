@@ -1248,3 +1248,153 @@ textarea:focus-visible {
   transform: translateY(-1px);
   filter: brightness(1.05);
 }
+
+/* ============================================
+   LOADING STATES — reusable shimmer + spinners
+   ============================================ */
+
+/* Reusable skeleton block. Apply to any gray placeholder to get a
+   light-gray fill with an animated gradient sweep that moves slowly
+   and steadily left → right (~2.2s/cycle, ease-in-out). The ::after
+   pseudo-element is the sweeping highlight, so it works on any element
+   without extra markup. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #EAE4DA;
+  border-radius: 6px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  animation: skeleton-sweep 2.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  0%   { transform: translateX(-100%); }
+  60%  { transform: translateX(100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Skeleton placeholder card — mirrors .listing-card dimensions exactly
+   (image block, title line, price line, meta line) so nothing jumps or
+   resizes once real content loads in. */
+.skeleton-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.skeleton-card .sk-img {
+  height: 140px;              /* matches .listing-image */
+  border-radius: 0;
+}
+
+.skeleton-card .sk-body {
+  padding: 14px 16px 18px;    /* matches .listing-body */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skeleton-card .sk-title { height: 16px; width: 78%; }
+.skeleton-card .sk-price { height: 19px; width: 45%; }
+.skeleton-card .sk-meta  { height: 12px; width: 58%; }
+
+/* Grid-level fetch error banner (demo fallback) with retry */
+.grid-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #FFF3D9;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.grid-error .grid-retry-btn {
+  border: none;
+  background: var(--ink);
+  color: var(--white);
+  padding: 8px 18px;
+  border-radius: 100px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.grid-error .grid-retry-btn:hover { background: var(--teal); }
+
+/* Inline spinner for buttons — uses currentColor so it works on any
+   background (marigold, teal, WA green, or gray when disabled). */
+.btn-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  margin-right: 8px;
+  opacity: 0.7;
+  animation: sp 0.7s linear infinite;
+}
+
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* Generic disabled state for .btn while a request is in flight */
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Image-upload busy overlay: covers the box, blocks re-pick/remove,
+   and shows a centered spinner on top. */
+.image-upload.uploading {
+  cursor: wait;
+  border-color: var(--marigold);
+}
+
+.image-upload.uploading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 248, 238, 0.72);
+  z-index: 5;
+}
+
+.image-upload.uploading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--border);
+  border-top-color: var(--marigold);
+  border-radius: 50%;
+  z-index: 6;
+  animation: sp 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .btn-spinner,
+  .image-upload.uploading::after { animation: none; }
+}

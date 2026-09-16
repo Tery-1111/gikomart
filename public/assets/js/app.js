@@ -3,9 +3,11 @@
    Connects to the Express + MongoDB backend
    ============================================ */
 
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:5000/api'
-  : 'https://gikomart.onrender.com/api';
+// Same-origin in production (gikomart.onrender.com) and locally: the Express
+// server that serves the UI also mounts /api, so deriving the base from the
+// page's own origin works in both — and avoids connect-src/CORS violations
+// from a hardcoded localhost:5000 when the dev server runs on another port.
+const API_BASE = `${window.location.origin}/api`;
 
 // Ownership tokens: after a listing payment completes, the server hands back a
 // one-time owner token. It is stored only in this browser (localStorage) and
@@ -56,6 +58,10 @@ let myListings = [];
 let activeCategory = '';
 let usingDemoData = false;
 let uploadedImageUrl = null;
+let browseFetchFailed = false;   // last /listings fetch failed → show retry banner
+let gridRequestId = 0;           // increments per fetch; stale responses are dropped
+let isUploading = false;         // a Cloudinary upload is in flight
+let isPaymentInFlight = false;   // an M-Pesa initiate/poll is in progress
 
 document.addEventListener('DOMContentLoaded', () => {
   buildCategoryPills();
@@ -64,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupNav();
   setupForm();
   setupModal();
+  setupDelegatedClicks();
   loadListings();
   recoverPendingTokens();
 });
@@ -71,6 +78,47 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupNav() {
   document.querySelectorAll('[data-view]').forEach(el => {
     el.addEventListener('click', () => switchView(el.dataset.view));
+  });
+}
+
+// One document-level click delegation for the small interactive controls that
+// would otherwise need an inline onclick attribute — which the hardened CSP
+// blocks (inline scripts aren't allowed without 'unsafe-inline'). Each handler
+// only fires when the click lands on (or inside) the matching element, and the
+// values it passes come from data-attributes written with escapeAttr/escaped
+// template output, never from raw JS string interpolation.
+function setupDelegatedClicks() {
+  document.addEventListener('click', (e) => {
+    const retry = e.target.closest('.grid-retry-btn');
+    if (retry) { loadListings(); return; }
+
+    const close = e.target.closest('.modal-close');
+    if (close) { closeModal(); return; }
+
+    const boostOpt = e.target.closest('.boost-option[data-boost]');
+    if (boostOpt) { selectBoost(boostOpt); return; }
+
+    const pkgOpt = e.target.closest('.boost-option[data-package]');
+    if (pkgOpt) { selectPackage(pkgOpt); return; }
+
+    const payBtn = e.target.closest('.boost-pay-btn');
+    if (payBtn) { initiateBoost(payBtn.dataset.listing); return; }
+  });
+}
+
+// Owner edit/delete buttons sit inside a listing card whose own click handler
+// opens the modal — so the button's own listener stops propagation first, then
+// dispatches to the right owner action. Values travel via data-listing
+// (never inline JS strings) for the same CSP + stored-XSS reasons as above.
+function attachOwnerButtons(container) {
+  container.querySelectorAll('.owner-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.listing;
+      if (!id) return;
+      if (btn.classList.contains('edit')) editListing(id);
+      else deleteListing(id);
+    });
   });
 }
 
@@ -170,6 +218,9 @@ function adoptPendingToken(invoiceId, listingId) {
 function pollListingStatus(invoiceId, attempt = 0) {
   if (attempt >= STATUS_POLL_MAX_ATTEMPTS) {
     showToast('⏳ Still waiting for payment confirmation — your listing will appear after a refresh');
+    // Don't leave the publish button disabled forever: release it so the user
+    // can retry, and say why.
+    if (isPaymentInFlight) endPaymentWait(false, '⏳ M-Pesa confirmation is taking longer than expected. Check your phone, then try again.');
     return;
   }
   fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
@@ -178,12 +229,14 @@ function pollListingStatus(invoiceId, attempt = 0) {
       if (data && data.success && data.listingId) {
         adoptPendingToken(invoiceId, data.listingId);
         showToast('✅ Payment confirmed — your listing is live!');
+        if (isPaymentInFlight) endPaymentWait(true, '✅ Payment confirmed — your listing is live!');
         loadListings();
         return;
       }
       if (data && data.success && data.status === 'failed') {
         try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
         showToast('❌ Payment failed — nothing was listed');
+        if (isPaymentInFlight) endPaymentWait(false, '❌ Payment failed — nothing was listed. Try again.');
         return;
       }
       setTimeout(() => pollListingStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS);
@@ -214,8 +267,13 @@ function recoverPendingTokens() {
 }
 
 async function loadListings() {
+  const grid = document.getElementById('listingGrid');
+  const requestId = ++gridRequestId;
+  showGridSkeleton(grid);
+
   try {
     const res = await fetch(`${API_BASE}/listings`);
+    if (requestId !== gridRequestId) return; // superseded by a newer fetch
     if (!res.ok) throw new Error('API not reachable');
     const data = await res.json();
     allListings = data.listings.map(l => ({
@@ -223,14 +281,57 @@ async function loadListings() {
       icon: CATEGORY_ICONS[l.category] || '📦',
     }));
     usingDemoData = false;
+    browseFetchFailed = false;
   } catch (err) {
+    if (requestId !== gridRequestId) return;
     console.warn('API not reachable — showing demo listings:', err.message);
     allListings = DEMO_LISTINGS;
     usingDemoData = true;
+    browseFetchFailed = true;
   }
   myListings = allListings.filter(l => hasOwnerToken(l._id));
   document.getElementById('statListings').textContent = allListings.length;
   renderListings();
+}
+
+// Render a row of shimmer skeleton cards matching the real card layout
+// (image block, title line, price line, meta line) so nothing shifts when
+// the actual listings load in. Used for the initial fetch and any re-fetch.
+function showGridSkeleton(grid) {
+  const placeholders = Array.from({ length: 8 }, () => `
+    <div class="skeleton-card" aria-hidden="true">
+      <div class="skeleton sk-img"></div>
+      <div class="sk-body">
+        <div class="skeleton sk-title"></div>
+        <div class="skeleton sk-price"></div>
+        <div class="skeleton sk-meta"></div>
+      </div>
+    </div>`).join('');
+  grid.innerHTML = placeholders;
+  grid.setAttribute('aria-busy', 'true');
+}
+
+// Busy state for a button: disable it and drop in an inline spinner while an
+// async request runs. The original label is remembered on first use so a call
+// with busy=false restores it exactly (innerHTML, so any embedded markup is
+// kept). Pass busyLabel to swap the text while busy — e.g. the publish button's
+// "Sending payment request…" → "Waiting for M-Pesa confirmation…".
+function setBtnBusy(btn, busy, busyLabel) {
+  if (!btn) return;
+  if (busy) {
+    if (!btn.dataset.origLabel) btn.dataset.origLabel = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span>' + (busyLabel || btn.dataset.origLabel);
+  } else {
+    btn.disabled = false;
+    if ('origLabel' in btn.dataset) {
+      btn.innerHTML = btn.dataset.origLabel;
+      delete btn.dataset.origLabel;
+    } else {
+      const sp = btn.querySelector('.btn-spinner');
+      if (sp) sp.remove();
+    }
+  }
 }
 
 function renderListings() {
@@ -246,9 +347,15 @@ function renderListings() {
   filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
 
   const grid = document.getElementById('listingGrid');
+  grid.removeAttribute('aria-busy');
 
+  // Error affordance: keep the demo listings visible (the site stays usable)
+  // but make the failure obvious and let the user retry the real fetch.
   if (!filtered.length) {
-    grid.innerHTML = `
+    const errorBanner = browseFetchFailed
+      ? `<div class="grid-error"><span>⚠️ Couldn't reach the server — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
+      : '';
+    grid.innerHTML = errorBanner + `
       <div class="empty-state">
         <span class="empty-icon">🔍</span>
         <p><strong>Nothing here yet.</strong></p>
@@ -257,11 +364,16 @@ function renderListings() {
     return;
   }
 
-  grid.innerHTML = filtered.map(l => listingCardHTML(l)).join('');
+  const errorBanner = browseFetchFailed
+    ? `<div class="grid-error"><span>⚠️ Couldn't reach the server — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
+    : '';
+
+  grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('');
 
   grid.querySelectorAll('.listing-card').forEach(card => {
     card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
   });
+  attachOwnerButtons(grid);
 }
 
 function listingCardHTML(l) {
@@ -277,8 +389,8 @@ function listingCardHTML(l) {
   const owned = !usingDemoData && hasOwnerToken(l._id);
   const ownerControlsHTML = owned ? `
         <div class="owner-controls">
-          <button class="owner-btn edit" onclick="event.stopPropagation(); editListing('${l._id}')">✏️ Edit</button>
-          <button class="owner-btn delete" onclick="event.stopPropagation(); deleteListing('${l._id}')">🗑️ Delete</button>
+          <button class="owner-btn edit" data-listing="${l._id}">✏️ Edit</button>
+          <button class="owner-btn delete" data-listing="${l._id}">🗑️ Delete</button>
         </div>` : '';
   return `
     <div class="listing-card" data-id="${l._id}">
@@ -303,12 +415,22 @@ function setupModal() {
   document.getElementById('modalOverlay').addEventListener('click', (e) => {
     if (e.target.id === 'modalOverlay') closeModal();
   });
-  // Delegated handler for contact buttons. They carry the seller number and
-  // listing title in data-attributes (never in inline JS strings) so that
-  // user-controlled values can't break out into executable JS (stored XSS).
-  // The modalCard element itself persists across renders — only its innerHTML
-  // is replaced — so this single listener works for every listing modal.
+  // Delegated handler for the modal's interactive elements (contact button and
+  // the owner edit/delete buttons). They carry their data in attributes —
+  // never in inline JS strings — so user-controlled values can't break out
+  // into executable JS (stored XSS), and no inline onclick is needed (the
+  // hardened CSP blocks inline handlers). The modalCard element persists across
+  // renders — only its innerHTML is replaced — so this single listener works
+  // for every listing modal.
   document.getElementById('modalCard').addEventListener('click', (e) => {
+    const ownerBtn = e.target.closest('.owner-btn');
+    if (ownerBtn) {
+      const id = ownerBtn.dataset.listing;
+      if (!id) return;
+      if (ownerBtn.classList.contains('edit')) editListing(id);
+      else deleteListing(id);
+      return;
+    }
     const btn = e.target.closest('.contact-btn');
     if (!btn) return;
     contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '');
@@ -326,7 +448,7 @@ function openListingModal(id, source) {
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
-    <button class="modal-close" onclick="closeModal()">✕</button>
+    <button class="modal-close">✕</button>
     <div class="modal-image">${modalImageContent}</div>
     <span class="condition-badge ${condClass}">${listing.condition}</span>
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
@@ -343,8 +465,8 @@ function openListingModal(id, source) {
     </button>
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
     <div class="owner-controls">
-      <button class="owner-btn edit" onclick="editListing('${listing._id}')">✏️ Edit listing</button>
-      <button class="owner-btn delete" onclick="deleteListing('${listing._id}')">🗑️ Delete listing</button>
+      <button class="owner-btn edit" data-listing="${listing._id}">✏️ Edit listing</button>
+      <button class="owner-btn delete" data-listing="${listing._id}">🗑️ Delete listing</button>
     </div>` : ''}
     ${listing.featured ? '' : boostSectionHTML(listing._id)}
   `;
@@ -379,7 +501,7 @@ function contactSeller(whatsapp, title) {
 
 function boostSectionHTML(listingId) {
   const optionsHTML = BOOST_OPTIONS.map((opt, i) => `
-    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-boost="${opt.id}" data-price="${opt.price}" onclick="selectBoost(this)">
+    <div class="boost-option ${i === 0 ? 'selected' : ''}" data-boost="${opt.id}" data-price="${opt.price}">
       <div class="boost-option-info">
         <strong>${opt.label}</strong>
         <span>${opt.desc}</span>
@@ -393,7 +515,7 @@ function boostSectionHTML(listingId) {
       <div class="boost-label">⚡ Boost this listing</div>
       <div class="boost-options" id="boostOptions">${optionsHTML}</div>
       <input type="text" class="boost-phone-input" id="boostPhone" placeholder="M-Pesa number e.g. 0712345678">
-      <button class="boost-pay-btn" id="boostPayBtn" onclick="initiateBoost('${listingId}')">Pay with M-Pesa</button>
+      <button class="boost-pay-btn" id="boostPayBtn" data-listing="${listingId}">Pay with M-Pesa</button>
       <div class="boost-status" id="boostStatus"></div>
     </div>
   `;
@@ -409,21 +531,21 @@ function packageSectionHTML() {
     <div class="boost-section" style="margin-top:16px;">
       <div class="boost-label">💳 Choose a listing plan</div>
       <div class="boost-options" id="packageOptions">
-        <div class="boost-option selected" data-package="quick" onclick="selectPackage(this)">
+        <div class="boost-option selected" data-package="quick">
           <div class="boost-option-info">
             <strong>Quick Sale (24h)</strong>
             <span>Food, tickets, urgent sales</span>
           </div>
           <div class="boost-option-price">KSh 30</div>
         </div>
-        <div class="boost-option" data-package="standard" onclick="selectPackage(this)">
+        <div class="boost-option" data-package="standard">
           <div class="boost-option-info">
             <strong>Standard (7 days)</strong>
             <span>Most student-to-student sales</span>
           </div>
           <div class="boost-option-price">KSh 50</div>
         </div>
-        <div class="boost-option" data-package="premium" onclick="selectPackage(this)">
+        <div class="boost-option" data-package="premium">
           <div class="boost-option-info">
             <strong>Premium (30 days)</strong>
             <span>Hostel rooms, electronics, long-term</span>
@@ -504,6 +626,7 @@ function setupImageUpload() {
   const previewImg = document.getElementById('imagePreviewImg');
   const removeBtn = document.getElementById('imageRemoveBtn');
   const status = document.getElementById('imageUploadStatus');
+  const submitBtn = document.getElementById('submitBtn');
 
   box.addEventListener('click', (e) => {
     if (e.target === removeBtn) return;
@@ -513,12 +636,23 @@ function setupImageUpload() {
   input.addEventListener('change', async () => {
     const file = input.files[0];
     if (!file) return;
+    // Block a second pick while the current upload is still in flight.
+    if (isUploading) return;
 
     if (file.size > 5 * 1024 * 1024) {
       status.textContent = 'File too large — max 5MB';
       status.className = 'image-upload-status error';
       return;
     }
+
+    // Cloudinary upload can take several seconds on a slow connection. Show a
+    // busy spinner over the drop-zone and disable the publish button so the
+    // listing can't be submitted mid-upload or double-submitted before it ends.
+    isUploading = true;
+    box.classList.add('uploading');
+    setBtnBusy(submitBtn, true);
+    status.textContent = 'Uploading photo…';
+    status.className = 'image-upload-status';
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -534,9 +668,6 @@ function setupImageUpload() {
       prevImg.classList.add('show');
     };
     reader.readAsDataURL(file);
-
-    status.textContent = 'Uploading photo…';
-    status.className = 'image-upload-status';
 
     try {
       const formData = new FormData();
@@ -558,6 +689,10 @@ function setupImageUpload() {
       uploadedImageUrl = null;
       status.textContent = '⚠️ Could not upload photo — listing will be posted without it';
       status.className = 'image-upload-status error';
+    } finally {
+      isUploading = false;
+      box.classList.remove('uploading');
+      setBtnBusy(submitBtn, false);
     }
   });
 
@@ -644,6 +779,7 @@ async function handleSubmit(e) {
   const paymentPhone = listingPhoneInput || listingData.sellerWhatsapp;
 
   const statusEl = document.getElementById('formStatus');
+  const submitBtn = document.getElementById('submitBtn');
 
   if (!paymentPhone) {
     statusEl.textContent = '⚠️ Enter an M-Pesa number to pay with.';
@@ -651,8 +787,14 @@ async function handleSubmit(e) {
     return;
   }
 
+  // Guard against double-submission: while a payment is being confirmed the
+  // button is already disabled, but this also covers a stray second submit.
+  if (isPaymentInFlight || isUploading) return;
+
   statusEl.textContent = 'Sending payment request…';
   statusEl.className = 'form-status';
+  isPaymentInFlight = true;
+  setBtnBusy(submitBtn, true, 'Sending payment request…');
 
   try {
     const res = await fetch(`${API_BASE}/payments/initiate-listing`, {
@@ -679,6 +821,11 @@ async function handleSubmit(e) {
       pollListingStatus(data.invoiceId);
     }
 
+    // Keep the button disabled through the whole M-Pesa confirmation window so
+    // a second tap can't start a duplicate payment. pollListingStatus calls
+    // endPaymentWait() when the webhook confirms — or times out/fails — to
+    // re-enable it and report the outcome.
+    setBtnBusy(submitBtn, true, 'Waiting for M-Pesa confirmation…');
     statusEl.textContent = `📲 Check your phone for the M-Pesa prompt (KSh ${data.amount}). Your listing will go live once payment is confirmed.`;
     statusEl.classList.add('success');
     showToast('📲 Payment request sent — check your phone');
@@ -690,10 +837,21 @@ async function handleSubmit(e) {
 
   } catch (err) {
     console.error('Listing payment failed:', err.message);
-    statusEl.textContent = `⚠️ ${err.message}. Please try again.`;
-    statusEl.className = 'form-status error';
+    endPaymentWait(false, `⚠️ ${err.message}. Please try again.`);
     showToast('⚠️ Payment request failed');
   }
+}
+
+// Terminal state for the M-Pesa initiate + poll flow: always re-enable the
+// publish button (it stays disabled through the confirmation window) and
+// report the outcome in the form's status line.
+function endPaymentWait(ok, message) {
+  isPaymentInFlight = false;
+  setBtnBusy(document.getElementById('submitBtn'), false);
+  const statusEl = document.getElementById('formStatus');
+  if (!statusEl) return;
+  statusEl.textContent = message || '';
+  statusEl.className = `form-status ${ok ? 'success' : 'error'}`;
 }
 
 // ---- Owner edit/delete (token-gated) ---------------------------------------
@@ -719,6 +877,11 @@ async function editListing(id) {
   if (newDescription.trim() && newDescription.trim() !== listing.description) updates.description = newDescription.trim();
   if (!Object.keys(updates).length) { showToast('No changes made'); return; }
 
+  // Disable this listing's edit/delete buttons (any instance — grid, dashboard
+  // or open modal) with a spinner while the request runs; restored in finally.
+  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  btns.forEach(btn => setBtnBusy(btn, true));
+
   try {
     const res = await fetch(`${API_BASE}/listings/${id}`, {
       method: 'PUT',
@@ -736,6 +899,8 @@ async function editListing(id) {
   } catch (err) {
     console.error('Listing update failed:', err.message);
     showToast(`⚠️ ${err.message}`);
+  } finally {
+    btns.forEach(btn => setBtnBusy(btn, false));
   }
 }
 
@@ -744,6 +909,10 @@ async function deleteListing(id) {
   if (!token) { showToast('⚠️ No owner token saved for this listing'); return; }
   const listing = allListings.find(l => l._id === id);
   if (!window.confirm(`Delete "${listing ? listing.title : 'this listing'}"? This cannot be undone.`)) return;
+
+  // Disable this listing's edit/delete buttons while the request runs.
+  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  btns.forEach(btn => setBtnBusy(btn, true));
 
   try {
     const res = await fetch(`${API_BASE}/listings/${id}`, {
@@ -763,6 +932,8 @@ async function deleteListing(id) {
   } catch (err) {
     console.error('Listing delete failed:', err.message);
     showToast(`⚠️ ${err.message}`);
+  } finally {
+    btns.forEach(btn => setBtnBusy(btn, false));
   }
 }
 
@@ -790,6 +961,7 @@ function renderDashboard() {
   grid.querySelectorAll('.listing-card').forEach(card => {
     card.addEventListener('click', () => openListingModal(card.dataset.id, myListings));
   });
+  attachOwnerButtons(grid);
 }
 
 function showToast(msg) {
