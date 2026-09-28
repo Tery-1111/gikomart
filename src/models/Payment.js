@@ -16,6 +16,7 @@ const paymentSchema = new mongoose.Schema({
   // response. The raw token is NEVER stored server-side.
   ownerTokenHash: { type: String },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+  termsAcceptanceId: { type: mongoose.Schema.Types.ObjectId, ref: 'TermsAcceptance' },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Payment', paymentSchema);

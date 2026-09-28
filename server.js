@@ -75,20 +75,25 @@ app.use((req, res, next) => {
 
 app.use(express.static('public'));
 
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    logger.info('MongoDB connected');
-    startCleanupScheduler();
-  })
-  .catch(err => logger.error('MongoDB connection error', { error: err.message }));
-
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));
 app.use('/api/upload', require('./src/routes/upload'));
 app.use('/api/payments', require('./src/routes/payments'));
 app.use('/api/admin', require('./src/routes/adminAuth'));
 app.use('/api/stores', require('./src/routes/stores'));
+app.use('/api/terms', require('./src/routes/terms'));
 app.use('/health', require('./src/routes/health'));
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
+if (require.main === module) {
+  mongoose.connect(process.env.MONGO_URI)
+    .then(() => {
+      logger.info('MongoDB connected');
+      startCleanupScheduler();
+    })
+    .catch(err => logger.error('MongoDB connection error', { error: err.message }));
+
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
+}
+
+module.exports = app;

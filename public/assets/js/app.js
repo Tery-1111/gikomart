@@ -83,7 +83,103 @@ let activeCategory = '';
 let usingDemoData = false;
 let uploadedImageUrl = null;
 
+let TERMS_VERSIONS = null;
+
+async function loadTermsVersions() {
+  try {
+    const res = await fetch(`${API_BASE}/terms/versions`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) TERMS_VERSIONS = data.versions;
+    }
+  } catch (_e) { /* fall back to defaults */ }
+  if (!TERMS_VERSIONS) {
+    TERMS_VERSIONS = {
+      GIKOMART_TERMS_OF_SERVICE: '1.0.0',
+      STORE_OWNER_TERMS: '1.0.0',
+      SELLER_TERMS: '1.0.0',
+      BUYER_TERMS: '1.0.0',
+    };
+  }
+}
+
+function sellerListingAcceptanceHTML() {
+  const sellerVer = TERMS_VERSIONS.SELLER_TERMS;
+  const tosVer = TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE;
+  return `
+    <div class="terms-acceptance" data-terms-type="listing-publication">
+      <p class="terms-statement">
+        By clicking <strong>Pay &amp; Publish</strong>, I confirm that I have the right to offer this item/service and accept responsibility for this listing. I agree to the
+        <a href="/legal/seller-terms.html" target="_blank" rel="noopener" class="terms-link">Seller Terms &amp; Conditions</a>
+        <span class="terms-version">v${sellerVer}</span> and the
+        <a href="/legal/terms-of-service.html" target="_blank" rel="noopener" class="terms-link">GikoMart Terms of Service</a>
+        <span class="terms-version">v${tosVer}</span>.
+      </p>
+    </div>`;
+}
+
+function storeCreationAcceptanceHTML() {
+  const storeVer = TERMS_VERSIONS.STORE_OWNER_TERMS;
+  const tosVer = TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE;
+  return `
+    <div class="terms-acceptance" data-terms-type="store-creation">
+      <p class="terms-statement">
+        By clicking <strong>Create Store</strong>, I confirm that I accept responsibility for this Store and everything published through it. I agree to the
+        <a href="/legal/store-owner-terms.html" target="_blank" rel="noopener" class="terms-link">Store Owner Terms &amp; Conditions</a>
+        <span class="terms-version">v${storeVer}</span> and the
+        <a href="/legal/terms-of-service.html" target="_blank" rel="noopener" class="terms-link">GikoMart Terms of Service</a>
+        <span class="terms-version">v${tosVer}</span>.
+      </p>
+    </div>`;
+}
+
+function buyerContactAcceptanceHTML() {
+  const buyerVer = TERMS_VERSIONS.BUYER_TERMS;
+  const tosVer = TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE;
+  return `
+    <div class="terms-acceptance" data-terms-type="buyer-contact">
+      <p class="terms-statement">
+        By clicking <strong>Continue &amp; Contact Seller</strong>, I acknowledge that GikoMart is an introduction platform, understand the risks of dealing with another user, and agree to the
+        <a href="/legal/buyer-terms.html" target="_blank" rel="noopener" class="terms-link">Buyer Terms &amp; Conditions</a>
+        <span class="terms-version">v${buyerVer}</span> and the
+        <a href="/legal/terms-of-service.html" target="_blank" rel="noopener" class="terms-link">GikoMart Terms of Service</a>
+        <span class="terms-version">v${tosVer}</span>.
+      </p>
+    </div>`;
+}
+
+function buildSellerAcceptanceToken() {
+  return {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+    action: 'PAY_AND_PUBLISH',
+  };
+}
+
+function buildStoreAcceptanceToken() {
+  return {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    storeOwnerTermsVersion: TERMS_VERSIONS.STORE_OWNER_TERMS,
+    action: 'CREATE_STORE',
+  };
+}
+
+function buildBuyerAcceptanceToken() {
+  return {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    buyerTermsVersion: TERMS_VERSIONS.BUYER_TERMS,
+    action: 'CONTINUE_AND_CONTACT_SELLER',
+  };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('footerYear')) {
+    document.getElementById('footerYear').textContent = String(new Date().getFullYear());
+  }
+  loadTermsVersions();
   buildCategoryPills();
   buildCategorySelect();
   buildPulseTicker();
@@ -379,7 +475,7 @@ function setupModal() {
   document.getElementById('modalCard').addEventListener('click', (e) => {
     const btn = e.target.closest('.contact-btn');
     if (!btn) return;
-    contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '');
+    contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '', btn.dataset.listingId || '');
   });
 }
 
@@ -406,7 +502,7 @@ function openListingModal(id, source) {
       <span>👁️ ${listing.views || 0} views</span>
     </div>
     <p class="modal-desc">${escapeHTML(listing.description)}</p>
-    <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}">
+    <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}" data-listing-id="${listing._id}">
       💬 Contact seller on WhatsApp
     </button>
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
@@ -484,15 +580,75 @@ function setupActionDelegation() {
       case 'close-store-modal': closeStoreModal(); break;
       case 'save-store-edit': saveStoreEdit(el.dataset.storeId); break;
       case 'attach-listing-to-store': attachListingToStore(el.dataset.storeId, el.dataset.listingId); break;
+      // ── Buyer contact acceptance gate ──
+      case 'buyer-gate-cancel': _restoreBuyerGateListing(); break;
+      case 'buyer-gate-continue': _handleBuyerGateContinue(); break;
     }
   }, true);
 }
 
-function contactSeller(whatsapp, title) {
+let _buyerGateSavedHTML = null;
+let _buyerGateSavedWhatsapp = '';
+let _buyerGateSavedTitle = '';
+let _buyerGateSavedListingId = '';
+
+function _restoreBuyerGateListing() {
+  const card = document.getElementById('modalCard');
+  if (_buyerGateSavedHTML) {
+    card.innerHTML = _buyerGateSavedHTML;
+    _buyerGateSavedHTML = null;
+  }
+}
+
+function contactSeller(whatsapp, title, listingId) {
   if (!whatsapp) { showToast('⏳ Loading contact details…'); return; }
+  const card = document.getElementById('modalCard');
+  _buyerGateSavedHTML = card.innerHTML;
+  _buyerGateSavedWhatsapp = whatsapp;
+  _buyerGateSavedTitle = title;
+  _buyerGateSavedListingId = listingId;
+
+  card.innerHTML = `
+    <button class="modal-close" data-action="buyer-gate-cancel">✕</button>
+    <h3 style="font-family:var(--font-display); font-size:18px; margin:0 0 12px;">Contact Seller</h3>
+    ${buyerContactAcceptanceHTML()}
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button type="button" class="btn btn-ghost" data-action="buyer-gate-cancel" style="flex:1;">Cancel</button>
+      <button type="button" class="btn btn-primary" data-action="buyer-gate-continue" style="flex:1;">Continue &amp; Contact Seller</button>
+    </div>
+  `;
+}
+
+async function _handleBuyerGateContinue() {
+  const whatsapp = _buyerGateSavedWhatsapp;
+  const title = _buyerGateSavedTitle;
+  const listingId = _buyerGateSavedListingId;
+  const continueBtn = document.querySelector('[data-action="buyer-gate-continue"]');
+  if (continueBtn) { continueBtn.disabled = true; continueBtn.textContent = 'Checking…'; }
+
+  try {
+    const res = await fetch(`${API_BASE}/terms/contact-acceptance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        acceptance: buildBuyerAcceptanceToken(),
+        listingId,
+        sellerWhatsapp: whatsapp,
+        listingTitle: title,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Could not proceed');
+  } catch (err) {
+    showToast(`⚠️ ${err.message}`);
+    if (continueBtn) { continueBtn.disabled = false; continueBtn.textContent = 'Continue & Contact Seller'; }
+    return;
+  }
+
   const cleanNumber = whatsapp.replace(/[\s+]/g, '');
   const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
   window.open(`https://wa.me/${cleanNumber}?text=${message}`, '_blank');
+  _restoreBuyerGateListing();
 }
 
 function boostSectionHTML(listingId) {
@@ -559,6 +715,19 @@ function packageSectionHTML() {
 function selectPackage(el) {
   document.querySelectorAll('#packageOptions .boost-option').forEach(o => o.classList.remove('selected'));
   el.classList.add('selected');
+  updatePublishLabel();
+}
+
+function updatePublishLabel() {
+  const btn = document.getElementById('submitBtn');
+  if (!btn) return;
+  const selected = document.querySelector('#packageOptions .boost-option.selected');
+  const priceText = selected ? selected.querySelector('.boost-option-price') : null;
+  const price = priceText ? priceText.textContent.replace(/[^0-9]/g, '') : '';
+  const pkg = selected && selected.dataset.package ? selected.dataset.package : 'standard';
+  const pkgPrices = { quick: 30, standard: 50, premium: 150 };
+  const amt = price ? Number(price) : pkgPrices[pkg] || 50;
+  btn.textContent = `Pay KSh ${amt.toLocaleString()} & Publish`;
 }
 
 async function initiateBoost(listingId) {
@@ -612,6 +781,23 @@ function setupForm() {
   document.getElementById('packageSection').innerHTML = packageSectionHTML();
   setupImageUpload();
   document.getElementById('sellForm').addEventListener('submit', handleSubmit);
+
+  // Inject seller acceptance notice just above the Publish submit button.
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn && !submitBtn.parentElement.querySelector('.terms-acceptance')) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = sellerListingAcceptanceHTML();
+    const acceptanceEl = wrapper.firstElementChild;
+    submitBtn.parentElement.insertBefore(acceptanceEl, submitBtn);
+    submitBtn.style.marginTop = '12px';
+    submitBtn.textContent = 'Pay & Publish';
+  }
+  updatePublishLabel();
+  document.getElementById('packageOptions').addEventListener('click', (e) => {
+    const opt = e.target.closest('.boost-option');
+    if (opt) setTimeout(updatePublishLabel, 0);
+  });
+
   updatePreview();
 }
 
@@ -803,8 +989,7 @@ async function handleSubmit(e) {
         phoneNumber: paymentPhone,
         package: pkg,
         listingData,
-        // Honeypot: must be empty for real humans; the hidden input is read here
-        // and the server drops any submission that filled it.
+        acceptance: buildSellerAcceptanceToken(),
         website: (document.getElementById('website') || {}).value || '',
       }),
     });
@@ -1163,7 +1348,7 @@ async function handleStorePlanSubmit(e) {
     const res = await fetch(`${API_BASE}/payments/initiate-store-plan`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phoneNumber, storePlan, storeData }),
+      body: JSON.stringify({ phoneNumber, storePlan, storeData, acceptance: buildStoreAcceptanceToken() }),
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || 'Payment failed');

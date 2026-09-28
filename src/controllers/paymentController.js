@@ -5,6 +5,12 @@ const logger = require('../config/logger');
 const { broadcastListing } = require('../services/whatsappService');
 const { checkListing } = require('../services/moderationService');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
+const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
+const {
+  validateAcceptanceToken,
+  recordAcceptance,
+} = require('../services/termsAcceptanceService');
+const TermsAcceptance = require('../models/TermsAcceptance');
 
 // Constant-time comparison (same pattern as listingController.js)
 function safeEqual(a, b) {
@@ -57,13 +63,21 @@ exports.initiateBoost = async (req, res) => {
 // Initiate a listing payment (new listing — created only after payment confirms)
 exports.initiateListing = async (req, res) => {
   try {
-    const { phoneNumber, package: pkg, listingData } = req.body;
+    const { phoneNumber, package: pkg, listingData, acceptance } = req.body;
 
     if (!LISTING_PRICES[pkg]) {
       return res.status(400).json({ success: false, error: 'Invalid listing package' });
     }
     if (!listingData || typeof listingData !== 'object') {
       return res.status(400).json({ success: false, error: 'Missing listing details' });
+    }
+
+    const acceptValidation = validateAcceptanceToken(acceptance, ACCEPTANCE_TYPES.LISTING_PUBLICATION);
+    if (!acceptValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Terms acceptance required: ${acceptValidation.error}`,
+      });
     }
 
     // Validate every field the Listing model requires BEFORE starting the STK push —
@@ -98,6 +112,31 @@ exports.initiateListing = async (req, res) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const userAgent = req.get('user-agent') || '';
+
+    const acceptanceRec = await recordAcceptance({
+      acceptanceType: ACCEPTANCE_TYPES.LISTING_PUBLICATION,
+      versions: acceptValidation.versions,
+      action: `PAY_AND_PUBLISH:${pkg}`,
+      phone: phoneNumber,
+      whatsapp: listingData.sellerWhatsapp,
+      ownerTokenHash,
+      ip,
+      userAgent,
+      paymentInvoiceId: invoiceId,
+      fee: {
+        amount,
+        currency: 'KES',
+        label: `Listing package: ${pkg}`,
+      },
+      storeId: listingData && listingData.store_id ? listingData.store_id : null,
+      metadata: {
+        listingTitle: listingData.title || null,
+        listingCategory: listingData.category || null,
+      },
+    });
+
     await Payment.create({
       type: 'listing',
       phoneNumber,
@@ -106,6 +145,7 @@ exports.initiateListing = async (req, res) => {
       listingData,
       ownerTokenHash,
       invoiceId,
+      termsAcceptanceId: acceptanceRec._id,
       status: 'pending',
     });
 
@@ -120,13 +160,21 @@ exports.initiateListing = async (req, res) => {
 // Initiate a store plan payment (new store — created only after payment confirms)
 exports.initiateStorePlan = async (req, res) => {
   try {
-    const { phoneNumber, storePlan, storeData } = req.body;
+    const { phoneNumber, storePlan, storeData, acceptance } = req.body;
 
     if (!STORE_PLANS[storePlan]) {
       return res.status(400).json({ success: false, error: 'Invalid store plan' });
     }
     if (!storeData || typeof storeData !== 'object') {
       return res.status(400).json({ success: false, error: 'Missing store details' });
+    }
+
+    const acceptValidation = validateAcceptanceToken(acceptance, ACCEPTANCE_TYPES.STORE_CREATION);
+    if (!acceptValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Terms acceptance required: ${acceptValidation.error}`,
+      });
     }
 
     // Validate required store fields
@@ -159,6 +207,30 @@ exports.initiateStorePlan = async (req, res) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const userAgent = req.get('user-agent') || '';
+
+    const acceptanceRec = await recordAcceptance({
+      acceptanceType: ACCEPTANCE_TYPES.STORE_CREATION,
+      versions: acceptValidation.versions,
+      action: `PAY_AND_CREATE_STORE:${storePlan}`,
+      phone: phoneNumber,
+      whatsapp: storeData.whatsapp,
+      ownerTokenHash,
+      ip,
+      userAgent,
+      paymentInvoiceId: invoiceId,
+      fee: {
+        amount,
+        currency: 'KES',
+        label: `Store plan: ${storePlan}`,
+      },
+      metadata: {
+        storeName: storeData.name || null,
+        storeCategory: storeData.category || null,
+      },
+    });
+
     await Payment.create({
       type: 'store',
       phoneNumber,
@@ -167,6 +239,7 @@ exports.initiateStorePlan = async (req, res) => {
       storeData: { ...storeData, slug },
       ownerTokenHash,
       invoiceId,
+      termsAcceptanceId: acceptanceRec._id,
       status: 'pending',
     });
 
@@ -231,6 +304,20 @@ exports.handleWebhook = async (req, res) => {
         // designed to stay absent until the listing payment completes) so the
         // status endpoint can tell the payer which listing they now own.
         payment.listingId = listing._id;
+
+        // Back-fill the created listing's ID onto the pre-payment acceptance record
+        // so the acceptance is permanently linked to the specific published listing.
+        if (payment.termsAcceptanceId) {
+          await TermsAcceptance.findByIdAndUpdate(
+            payment.termsAcceptanceId,
+            { listingId: listing._id },
+          ).catch((err) => logger.warn('Failed to link acceptance to listing', {
+            acceptanceId: String(payment.termsAcceptanceId),
+            listingId: String(listing._id),
+            error: err.message,
+          }));
+        }
+
         await payment.save();
         if (!moderation.approved) {
           logger.warn('Listing flagged by moderation', { listingId: String(listing._id), flaggedBy: moderation.flaggedBy });
@@ -282,6 +369,18 @@ exports.handleWebhook = async (req, res) => {
         });
 
         payment.storeId = store._id;
+
+        if (payment.termsAcceptanceId) {
+          await TermsAcceptance.findByIdAndUpdate(
+            payment.termsAcceptanceId,
+            { storeId: store._id },
+          ).catch((err) => logger.warn('Failed to link acceptance to store', {
+            acceptanceId: String(payment.termsAcceptanceId),
+            storeId: String(store._id),
+            error: err.message,
+          }));
+        }
+
         await payment.save();
       }
     } else if (state === 'FAILED') {
