@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test": "vitest run",
     "lint": "eslint .",
+    "prepare": "git config core.hooksPath .githooks",
     "audit": "npm audit --omit=dev",
     "backup": "node scripts/backup.js"
   },
