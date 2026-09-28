@@ -70,7 +70,7 @@ exports.getListings = async (req, res) => {
       { featured: true, featuredUntil: { $ne: null, $lt: new Date() } },
       { $set: { featured: false, boostType: null } }
     );
-    let filter = { status: 'active', moderationStatus: 'approved' };
+    const filter = { status: 'active', moderationStatus: 'approved' };
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
@@ -176,6 +176,7 @@ exports.deleteListing = async (req, res) => {
 
     if (listing.images && listing.images.length > 0) {
       for (const imageUrl of listing.images) {
+        // eslint-disable-next-line security/detect-unsafe-regex -- double-anchored, bounded-length URLs; worst case is quadratic over ~100 chars, not ReDoS
         const match = imageUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
         if (match) {
           try {

@@ -342,7 +342,7 @@ function pollListingStatus(invoiceId, attempt = 0) {
 // One-time recovery for tokens left pending by a closed tab (e.g. the user
 // navigated away before the payment webhook landed).
 function recoverPendingTokens() {
-  let pendingInvoiceIds = [];
+  const pendingInvoiceIds = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);

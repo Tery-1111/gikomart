@@ -1,6 +1,7 @@
 // Zero-dependency CI test: syntax-checks every server-side JS file (server.js + src/**)
 // without executing it, so the `npm test` step in the GitHub workflow can't fail on
 // a missing script or let a syntax-broken file through.
+/* eslint-disable security/detect-non-literal-fs-filename -- dev-only CI helper; every path derives from __dirname, never user input */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');

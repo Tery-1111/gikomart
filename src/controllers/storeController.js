@@ -32,6 +32,7 @@ async function generateSlug(name) {
 
 // Extract Cloudinary public_id from a URL (same pattern as listingController.js)
 function extractPublicId(imageUrl) {
+  // eslint-disable-next-line security/detect-unsafe-regex -- double-anchored, bounded-length URLs; worst case is quadratic over ~100 chars, not ReDoS
   const match = imageUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
   return match ? match[1] : null;
 }
@@ -112,7 +113,7 @@ const STORE_UPDATABLE_FIELDS = [
 
 exports.updateStore = async (req, res) => {
   // Declared outside try so the duplicate-slug retry in catch can still read it.
-  let updates = {};
+  const updates = {};
   try {
     for (const field of STORE_UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {

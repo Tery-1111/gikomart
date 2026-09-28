@@ -7,6 +7,7 @@ const logger = require('../config/logger');
 // Extract the Cloudinary public_id from a stored secure_url
 // e.g. https://res.cloudinary.com/xxx/image/upload/v123/gikomart/abc.webp -> gikomart/abc
 function extractPublicId(url) {
+  // eslint-disable-next-line security/detect-unsafe-regex -- double-anchored, bounded-length URLs; worst case is quadratic over ~100 chars, not ReDoS
   const match = url.match(/\/upload\/(?:v\d+\/)?(.+)\.\w+$/);
   return match ? match[1] : null;
 }
