@@ -12,13 +12,6 @@ const {
 } = require('../services/termsAcceptanceService');
 const TermsAcceptance = require('../models/TermsAcceptance');
 
-// Constant-time comparison (same pattern as listingController.js)
-function safeEqual(a, b) {
-  const hashA = crypto.createHash('sha256').update(String(a)).digest();
-  const hashB = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
-}
-
 function extractErrorMessage(err) {
   return err.message || err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Unknown payment error';
 }

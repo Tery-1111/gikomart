@@ -1,4 +1,3 @@
-const TermsAcceptance = require('../models/TermsAcceptance');
 const logger = require('../config/logger');
 const { ACCEPTANCE_TYPES, TERMS_VERSIONS } = require('../config/termsVersions');
 const {

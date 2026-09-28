@@ -289,10 +289,6 @@ function getStoreToken(storeId) {
   try { return localStorage.getItem(STORE_OWNER_TOKEN_PREFIX + storeId); } catch (err) { return null; }
 }
 
-function hasStoreToken(storeId) {
-  return Boolean(getStoreToken(storeId));
-}
-
 function getAllMyStoreIds() {
   const ids = [];
   try {
@@ -1298,7 +1294,9 @@ function openStoreCreationModal() {
         <input type="text" id="sc-phoneNumber" placeholder="e.g. 0712345678" required>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-block" id="storeSubmitBtn" style="margin-top:16px;">Pay & Open Store</button>
+      ${storeCreationAcceptanceHTML()}
+
+      <button type="submit" class="btn btn-primary btn-block" id="storeSubmitBtn" style="margin-top:12px;">Pay & Open Store</button>
       <div class="form-status" id="storeFormStatus"></div>
     </form>
   `;
@@ -1496,7 +1494,6 @@ async function deleteStore(storeId) {
 // ─── Attach / Detach listings ───────────────────────────────────────────────
 
 async function openAttachListingModal(storeId) {
-  const token = getStoreToken(storeId);
   // Find standalone listings (owned by this browser, not in any store)
   const owned = myListings.filter(l => !l.store_name);
   if (!owned.length) {

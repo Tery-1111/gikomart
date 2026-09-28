@@ -109,3 +109,4 @@ module.exports = adminAuth;
 module.exports.verifySession = verifySession;
 module.exports.signSession = signSession;
 module.exports.authenticateAdmin = authenticateAdmin;
+module.exports.SESSION_TTL_MS = SESSION_TTL_MS;

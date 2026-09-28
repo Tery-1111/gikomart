@@ -3,7 +3,7 @@ const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const Admin = require('../models/Admin');
 const logger = require('../config/logger');
-const { signSession } = require('../middleware/adminAuth');
+const { signSession, SESSION_TTL_MS } = require('../middleware/adminAuth');
 
 /**
  * Admin 2FA Controller
@@ -167,7 +167,7 @@ exports.login = async (req, res) => {
     const sessionToken = signSession({
       username: admin.username,
       role: 'admin',
-      exp: Date.now() + 24 * 60 * 60 * 1000,
+      exp: Date.now() + SESSION_TTL_MS,
     });
 
     res.json({ success: true, token: sessionToken });

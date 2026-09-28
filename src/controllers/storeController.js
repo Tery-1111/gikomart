@@ -111,8 +111,9 @@ const STORE_UPDATABLE_FIELDS = [
 ];
 
 exports.updateStore = async (req, res) => {
+  // Declared outside try so the duplicate-slug retry in catch can still read it.
+  let updates = {};
   try {
-    const updates = {};
     for (const field of STORE_UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
