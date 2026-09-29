@@ -5,6 +5,16 @@ import speakeasy from 'speakeasy';
 import mongoose from 'mongoose';
 import { createRequire } from 'node:module';
 
+// Env fixtures — set BEFORE any server import so the suite is self-contained
+// (CI has no .env; server code reads ADMIN_KEY / INTASEND_WEBHOOK_CHALLENGE at
+// request time and ADMIN_SESSION_SECRET at module load for session tokens).
+process.env.ADMIN_KEY = 'test-admin-key';
+process.env.INTASEND_WEBHOOK_CHALLENGE = 'test-challenge';
+process.env.ADMIN_SESSION_SECRET = 'test-session-secret';
+
+export const TEST_ADMIN_KEY = process.env.ADMIN_KEY;
+export const TEST_WEBHOOK_CHALLENGE = process.env.INTASEND_WEBHOOK_CHALLENGE;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Architecture note: this suite tests the REAL controllers/services by injecting
 // in-memory model fakes into Node's require.cache BEFORE server.js is imported.
@@ -294,7 +304,7 @@ function listingPayment(overrides = {}) {
   };
 }
 
-const webhook = (body) => request(app).post('/api/payments/webhook').send({ challenge: process.env.INTASEND_WEBHOOK_CHALLENGE, ...body });
+const webhook = (body) => request(app).post('/api/payments/webhook').send({ challenge: TEST_WEBHOOK_CHALLENGE, ...body });
 
 // ─── Webhook: listing payments ──────────────────────────────────────────────
 describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSent', () => {
@@ -334,9 +344,15 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
     expect(h.listings[0].broadcastSent).toBe(false);
   });
 
-  it('rejects a bad webhook challenge with 401', async () => {
-    const res = await request(app).post('/api/payments/webhook').send({ challenge: 'wrong', invoice_id: 'X', state: 'COMPLETE' });
+  it('rejects a bad webhook challenge with 401 and touches nothing', async () => {
+    // A real pending payment waits behind the challenge gate: rejection must
+    // happen BEFORE any lookup, mutation, or side effect.
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await request(app).post('/api/payments/webhook').send({ challenge: 'wrong-challenge', invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
     expect(res.status).toBe(401);
+    expect(h.payments[0].status).toBe('pending');
+    expect(h.listings).toHaveLength(0);
+    expect(h.stores.size).toBe(0);
   });
 });
 
@@ -533,28 +549,28 @@ describe('Admin 2FA (real speakeasy) and moderation auth', () => {
     expect(denied.status).toBe(403);
 
     const ok = await request(app).put('/api/listings/lst-mod/moderate')
-      .set('X-Admin-Key', process.env.ADMIN_KEY).send({ action: 'approved' });
+      .set('X-Admin-Key', TEST_ADMIN_KEY).send({ action: 'approved' });
     expect(ok.status).toBe(200);
     expect(ok.body.listing.moderationStatus).toBe('approved');
   });
 
   it('setup → verify → login yields a session token; legacy key alone is rejected once 2FA is on', async () => {
-    const setup = await request(app).post('/api/admin/setup-2fa').set('X-Admin-Key', process.env.ADMIN_KEY);
+    const setup = await request(app).post('/api/admin/setup-2fa').set('X-Admin-Key', TEST_ADMIN_KEY);
     expect(setup.status).toBe(200);
     expect(setup.body.secret).toBeTruthy();
 
     const secret = setup.body.secret;
     const code = speakeasy.totp({ secret, encoding: 'base32' });
-    const verify = await request(app).post('/api/admin/verify-2fa').set('X-Admin-Key', process.env.ADMIN_KEY).send({ code });
+    const verify = await request(app).post('/api/admin/verify-2fa').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
     expect(verify.status).toBe(200);
 
-    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', process.env.ADMIN_KEY).send({ code });
+    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
     expect(login.status).toBe(200);
     expect(login.body.token).toBeTruthy();
 
     // Legacy key alone must NOT authorize now that 2FA is enabled...
     h.listings.push(makeDoc({ _id: 'lst-mod2', moderationStatus: 'flagged' }));
-    const keyOnly = await request(app).put('/api/listings/lst-mod2/moderate').set('X-Admin-Key', process.env.ADMIN_KEY).send({ action: 'approved' });
+    const keyOnly = await request(app).put('/api/listings/lst-mod2/moderate').set('X-Admin-Key', TEST_ADMIN_KEY).send({ action: 'approved' });
     expect(keyOnly.status).toBe(401);
 
     // ...but the TOTP-minted session must.
