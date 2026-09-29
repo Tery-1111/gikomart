@@ -72,7 +72,9 @@ const STORE_CATEGORIES = [
 
 const STORE_PLANS = [
   { id: 'starter_weekly', label: 'Starter Weekly', price: 150, duration: '1 week', maxListings: 5 },
-  { id: 'standard_weekly', label: 'Standard Weekly', price: 200, duration: '1 week', maxListings: 10 },
+  // standard_weekly removed (audit Fix 6): same price/limit as Standard Monthly
+  // but dominated by it — the backend no longer accepts it, so offering it in
+  // the UI would let users select a plan the payment API rejects.
   { id: 'standard_monthly', label: 'Standard Monthly', price: 200, duration: '1 month', maxListings: 10 },
   { id: 'pro_monthly', label: 'Pro Monthly', price: 300, duration: '1 month', maxListings: 15 },
 ];
@@ -1337,6 +1339,14 @@ async function handleStorePlanSubmit(e) {
     statusEl.className = 'form-status error';
     return;
   }
+
+  // The modal's terms notice is baked when the modal opens, so a version bump
+  // (or a slow first /terms/versions fetch) could transmit stale or blank
+  // versions. Re-fetch and re-render at submit time so the displayed and
+  // transmitted versions always match what the server enforces right now.
+  await loadTermsVersions();
+  const termsNotice = document.querySelector('#storeCreationForm .terms-acceptance[data-terms-type="store-creation"]');
+  if (termsNotice) termsNotice.outerHTML = storeCreationAcceptanceHTML();
 
   btn.disabled = true;
   statusEl.textContent = 'Sending payment request…';

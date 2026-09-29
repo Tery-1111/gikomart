@@ -37,7 +37,7 @@ const storeSchema = new mongoose.Schema({
   ownerTokenHash: { type: String, select: false },
 
   // Plan
-  plan:           { type: String, enum: ['starter_weekly', 'standard_weekly', 'standard_monthly', 'pro_monthly'], required: true },
+  plan:           { type: String, enum: ['starter_weekly', 'standard_monthly', 'pro_monthly'], required: true }, // standard_weekly removed (never sellable)
   plan_price:     { type: Number, required: true },
   plan_duration:  { type: Number, required: true },
   listing_limit:  { type: Number, required: true },

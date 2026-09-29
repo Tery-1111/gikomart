@@ -45,7 +45,10 @@ vi.mock('../src/config/cloudinary.js', () => ({
   uploader: { upload: vi.fn() },
 }));
 vi.mock('../src/services/whatsappService.js', () => ({
-  broadcastListingApproved: vi.fn(),
+  // Real service exports broadcastListing + formatMessage (audit Fix 5: the old
+  // 'broadcastListingApproved' key matched no real export).
+  broadcastListing: vi.fn(),
+  formatMessage: vi.fn(),
 }));
 vi.mock('../src/services/cleanupService.js', () => ({
   startCleanupScheduler: vi.fn(),

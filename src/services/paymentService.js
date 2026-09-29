@@ -21,7 +21,9 @@ const LISTING_PRICES = {
 
 const STORE_PLANS = {
   starter_weekly:   { amount: 150, durationMs: 7 * 24 * 60 * 60 * 1000,   listingLimit: 5  },
-  standard_weekly:  { amount: 200, durationMs: 7 * 24 * 60 * 60 * 1000,   listingLimit: 10 },
+  // standard_weekly removed (audit Fix 6): same price/limit as standard_monthly
+  // but was never sellable — absent from the frontend STORE_PLANS list, so a
+  // crafted request was the only way to reach it.
   standard_monthly: { amount: 200, durationMs: 30 * 24 * 60 * 60 * 1000,  listingLimit: 10 },
   pro_monthly:      { amount: 300, durationMs: 30 * 24 * 60 * 60 * 1000,  listingLimit: 15 },
 };
