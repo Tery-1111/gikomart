@@ -12,12 +12,8 @@ const {
 } = require('../services/termsAcceptanceService');
 const TermsAcceptance = require('../models/TermsAcceptance');
 
-function extractErrorMessage(err) {
-  return err.message || err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Unknown payment error';
-}
-
 // Initiate a boost payment (existing listing)
-exports.initiateBoost = async (req, res) => {
+exports.initiateBoost = async (req, res, next) => {
   try {
     const { listingId, phoneNumber, boostType } = req.body;
 
@@ -47,14 +43,13 @@ exports.initiateBoost = async (req, res) => {
 
     res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount });
   } catch (err) {
-    const errMsg = extractErrorMessage(err);
-    logger.error('Boost payment error', { error: errMsg });
-    res.status(500).json({ success: false, error: errMsg });
+    logger.error('Boost payment error', { error: err.message });
+    return next(err);
   }
 };
 
 // Initiate a listing payment (new listing — created only after payment confirms)
-exports.initiateListing = async (req, res) => {
+exports.initiateListing = async (req, res, next) => {
   try {
     const { phoneNumber, package: pkg, listingData, acceptance } = req.body;
 
@@ -144,14 +139,13 @@ exports.initiateListing = async (req, res) => {
 
     res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount, ownerToken: rawOwnerToken });
   } catch (err) {
-    const errMsg = extractErrorMessage(err);
-    logger.error('Listing payment error', { error: errMsg });
-    res.status(500).json({ success: false, error: errMsg });
+    logger.error('Listing payment error', { error: err.message });
+    return next(err);
   }
 };
 
 // Initiate a store plan payment (new store — created only after payment confirms)
-exports.initiateStorePlan = async (req, res) => {
+exports.initiateStorePlan = async (req, res, next) => {
   try {
     const { phoneNumber, storePlan, storeData, acceptance } = req.body;
 
@@ -238,14 +232,13 @@ exports.initiateStorePlan = async (req, res) => {
 
     res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount, ownerToken: rawOwnerToken });
   } catch (err) {
-    const errMsg = extractErrorMessage(err);
-    logger.error('Store plan payment error', { error: errMsg });
-    res.status(500).json({ success: false, error: errMsg });
+    logger.error('Store plan payment error', { error: err.message });
+    return next(err);
   }
 };
 
 // Webhook: IntaSend calls this when payment status changes
-exports.handleWebhook = async (req, res) => {
+exports.handleWebhook = async (req, res, next) => {
   try {
     const receivedChallenge = req.body.challenge;
     if (receivedChallenge !== process.env.INTASEND_WEBHOOK_CHALLENGE) {
@@ -402,7 +395,7 @@ exports.handleWebhook = async (req, res) => {
     res.status(200).json({ success: true });
   } catch (err) {
     logger.error('Webhook error', { error: err.message });
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
@@ -411,7 +404,7 @@ exports.handleWebhook = async (req, res) => {
 // webhook created — the point at which the client can re-key its saved owner
 // token from invoiceId to the actual listing id. Gated by knowledge of the
 // invoiceId issued at initiate time; returns no sensitive material.
-exports.checkPaymentStatus = async (req, res) => {
+exports.checkPaymentStatus = async (req, res, next) => {
   try {
     const payment = await Payment.findOne({ invoiceId: req.params.invoiceId });
     if (!payment) {
@@ -425,6 +418,6 @@ exports.checkPaymentStatus = async (req, res) => {
       storeId: payment.storeId || null,
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };

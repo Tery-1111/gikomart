@@ -33,7 +33,7 @@ function handleMulterError(err, req, res, next) {
   return next(err);
 }
 
-router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async (req, res) => {
+router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
@@ -82,7 +82,7 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
 
     res.json({ success: true, url: result.secure_url });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 });
 

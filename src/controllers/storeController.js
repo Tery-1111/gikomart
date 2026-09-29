@@ -50,7 +50,7 @@ async function deleteCloudinaryImage(imageUrl) {
 }
 
 // ─── Public: Get store by slug ──────────────────────────────────────────────
-exports.getStore = async (req, res) => {
+exports.getStore = async (req, res, next) => {
   try {
     const { slug } = req.params;
     const store = await Store.findOne({ slug, status: { $ne: 'suspended' } });
@@ -59,12 +59,12 @@ exports.getStore = async (req, res) => {
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
     res.json({ success: true, store, listingCount });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // ─── Owner: Get store by ID (full data including plan info) ─────────────────
-exports.getStoreById = async (req, res) => {
+exports.getStoreById = async (req, res, next) => {
   try {
     const store = await Store.findById(req.params.id).select('+ownerTokenHash');
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
@@ -86,12 +86,12 @@ exports.getStoreById = async (req, res) => {
     store.ownerTokenHash = undefined;
     res.json({ success: true, store, listingCount });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // ─── Owner: Get all stores for this token ───────────────────────────────────
-exports.getMyStores = async (req, res) => {
+exports.getMyStores = async (req, res, next) => {
   try {
     const token = req.get('X-Store-Owner-Token');
     if (!token) {
@@ -101,7 +101,7 @@ exports.getMyStores = async (req, res) => {
     const stores = await Store.find({ ownerTokenHash: hash });
     res.json({ success: true, stores });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
@@ -115,7 +115,7 @@ const STORE_UPDATABLE_FIELDS = [
   'delivery_available', 'pickup_available', 'payment_methods',
 ];
 
-exports.updateStore = async (req, res) => {
+exports.updateStore = async (req, res, next) => {
   // Declared outside try so the duplicate-slug retry in catch can still read it.
   const updates = {};
   try {
@@ -139,7 +139,7 @@ exports.updateStore = async (req, res) => {
       const store = await Store.findByIdAndUpdate(req.params.id, { ...updates, slug: fallbackSlug }, { returnDocument: 'after' });
       return res.json({ success: true, store });
     }
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
@@ -149,7 +149,7 @@ exports.updateStore = async (req, res) => {
 // session (X-Admin-Session — see routes/stores.js). req.storeCredentialType
 // records which one authorized this delete, so the audit trail below names the
 // actual credential used — owner vs admin — for this destructive cascade.
-exports.deleteStore = async (req, res) => {
+exports.deleteStore = async (req, res, next) => {
   const store = req.store;
   const credentialType = req.storeCredentialType || 'owner';
   const adminUser = req.admin ? req.admin.username : null;
@@ -201,14 +201,14 @@ exports.deleteStore = async (req, res) => {
       credentialType,
       error: err.message,
     });
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   } finally {
     session.endSession();
   }
 };
 
 // ─── Owner: Attach listing to store ─────────────────────────────────────────
-exports.attachListing = async (req, res) => {
+exports.attachListing = async (req, res, next) => {
   try {
     const store = req.store;
     const { listingId } = req.body;
@@ -258,12 +258,12 @@ exports.attachListing = async (req, res) => {
 
     res.json({ success: true, message: 'Listing attached to store' });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // ─── Owner: Detach listing from store ───────────────────────────────────────
-exports.detachListing = async (req, res) => {
+exports.detachListing = async (req, res, next) => {
   try {
     const store = req.store;
     const { listingId } = req.body;
@@ -298,6 +298,6 @@ exports.detachListing = async (req, res) => {
 
     res.json({ success: true, message: 'Listing removed from store' });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
