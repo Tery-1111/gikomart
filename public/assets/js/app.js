@@ -177,11 +177,15 @@ function buildBuyerAcceptanceToken() {
   };
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (document.getElementById('footerYear')) {
     document.getElementById('footerYear').textContent = String(new Date().getFullYear());
   }
-  loadTermsVersions();
+  // Must be awaited: every init step below can render a terms-acceptance
+  // notice (sell form, store modal), and a floating call left TERMS_VERSIONS
+  // null — the resulting TypeError aborted the rest of the init chain on cold
+  // load (store modal + delegated actions + listings never initialized).
+  await loadTermsVersions();
   buildCategoryPills();
   buildCategorySelect();
   buildPulseTicker();
