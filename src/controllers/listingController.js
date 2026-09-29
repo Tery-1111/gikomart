@@ -84,7 +84,8 @@ exports.getListings = async (req, res) => {
       // document only yields its internal fields ($__, _doc, $isNew) — never
       // the actual data. .lean() avoids that entirely and skips document
       // instantiation overhead.
-      Listing.find(filter).populate('store_id', 'name slug').sort({ featured: -1, createdAt: -1 }).skip(skip).limit(limitNum).lean(),
+      // priorityBroadcast (paid KSh 30 re-broadcast) outranks plain featured.
+      Listing.find(filter).populate('store_id', 'name slug').sort({ priorityBroadcast: -1, featured: -1, createdAt: -1 }).skip(skip).limit(limitNum).lean(),
       Listing.countDocuments(filter),
     ]);
     // Anti-scraping: never expose contact numbers in list responses. Phone

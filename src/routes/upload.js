@@ -37,12 +37,19 @@ router.post('/', uploadLimiter, upload.single('image'), async (req, res) => {
     // Reject GIF frames (potential denial-of-service via decompression bombs)
     // by re-encoding stills only. Animated GIFs slide through fine after this
     // because sharp re-encodes to a single still — acceptable behaviour here.
-    const { data, info } = await sharp(req.file.buffer, { animated: false })
-      // Strip metadata (EXIF contains location + camera data) and cap resolution.
-      .rotate() // bake EXIF orientation into pixels
-      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer({ resolveWithObject: true });
+    let data, info;
+    try {
+      ({ data, info } = await sharp(req.file.buffer, { animated: false })
+        // Strip metadata (EXIF contains location + camera data) and cap resolution.
+        .rotate() // bake EXIF orientation into pixels
+        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer({ resolveWithObject: true }));
+    } catch (err) {
+      // Corrupt/malformed image bytes that passed magic-byte sniffing are the
+      // caller's fault — a 4xx bad request, not a 5xx server error.
+      return res.status(400).json({ success: false, error: 'Image could not be processed' });
+    }
 
     // Reject absurd frame counts / extreme dimensions even after resize guard
     if (info.width > 1600 || info.height > 1600) {
@@ -63,7 +70,6 @@ router.post('/', uploadLimiter, upload.single('image'), async (req, res) => {
 
     res.json({ success: true, url: result.secure_url });
   } catch (err) {
-    // Malformed image data (sharp throws) → treat as bad request, not server error
     res.status(500).json({ success: false, error: err.message });
   }
 });

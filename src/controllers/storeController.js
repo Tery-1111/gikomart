@@ -80,6 +80,10 @@ exports.getStoreById = async (req, res) => {
     }
 
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
+    // The hash was loaded with .select('+ownerTokenHash') for the ownership
+    // check above — strip it before the response so the secret never leaves
+    // the server.
+    store.ownerTokenHash = undefined;
     res.json({ success: true, store, listingCount });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

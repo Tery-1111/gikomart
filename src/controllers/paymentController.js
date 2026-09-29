@@ -316,6 +316,11 @@ exports.handleWebhook = async (req, res) => {
           logger.warn('Listing flagged by moderation', { listingId: String(listing._id), flaggedBy: moderation.flaggedBy });
           return res.status(200).json({ success: true });
         }
+        // Record that the paid broadcast was dispatched BEFORE returning, so the
+        // listing record stays truthful even though the Whapi call below is
+        // fire-and-forget (failures are logged, never retried).
+        listing.broadcastSent = true;
+        await listing.save();
         broadcastListing(listing).catch(err =>
   logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message })
 );
@@ -331,9 +336,18 @@ exports.handleWebhook = async (req, res) => {
             listing.boostType = 'rush';
             listing.featuredUntil = new Date(Date.now() + 72 * 60 * 60 * 1000);
           } else if (payment.boostType === 'priority_broadcast') {
+            // Customer paid for an extra WhatsApp round: the flag moves this
+            // listing to the top of listings queries AND the listing is
+            // re-broadcast (same save-then-fire convention as the listing branch).
             listing.priorityBroadcast = true;
+            listing.broadcastSent = true;
           }
           await listing.save();
+          if (payment.boostType === 'priority_broadcast') {
+            broadcastListing(listing).catch(err =>
+              logger.warn('Priority broadcast skipped (Whapi unavailable)', { error: err.message })
+            );
+          }
         }
       } else if (payment.type === 'store') {
         const Store = require('../models/Store');
