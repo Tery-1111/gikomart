@@ -46,4 +46,13 @@ const listingCreateLimiter = rateLimit({
   message: { success: false, error: 'Too many listing attempts — please wait before trying again' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter };
+// Buyer contact acceptance + contact-seller: 20 per minute per IP
+const contactLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many contact requests — please wait before trying again' },
+});
+
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter };

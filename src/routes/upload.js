@@ -21,7 +21,19 @@ const ACCEPTED_MIME = new Set([
   'image/gif',
 ]);
 
-router.post('/', uploadLimiter, upload.single('image'), async (req, res) => {
+// Multer errors (LIMIT_FILE_SIZE etc.) are client faults: return 4xx instead
+// of letting them fall through to the generic 500 error handler.
+function handleMulterError(err, req, res, next) {
+  if (err && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ success: false, error: 'Image must be 5 MB or smaller' });
+  }
+  if (err && err.code && err.code.startsWith('LIMIT_')) {
+    return res.status(400).json({ success: false, error: 'Upload rejected: ' + err.code });
+  }
+  return next(err);
+}
+
+router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
@@ -37,12 +49,19 @@ router.post('/', uploadLimiter, upload.single('image'), async (req, res) => {
     // Reject GIF frames (potential denial-of-service via decompression bombs)
     // by re-encoding stills only. Animated GIFs slide through fine after this
     // because sharp re-encodes to a single still — acceptable behaviour here.
-    const { data, info } = await sharp(req.file.buffer, { animated: false })
-      // Strip metadata (EXIF contains location + camera data) and cap resolution.
-      .rotate() // bake EXIF orientation into pixels
-      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer({ resolveWithObject: true });
+    let data, info;
+    try {
+      ({ data, info } = await sharp(req.file.buffer, { animated: false })
+        // Strip metadata (EXIF contains location + camera data) and cap resolution.
+        .rotate() // bake EXIF orientation into pixels
+        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer({ resolveWithObject: true }));
+    } catch (err) {
+      // Corrupt/malformed image bytes that passed magic-byte sniffing are the
+      // caller's fault — a 4xx bad request, not a 5xx server error.
+      return res.status(400).json({ success: false, error: 'Image could not be processed' });
+    }
 
     // Reject absurd frame counts / extreme dimensions even after resize guard
     if (info.width > 1600 || info.height > 1600) {
@@ -63,7 +82,6 @@ router.post('/', uploadLimiter, upload.single('image'), async (req, res) => {
 
     res.json({ success: true, url: result.secure_url });
   } catch (err) {
-    // Malformed image data (sharp throws) → treat as bad request, not server error
     res.status(500).json({ success: false, error: err.message });
   }
 });

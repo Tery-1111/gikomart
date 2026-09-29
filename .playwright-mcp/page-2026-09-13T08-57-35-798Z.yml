@@ -1,0 +1,198 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "G GikoMart" [ref=e4] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=e5]: G
+        - generic [ref=e6]: GikoMart
+      - navigation [ref=e7]:
+        - button "Browse" [ref=e8] [cursor=pointer]
+        - button "Sell" [ref=e9] [cursor=pointer]
+        - button "My Listings" [ref=e10] [cursor=pointer]
+        - button "My Store" [ref=e11] [cursor=pointer]
+      - generic [ref=e12]: 📍 Egerton University
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - text: "📢 Just posted:"
+        - strong [ref=e17]: Samsung Galaxy S22
+        - generic [ref=e18]: →
+        - text: sent to Electronics group + Campus Channel
+      - generic [ref=e19]:
+        - text: "📢 Just posted:"
+        - strong [ref=e21]: Mattress — 4x6
+        - generic [ref=e22]: →
+        - text: sent to Hostel Living group
+      - generic [ref=e23]:
+        - text: "📢 Just posted:"
+        - strong [ref=e25]: Calculus Textbook Bundle
+        - generic [ref=e26]: →
+        - text: sent to Student Essentials group
+      - generic [ref=e27]:
+        - text: "📢 Just posted:"
+        - strong [ref=e29]: Study Desk + Chair
+        - generic [ref=e30]: →
+        - text: sent to Furniture group + Campus Channel
+      - generic [ref=e31]:
+        - text: "📢 Just posted:"
+        - strong [ref=e33]: Leather Jacket
+        - generic [ref=e34]: →
+        - text: sent to Clothing group
+      - generic [ref=e35]:
+        - text: "📢 Just posted:"
+        - strong [ref=e37]: Samsung Galaxy S22
+        - generic [ref=e38]: →
+        - text: sent to Electronics group + Campus Channel
+      - generic [ref=e39]:
+        - text: "📢 Just posted:"
+        - strong [ref=e41]: Mattress — 4x6
+        - generic [ref=e42]: →
+        - text: sent to Hostel Living group
+      - generic [ref=e43]:
+        - text: "📢 Just posted:"
+        - strong [ref=e45]: Calculus Textbook Bundle
+        - generic [ref=e46]: →
+        - text: sent to Student Essentials group
+      - generic [ref=e47]:
+        - text: "📢 Just posted:"
+        - strong [ref=e49]: Study Desk + Chair
+        - generic [ref=e50]: →
+        - text: sent to Furniture group + Campus Channel
+      - generic [ref=e51]:
+        - text: "📢 Just posted:"
+        - strong [ref=e53]: Leather Jacket
+        - generic [ref=e54]: →
+        - text: sent to Clothing group
+  - generic [ref=e56]:
+    - generic [ref=e57]:
+      - paragraph [ref=e58]: Campus Distribution Network
+      - heading "Post once. Reach the whole campus." [level=1] [ref=e59]: Post once.Reach the whole campus.
+      - paragraph [ref=e60]: Every listing on GikoMart broadcasts straight to Egerton WhatsApp groups and channels — buyers see it before they even open the app.
+      - generic [ref=e61]:
+        - button "List something →" [ref=e62] [cursor=pointer]
+        - button "Browse listings" [ref=e63] [cursor=pointer]
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]: "0"
+          - generic [ref=e67]: active listings
+        - generic [ref=e68]:
+          - generic [ref=e69]: "10"
+          - generic [ref=e70]: categories
+        - generic [ref=e71]:
+          - generic [ref=e72]: 30s
+          - generic [ref=e73]: to WhatsApp
+    - generic [ref=e74]:
+      - generic [ref=e75]:
+        - generic [ref=e77]:
+          - generic [ref=e78]: G
+          - generic [ref=e79]:
+            - strong [ref=e80]: GikoMart Campus
+            - generic [ref=e81]: Channel · 1,204 followers
+        - generic [ref=e83]:
+          - strong [ref=e84]: 🆕 NEW AT GikoMart
+          - paragraph [ref=e85]: Samsung Galaxy S22
+          - paragraph [ref=e86]: 💰 KSh 38,000
+          - paragraph [ref=e87]: 📍 Egerton University, Njoro
+          - generic [ref=e88]: just now
+      - generic [ref=e89]: 🛋️
+      - generic [ref=e90]: 📱
+      - generic [ref=e91]: 📚
+  - main [ref=e92]:
+    - generic [ref=e120]:
+      - generic [ref=e121]:
+        - heading "List something new" [level=2] [ref=e122]
+        - paragraph [ref=e123]: Takes under a minute. We'll broadcast it for you.
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]:
+            - text: Leave this field empty
+            - textbox [aria-hidden] [ref=e127]
+          - generic [ref=e128]:
+            - generic [ref=e129]: Photo
+            - generic [ref=e130] [cursor=pointer]:
+              - generic [ref=e131]:
+                - generic [ref=e132]: 📷
+                - generic [ref=e133]: Click to add a photo
+                - generic [ref=e134]: JPG or PNG, up to 5MB
+              - button "✕" [ref=e135]
+          - generic [ref=e137]:
+            - generic [ref=e138]: What are you selling?
+            - textbox "e.g. Samsung Galaxy S22, 128GB" [ref=e139]
+          - generic [ref=e140]:
+            - generic [ref=e141]:
+              - generic [ref=e142]: Category
+              - combobox [ref=e143]:
+                - option "Choose a category" [selected]
+                - option "📱 Electronics"
+                - option "🛋️ Furniture"
+                - option "👕 Clothing"
+                - option "🚗 Vehicles"
+                - option "🏠 Property"
+                - option "💼 Jobs & Services"
+                - option "🌾 Agriculture"
+                - option "📚 Student Essentials"
+                - option "🛏️ Hostel Living"
+                - option "🎁 Free Stuff"
+            - generic [ref=e144]:
+              - generic [ref=e145]: Condition
+              - combobox [ref=e146]:
+                - option "New / Sealed"
+                - option "Like New"
+                - option "Excellent" [selected]
+                - option "Good"
+                - option "Fair"
+                - option "Poor"
+          - generic [ref=e147]:
+            - generic [ref=e148]:
+              - generic [ref=e149]: Price (KSh)
+              - spinbutton "e.g. 38000" [ref=e150]
+            - generic [ref=e151]:
+              - generic [ref=e152]: Location
+              - textbox "e.g. Njoro, Hostel C" [ref=e153]
+          - generic [ref=e154]:
+            - generic [ref=e155]: Description
+            - textbox "Condition details, what's included, why you're selling…" [ref=e156]
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - generic [ref=e159]: Your name
+              - textbox "e.g. Teryl" [ref=e160]
+            - generic [ref=e161]:
+              - generic [ref=e162]: WhatsApp number
+              - textbox "+254 7XX XXX XXX" [ref=e163]
+          - generic [ref=e165]:
+            - generic [ref=e166]: 💳 Choose a listing plan
+            - generic [ref=e167]:
+              - generic [ref=e168] [cursor=pointer]:
+                - generic [ref=e169]:
+                  - strong [ref=e170]: Quick Sale (24h)
+                  - generic [ref=e171]: Food, tickets, urgent sales
+                - generic [ref=e172]: KSh 30
+              - generic [ref=e173] [cursor=pointer]:
+                - generic [ref=e174]:
+                  - strong [ref=e175]: Standard (7 days)
+                  - generic [ref=e176]: Most student-to-student sales
+                - generic [ref=e177]: KSh 50
+              - generic [ref=e178] [cursor=pointer]:
+                - generic [ref=e179]:
+                  - strong [ref=e180]: Premium (30 days)
+                  - generic [ref=e181]: Hostel rooms, electronics, long-term
+                - generic [ref=e182]: KSh 150
+            - generic [ref=e183]: M-Pesa number to pay with
+            - textbox "e.g. 0712345678" [ref=e184]
+            - generic [ref=e185]: Can be different from your WhatsApp contact number above
+          - button "Publish listing" [ref=e186] [cursor=pointer]
+        - generic [ref=e188]:
+          - paragraph [ref=e189]: Live preview — what campus will see
+          - generic [ref=e190]:
+            - generic [ref=e192]:
+              - generic [ref=e193]: G
+              - generic [ref=e194]:
+                - strong [ref=e195]: GikoMart Campus
+                - generic [ref=e196]: Channel · 1,204 followers
+            - generic [ref=e198]:
+              - strong [ref=e199]: 🆕 NEW AT GikoMart
+              - paragraph [ref=e200]: Your item title
+              - paragraph [ref=e201]: 💰 KSh 0
+              - paragraph [ref=e202]: 📂 Category
+              - paragraph [ref=e203]: "\"Description preview…\""
+              - paragraph [ref=e204]: 📍 Egerton University, Njoro
+              - generic [ref=e205]: sending…

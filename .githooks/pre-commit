@@ -1,0 +1,32 @@
+#!/bin/bash
+# pre-commit: lint staged JS with the project's ESLint config.
+#
+# Runs the repo-local eslint (./node_modules/.bin) against every staged
+# added/copied/modified/renamed .js/.mjs/.cjs file. Lint errors block the
+# commit; bypass with `git commit --no-verify` when you truly mean it.
+# Installed via `git config core.hooksPath .githooks`, which `npm install`
+# re-applies automatically through the package.json "prepare" script.
+
+# Staged JS files that still exist in the worktree. Deletions and the stale
+# source half of renames are skipped (nothing lintable to run against).
+files=()
+while IFS= read -r -d '' f; do
+  [ -f "$f" ] && files+=("$f")
+done < <(git --no-pager diff --cached --name-only -z --diff-filter=ACMR -- '*.js' '*.mjs' '*.cjs')
+
+[ ${#files[@]} -eq 0 ] && exit 0
+
+ESLINT="./node_modules/.bin/eslint"
+if [ ! -x "$ESLINT" ]; then
+  echo "pre-commit: eslint not found — run 'npm install' first; skipping lint." >&2
+  exit 0
+fi
+
+echo "pre-commit: ESLint on ${#files[@]} staged file(s)…"
+if ! "$ESLINT" --no-warn-ignored "${files[@]}"; then
+  echo "" >&2
+  echo "✖ Commit blocked: ESLint errors in staged files." >&2
+  echo "  Fix the errors above, or bypass with: git commit --no-verify" >&2
+  exit 1
+fi
+echo "✓ pre-commit: ESLint clean."

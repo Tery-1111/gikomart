@@ -1,0 +1,314 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]: G
+    - generic [ref=e5]:
+      - heading "GikoMart — UI Preview" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Isolated design-system gallery · extracted from the live app (revision 8ac100a)
+    - generic [ref=e8]: Isolated · not the production UI
+  - paragraph [ref=e9]:
+    - strong [ref=e10]: "What this is:"
+    - text: a self-contained reference of GikoMart's design tokens and components. It lives at
+    - code [ref=e11]: /ui-preview/
+    - text: and shares no CSS with the app — every value below is documented so the live app can be refactored toward one source of truth. Components are rendered inline; nothing on this page calls the backend.
+  - generic [ref=e12]:
+    - heading "01Color tokens" [level=2] [ref=e13]
+    - generic [ref=e14]:
+      - generic [ref=e17]:
+        - strong [ref=e18]: Marigold
+        - text: "#FF9F1C · --marigold"
+      - generic [ref=e21]:
+        - strong [ref=e22]: Marigold strong
+        - text: "#A56300 · --marigold-strong"
+      - generic [ref=e25]:
+        - strong [ref=e26]: Marigold dark
+        - text: "#9A5600 · --marigold-dark"
+      - generic [ref=e29]:
+        - strong [ref=e30]: Marigold light
+        - text: "#FFE3B8 · --marigold-light"
+      - generic [ref=e33]:
+        - strong [ref=e34]: Deep Teal
+        - text: "#0B6E6E · --teal"
+      - generic [ref=e37]:
+        - strong [ref=e38]: Teal light
+        - text: "#E3F3F2 · --teal-light"
+      - generic [ref=e41]:
+        - strong [ref=e42]: WhatsApp green
+        - text: "#25D366 · --wa-green"
+      - generic [ref=e45]:
+        - strong [ref=e46]: WhatsApp green strong
+        - text: "#0D7F41 · --wa-green-strong"
+      - generic [ref=e49]:
+        - strong [ref=e50]: WhatsApp green strong dark
+        - text: "#0B6A36 · --wa-green-strong-dark"
+      - generic [ref=e53]:
+        - strong [ref=e54]: WhatsApp green dark
+        - text: "#1DA851 · --wa-green-dark"
+      - generic [ref=e57]:
+        - strong [ref=e58]: Cream
+        - text: "#FFF8EE · --cream"
+      - generic [ref=e61]:
+        - strong [ref=e62]: Cream deep
+        - text: "#FFF1DC · --cream-deep"
+      - generic [ref=e65]:
+        - strong [ref=e66]: Ink
+        - text: "#2B2B2B · --ink"
+      - generic [ref=e69]:
+        - strong [ref=e70]: Ink soft
+        - text: "#6B6660 · --ink-soft"
+      - generic [ref=e73]:
+        - strong [ref=e74]: Coral
+        - text: "#FF6B6B · --coral"
+      - generic [ref=e77]:
+        - strong [ref=e78]: White
+        - text: "#FFFFFF · --white"
+      - generic [ref=e81]:
+        - strong [ref=e82]: Border
+        - text: "#EEE3D4 · --border"
+      - generic [ref=e85]:
+        - strong [ref=e86]: Ink faint
+        - text: "#D9D5D0 · --ink-faint"
+      - generic [ref=e89]:
+        - strong [ref=e90]: Neutral
+        - text: "#C9C2B8 · --neutral"
+      - generic [ref=e93]:
+        - strong [ref=e94]: WA chat bg
+        - text: "#ECE5DD · --wa-chat-bg"
+      - generic [ref=e97]:
+        - strong [ref=e98]: Success
+        - text: "#1D9A4A · --success"
+      - generic [ref=e101]:
+        - strong [ref=e102]: Success bg
+        - text: "#E7F8ED · --success-bg"
+      - generic [ref=e105]:
+        - strong [ref=e106]: Danger
+        - text: "#dc3545 · --danger"
+      - generic [ref=e109]:
+        - strong [ref=e110]: Danger bg
+        - text: "#FFE6E6 · --danger-bg"
+      - generic [ref=e113]:
+        - strong [ref=e114]: Warning bg
+        - text: "#FFF3D9 · --warning-bg"
+  - generic [ref=e115]:
+    - heading "02Typography" [level=2] [ref=e116]
+    - generic [ref=e117]:
+      - generic [ref=e118]:
+        - generic [ref=e119]: Post once. Reach the whole campus.
+        - generic [ref=e120]: Space Grotesk 700 · 56/1.08 · hero title · — 40 @900 · 32 @640
+      - generic [ref=e121]:
+        - generic [ref=e122]: Browse listings
+        - generic [ref=e123]: Space Grotesk 700 · 32 · view header h2
+      - generic [ref=e124]:
+        - generic [ref=e125]: 42 · 1,204 · KSh 38,000
+        - generic [ref=e126]: Space Grotesk 700 · 30 · stat/dash numbers · 18 listing price · 26 modal price
+      - generic [ref=e127]:
+        - generic [ref=e128]: Every listing broadcasts straight to Egerton WhatsApp groups — buyers see it before they open the app.
+        - generic [ref=e129]: Inter 400 · 17 · hero sub
+      - generic [ref=e130]:
+        - generic [ref=e131]: Sell · Browse · My Listings · My Store
+        - generic [ref=e132]: Inter 600 · 14 · nav / buttons 15 · inputs 14
+      - generic [ref=e133]:
+        - generic [ref=e134]: CAMPUS DISTRIBUTION NETWORK
+        - generic [ref=e135]: Inter 700 · 13 · uppercase .12em · eyebrow
+      - generic [ref=e136]:
+        - generic [ref=e137]: Njoro · Broadcast · 📍 Hostel C · 42 views
+        - generic [ref=e138]: Inter · 10.5–13 · meta / badges 10.5–11
+      - paragraph [ref=e139]: Font stacks
+      - generic [ref=e140]:
+        - generic [ref=e141]:
+          - generic [ref=e142]: Display
+          - textbox [ref=e143]: "'Space Grotesk', sans-serif"
+        - generic [ref=e144]:
+          - generic [ref=e145]: Body
+          - textbox [ref=e146]: "'Inter', sans-serif"
+  - generic [ref=e147]:
+    - heading "03Radius & shadow" [level=2] [ref=e148]
+    - generic [ref=e149]:
+      - generic [ref=e150]:
+        - generic [ref=e152]: Radius small
+        - generic [ref=e153]: 8px · inputs
+      - generic [ref=e154]:
+        - generic [ref=e156]: Radius medium
+        - generic [ref=e157]: 14px · upload/stat cards
+      - generic [ref=e158]:
+        - generic [ref=e160]: Radius large
+        - generic [ref=e161]: 22px · cards/modals
+      - generic [ref=e162]:
+        - generic [ref=e164]: Pill
+        - generic [ref=e165]: 100px · buttons/tags
+      - generic [ref=e166]:
+        - generic [ref=e168]: Shadow soft
+        - generic [ref=e169]: 0 4px 20px rgb(43,43,43,.06)
+      - generic [ref=e170]:
+        - generic [ref=e172]: Shadow pop
+        - generic [ref=e173]: 0 8px 28px rgb(255,159,28,.18)
+  - generic [ref=e174]:
+    - heading "04Buttons" [level=2] [ref=e175]
+    - generic [ref=e176]:
+      - generic [ref=e177]:
+        - button "List something →" [ref=e178] [cursor=pointer]
+        - button "Browse listings" [ref=e179] [cursor=pointer]
+        - button "💬 Contact seller on WhatsApp" [ref=e180] [cursor=pointer]
+        - button "Boost" [ref=e181] [cursor=pointer]
+      - paragraph [ref=e182]: Focus state (press Tab)
+      - button "Focused" [ref=e184] [cursor=pointer]
+  - generic [ref=e185]:
+    - heading "05Navigation · pills · search" [level=2] [ref=e186]
+    - generic [ref=e187]:
+      - generic [ref=e188]:
+        - generic [ref=e189]:
+          - generic [ref=e190]: G
+          - generic [ref=e191]: GikoMart
+        - navigation [ref=e192]:
+          - button "Browse" [ref=e193] [cursor=pointer]
+          - button "Sell" [ref=e194] [cursor=pointer]
+          - button "My Listings" [ref=e195] [cursor=pointer]
+          - button "My Store" [ref=e196] [cursor=pointer]
+      - generic [ref=e197]:
+        - generic [ref=e198]: ⌕
+        - textbox "Search for textbooks, mattresses, phones…" [ref=e199]
+      - generic [ref=e200]:
+        - generic [ref=e201] [cursor=pointer]: All
+        - generic [ref=e202] [cursor=pointer]: 📱 Electronics
+        - generic [ref=e203] [cursor=pointer]: 📚 Student Essentials
+        - generic [ref=e204] [cursor=pointer]: 🛏️ Hostel Living
+        - generic [ref=e205] [cursor=pointer]: 🌾 Agriculture
+      - paragraph [ref=e206]: Campus tag
+      - generic [ref=e207]: 📍 Egerton University
+  - generic [ref=e208]:
+    - heading "06Form controls" [level=2] [ref=e209]
+    - generic [ref=e210]:
+      - generic [ref=e211]:
+        - generic [ref=e212]:
+          - generic [ref=e213]:
+            - generic [ref=e214]: Category
+            - combobox [ref=e215]:
+              - option "Choose a category" [selected]
+              - option "📱 Electronics"
+              - option "🛋️ Furniture"
+          - generic [ref=e216]:
+            - generic [ref=e217]: Condition
+            - combobox [ref=e218]:
+              - option "Excellent" [selected]
+              - option "Good"
+              - option "Fair"
+        - generic [ref=e219]:
+          - generic [ref=e220]:
+            - generic [ref=e221]: Price (KSh)
+            - spinbutton "e.g. 38000" [ref=e222]
+          - generic [ref=e223]:
+            - generic [ref=e224]: Location
+            - textbox "e.g. Njoro, Hostel C" [ref=e225]
+        - generic [ref=e226]:
+          - generic [ref=e227]: Description
+          - textbox "Condition details, what's included, why you're selling…" [ref=e228]
+      - generic [ref=e229]:
+        - paragraph [ref=e230]: Toggle
+        - generic [ref=e231]:
+          - checkbox "Broadcast to WhatsApp" [checked]
+          - generic [ref=e232] [cursor=pointer]
+          - generic [ref=e233]: Broadcast to WhatsApp
+        - paragraph [ref=e234]: Photo upload zone
+        - generic [ref=e235]:
+          - generic [ref=e236]: 📷
+          - generic [ref=e237]: Click to add a photo
+          - generic [ref=e238]: JPG or PNG, up to 5MB
+  - generic [ref=e239]:
+    - heading "07Listing cards & badges" [level=2] [ref=e240]
+    - generic [ref=e241]:
+      - generic [ref=e242] [cursor=pointer]:
+        - generic [ref=e243]:
+          - text: 📱
+          - generic [ref=e244]: Excellent
+        - generic [ref=e245]:
+          - generic [ref=e246]: Samsung Galaxy S22, 128GB
+          - generic [ref=e247]: KSh 38,000
+          - generic [ref=e248]:
+            - generic [ref=e249]: 📍 Njoro
+            - generic [ref=e250]: 📢 Broadcast
+      - generic [ref=e251] [cursor=pointer]:
+        - generic [ref=e252]:
+          - text: 🛋️
+          - generic [ref=e253]: Good
+          - generic [ref=e254]: ⭐ Featured
+        - generic [ref=e255]:
+          - generic [ref=e256]: Study Desk + Chair
+          - generic [ref=e257]: KSh 6,500
+          - generic [ref=e258]:
+            - generic [ref=e259]: 📍 Nakuru CBD
+            - generic [ref=e260]: 👁️ 19
+      - generic [ref=e261] [cursor=pointer]:
+        - generic [ref=e262]:
+          - text: 📚
+          - generic [ref=e263]: Fair
+        - generic [ref=e264]:
+          - generic [ref=e265]: Calculus Textbook Bundle
+          - generic [ref=e266]: KSh 1,200
+          - generic [ref=e267]:
+            - generic [ref=e268]: 📍 Egerton Uni
+            - generic [ref=e269]: 🏪 Shop
+  - generic [ref=e270]:
+    - heading "08Listing detail modal" [level=2] [ref=e271]
+    - generic [ref=e273]:
+      - button "✕" [ref=e274] [cursor=pointer]
+      - generic [ref=e275]: 📱
+      - generic [ref=e276]: Excellent
+      - heading "Samsung Galaxy S22, 128GB" [level=3] [ref=e277]
+      - generic [ref=e278]: KSh 38,000
+      - generic [ref=e279]:
+        - generic [ref=e280]: 📂 Electronics
+        - generic [ref=e281]: 📍 Njoro
+        - generic [ref=e282]: 👤 Brian
+        - generic [ref=e283]: 👁️ 42 views
+      - paragraph [ref=e284]: 128GB, no cracks, charger included. Barely used one semester.
+      - button "💬 Contact seller on WhatsApp" [ref=e285] [cursor=pointer]
+  - generic [ref=e286]:
+    - heading "09Status & feedback" [level=2] [ref=e287]
+    - generic [ref=e288]:
+      - paragraph [ref=e289]: Condition / status chips
+      - generic [ref=e290]:
+        - generic [ref=e291]: Like New
+        - generic [ref=e292]: New
+        - generic [ref=e293]: Good
+        - generic [ref=e294]: Fair · Poor
+        - generic [ref=e295]: ⭐ Featured
+        - generic [ref=e296]: 🚀 Rush
+      - paragraph [ref=e297]: Toast
+      - generic [ref=e298]: ✅ Payment confirmed — your listing is live!
+      - paragraph [ref=e300]: Pulse ticker (signature element)
+      - generic [ref=e302]:
+        - generic [ref=e303]:
+          - text: "📢 Just posted:"
+          - strong [ref=e305]: Samsung Galaxy S22
+          - generic [ref=e306]: →
+          - text: Electronics group + Campus Channel
+        - generic [ref=e307]:
+          - text: "📢 Just posted:"
+          - strong [ref=e309]: Mattress — 4x6
+          - generic [ref=e310]: →
+          - text: Hostel Living group
+        - generic [ref=e311]:
+          - text: "📢 Just posted:"
+          - strong [ref=e313]: Leather Jacket
+          - generic [ref=e314]: →
+          - text: Clothing group
+  - generic [ref=e315]:
+    - heading "10Signature — WhatsApp broadcast phone mock" [level=2] [ref=e316]
+    - generic [ref=e318]:
+      - generic [ref=e320]:
+        - generic [ref=e321]: G
+        - generic [ref=e322]:
+          - strong [ref=e323]: GikoMart Campus
+          - text: Channel · 1,204 followers
+      - generic [ref=e325]:
+        - strong [ref=e326]: 🆕 NEW AT GikoMart
+        - paragraph [ref=e327]: 💡 Desk Lamp + Stand
+        - paragraph [ref=e328]: 💰 KSh 1,800
+        - paragraph [ref=e329]: 📍 Egerton University, Njoro
+        - generic [ref=e330]: just now
+  - contentinfo [ref=e331]:
+    - generic [ref=e332]:
+      - text: GikoMart UI Preview — extracted 2026-09-12 · serves at
+      - code [ref=e333]: /ui-preview/
+    - generic [ref=e334]:
+      - text: "Source of truth doc:"
+      - code [ref=e335]: docs/ui-audit/design-system.md

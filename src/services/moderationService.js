@@ -26,6 +26,7 @@ const FLAGGED_PATTERNS = [
 // Keywords that indicate a scam/phishing pattern regardless of category
 const SCAM_PATTERNS = [
   /m-pesa\s*(?:code|pin)|send\s*money/i,
+  // eslint-disable-next-line security/detect-unsafe-regex -- optional-tail match on bounded listing text; pattern semantics reviewed, keep as-is
   /pay\s*first(?:,\s*then\s*(?:deliver|ship))?/i,
   /no\s*refund|refund\s*not\s*guaranteed/i,
   /western\s*union|money\s*gram/i,

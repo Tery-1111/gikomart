@@ -4,7 +4,13 @@ const Payment = require('../models/Payment');
 const logger = require('../config/logger');
 const { broadcastListing } = require('../services/whatsappService');
 const { checkListing } = require('../services/moderationService');
-const { initiateBoostPayment, initiateListingPayment, BOOST_PRICES, LISTING_PRICES } = require('../services/paymentService');
+const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
+const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
+const {
+  validateAcceptanceToken,
+  recordAcceptance,
+} = require('../services/termsAcceptanceService');
+const TermsAcceptance = require('../models/TermsAcceptance');
 
 function extractErrorMessage(err) {
   return err.message || err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Unknown payment error';
@@ -50,13 +56,21 @@ exports.initiateBoost = async (req, res) => {
 // Initiate a listing payment (new listing — created only after payment confirms)
 exports.initiateListing = async (req, res) => {
   try {
-    const { phoneNumber, package: pkg, listingData } = req.body;
+    const { phoneNumber, package: pkg, listingData, acceptance } = req.body;
 
     if (!LISTING_PRICES[pkg]) {
       return res.status(400).json({ success: false, error: 'Invalid listing package' });
     }
     if (!listingData || typeof listingData !== 'object') {
       return res.status(400).json({ success: false, error: 'Missing listing details' });
+    }
+
+    const acceptValidation = validateAcceptanceToken(acceptance, ACCEPTANCE_TYPES.LISTING_PUBLICATION);
+    if (!acceptValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Terms acceptance required: ${acceptValidation.error}`,
+      });
     }
 
     // Validate every field the Listing model requires BEFORE starting the STK push —
@@ -91,6 +105,31 @@ exports.initiateListing = async (req, res) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const userAgent = req.get('user-agent') || '';
+
+    const acceptanceRec = await recordAcceptance({
+      acceptanceType: ACCEPTANCE_TYPES.LISTING_PUBLICATION,
+      versions: acceptValidation.versions,
+      action: `PAY_AND_PUBLISH:${pkg}`,
+      phone: phoneNumber,
+      whatsapp: listingData.sellerWhatsapp,
+      ownerTokenHash,
+      ip,
+      userAgent,
+      paymentInvoiceId: invoiceId,
+      fee: {
+        amount,
+        currency: 'KES',
+        label: `Listing package: ${pkg}`,
+      },
+      storeId: listingData && listingData.store_id ? listingData.store_id : null,
+      metadata: {
+        listingTitle: listingData.title || null,
+        listingCategory: listingData.category || null,
+      },
+    });
+
     await Payment.create({
       type: 'listing',
       phoneNumber,
@@ -99,6 +138,7 @@ exports.initiateListing = async (req, res) => {
       listingData,
       ownerTokenHash,
       invoiceId,
+      termsAcceptanceId: acceptanceRec._id,
       status: 'pending',
     });
 
@@ -106,6 +146,100 @@ exports.initiateListing = async (req, res) => {
   } catch (err) {
     const errMsg = extractErrorMessage(err);
     logger.error('Listing payment error', { error: errMsg });
+    res.status(500).json({ success: false, error: errMsg });
+  }
+};
+
+// Initiate a store plan payment (new store — created only after payment confirms)
+exports.initiateStorePlan = async (req, res) => {
+  try {
+    const { phoneNumber, storePlan, storeData, acceptance } = req.body;
+
+    if (!STORE_PLANS[storePlan]) {
+      return res.status(400).json({ success: false, error: 'Invalid store plan' });
+    }
+    if (!storeData || typeof storeData !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing store details' });
+    }
+
+    const acceptValidation = validateAcceptanceToken(acceptance, ACCEPTANCE_TYPES.STORE_CREATION);
+    if (!acceptValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Terms acceptance required: ${acceptValidation.error}`,
+      });
+    }
+
+    // Validate required store fields
+    const errors = [];
+    if (typeof storeData.name !== 'string' || !storeData.name.trim()) errors.push('name');
+    if (typeof storeData.category !== 'string' || !storeData.category.trim()) errors.push('category');
+    if (typeof storeData.phone !== 'string' || !storeData.phone.trim()) errors.push('phone');
+    if (typeof storeData.whatsapp !== 'string' || !storeData.whatsapp.trim()) errors.push('whatsapp');
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid or missing store details: ${errors.join(', ')}` });
+    }
+
+    // Generate store owner token
+    const rawOwnerToken = crypto.randomBytes(24).toString('hex');
+    const ownerTokenHash = crypto.createHash('sha256').update(rawOwnerToken).digest('hex');
+
+    // Generate slug
+    let base = storeData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!base) base = 'store';
+    const Store = require('../models/Store');
+    let slug = base;
+    let counter = 2;
+    while (await Store.findOne({ slug })) {
+      slug = `${base}-${counter}`;
+      counter++;
+    }
+
+    const apiRef = `store_${Date.now()}`;
+    const { response, amount } = await initiateStorePlanPayment({ phoneNumber, storePlan, apiRef });
+
+    const invoiceId = response?.invoice?.invoice_id || response?.id || null;
+
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const userAgent = req.get('user-agent') || '';
+
+    const acceptanceRec = await recordAcceptance({
+      acceptanceType: ACCEPTANCE_TYPES.STORE_CREATION,
+      versions: acceptValidation.versions,
+      action: `PAY_AND_CREATE_STORE:${storePlan}`,
+      phone: phoneNumber,
+      whatsapp: storeData.whatsapp,
+      ownerTokenHash,
+      ip,
+      userAgent,
+      paymentInvoiceId: invoiceId,
+      fee: {
+        amount,
+        currency: 'KES',
+        label: `Store plan: ${storePlan}`,
+      },
+      metadata: {
+        storeName: storeData.name || null,
+        storeCategory: storeData.category || null,
+      },
+    });
+
+    await Payment.create({
+      type: 'store',
+      phoneNumber,
+      amount,
+      storePlan,
+      storeData: { ...storeData, slug },
+      ownerTokenHash,
+      invoiceId,
+      termsAcceptanceId: acceptanceRec._id,
+      status: 'pending',
+    });
+
+    res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount, ownerToken: rawOwnerToken });
+  } catch (err) {
+    const errMsg = extractErrorMessage(err);
+    logger.error('Store plan payment error', { error: errMsg });
     res.status(500).json({ success: false, error: errMsg });
   }
 };
@@ -163,11 +297,30 @@ exports.handleWebhook = async (req, res) => {
         // designed to stay absent until the listing payment completes) so the
         // status endpoint can tell the payer which listing they now own.
         payment.listingId = listing._id;
+
+        // Back-fill the created listing's ID onto the pre-payment acceptance record
+        // so the acceptance is permanently linked to the specific published listing.
+        if (payment.termsAcceptanceId) {
+          await TermsAcceptance.findByIdAndUpdate(
+            payment.termsAcceptanceId,
+            { listingId: listing._id },
+          ).catch((err) => logger.warn('Failed to link acceptance to listing', {
+            acceptanceId: String(payment.termsAcceptanceId),
+            listingId: String(listing._id),
+            error: err.message,
+          }));
+        }
+
         await payment.save();
         if (!moderation.approved) {
           logger.warn('Listing flagged by moderation', { listingId: String(listing._id), flaggedBy: moderation.flaggedBy });
           return res.status(200).json({ success: true });
         }
+        // Record that the paid broadcast was dispatched BEFORE returning, so the
+        // listing record stays truthful even though the Whapi call below is
+        // fire-and-forget (failures are logged, never retried).
+        listing.broadcastSent = true;
+        await listing.save();
         broadcastListing(listing).catch(err =>
   logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message })
 );
@@ -183,10 +336,59 @@ exports.handleWebhook = async (req, res) => {
             listing.boostType = 'rush';
             listing.featuredUntil = new Date(Date.now() + 72 * 60 * 60 * 1000);
           } else if (payment.boostType === 'priority_broadcast') {
+            // Customer paid for an extra WhatsApp round: the flag moves this
+            // listing to the top of listings queries AND the listing is
+            // re-broadcast (same save-then-fire convention as the listing branch).
             listing.priorityBroadcast = true;
+            listing.broadcastSent = true;
           }
           await listing.save();
+          if (payment.boostType === 'priority_broadcast') {
+            broadcastListing(listing).catch(err =>
+              logger.warn('Priority broadcast skipped (Whapi unavailable)', { error: err.message })
+            );
+          }
         }
+      } else if (payment.type === 'store') {
+        const Store = require('../models/Store');
+        const pricing = STORE_PLANS[payment.storePlan];
+
+        const store = await Store.create({
+          name: payment.storeData.name,
+          slug: payment.storeData.slug,
+          description: payment.storeData.description || '',
+          category: payment.storeData.category,
+          subcategories: payment.storeData.subcategories || [],
+          phone: payment.storeData.phone || '',
+          whatsapp: payment.storeData.whatsapp || '',
+          email: payment.storeData.email || '',
+          campus: payment.storeData.campus || 'Egerton University',
+          location: payment.storeData.location || '',
+          pickup_location: payment.storeData.pickup_location || '',
+          ownerTokenHash: payment.ownerTokenHash,
+          plan: payment.storePlan,
+          plan_price: pricing.amount,
+          plan_duration: pricing.durationMs,
+          listing_limit: pricing.listingLimit,
+          started_at: new Date(),
+          expires_at: new Date(Date.now() + pricing.durationMs),
+          status: 'active',
+        });
+
+        payment.storeId = store._id;
+
+        if (payment.termsAcceptanceId) {
+          await TermsAcceptance.findByIdAndUpdate(
+            payment.termsAcceptanceId,
+            { storeId: store._id },
+          ).catch((err) => logger.warn('Failed to link acceptance to store', {
+            acceptanceId: String(payment.termsAcceptanceId),
+            storeId: String(store._id),
+            error: err.message,
+          }));
+        }
+
+        await payment.save();
       }
     } else if (state === 'FAILED') {
       const payment = await Payment.findOne({ invoiceId: invoice_id });
@@ -220,6 +422,7 @@ exports.checkPaymentStatus = async (req, res) => {
       type: payment.type,
       status: payment.status,
       listingId: payment.listingId || null,
+      storeId: payment.storeId || null,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

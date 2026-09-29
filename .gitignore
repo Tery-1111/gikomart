@@ -1,5 +1,8 @@
 node_modules/
 .env
 logs/
+totp-test.json
+.claude/
 .playwright-mcp/
+.venv-brand/
 server-load-states.log
