@@ -599,6 +599,20 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(cloudinaryUpload).not.toHaveBeenCalled();
   });
 
+  it('rejects a file above the 5 MB limit with 4xx and never uploads (oversize)', async () => {
+    // One byte over the multer limit (upload.js: fileSize: 5 * 1024 * 1024).
+    // A valid PNG header keeps this a pure size rejection, not a format one.
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'blue' } }).png().toBuffer();
+    const oversized = Buffer.concat([png, Buffer.alloc(5 * 1024 * 1024 + 1)]);
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', oversized, { filename: 'big.png', contentType: 'image/png' });
+    // Client error (400/413), not a 5xx — the file size is the caller's fault.
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
+
   it('200 happy path uploads and returns a URL', async () => {
     const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'blue' } }).png().toBuffer();
     const res = await request(app).post('/api/upload')
