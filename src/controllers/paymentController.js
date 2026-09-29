@@ -242,7 +242,14 @@ exports.handleWebhook = async (req, res, next) => {
   try {
     const receivedChallenge = req.body.challenge;
     if (receivedChallenge !== process.env.INTASEND_WEBHOOK_CHALLENGE) {
-      logger.error('Webhook challenge mismatch', { body: JSON.stringify(req.body) });
+      // Whitelist only debug-useful fields — the raw body contains the webhook
+      // challenge secret and payer phone numbers (audit §4.3).
+      logger.error('Webhook challenge mismatch', {
+        invoice_id: req.body.invoice_id,
+        state: req.body.state,
+        api_ref: req.body.api_ref,
+        // body intentionally omitted — contains PII and the webhook challenge secret
+      });
       return res.status(401).json({ success: false, error: 'Invalid webhook challenge' });
     }
 
