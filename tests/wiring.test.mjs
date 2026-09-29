@@ -481,6 +481,47 @@ describe('Store routes — auth, secret hygiene, CRUD', () => {
     expect(ok.status).toBe(200);
     expect(String(h.listings[0].store_id)).toBe('sto-1');
   });
+
+  it('detach-listing clears store_id, keeps the listing, and drops the store listing count', async () => {
+    const store = await seedStore();
+    h.listings.push(makeDoc({ _id: 'lst-det', store_id: null, ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000), status: 'active' }));
+
+    // Attach through the real endpoint (PUT /api/stores/:id/attach-listing)
+    const attached = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', 'raw-owner-token').set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-det' });
+    expect(attached.status).toBe(200);
+    expect(String(h.listings[0].store_id)).toBe('sto-1');
+    const countAfterAttach = await fakeListingModel.countDocuments({ store_id: store._id, status: 'active' });
+    expect(countAfterAttach).toBe(1);
+
+    // Detach through the real endpoint (PUT /api/stores/:id/detach-listing)
+    const res = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', 'raw-owner-token').set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-det' });
+    expect(res.status).toBe(200);
+    // storeId cleared...
+    expect(h.listings[0].store_id).toBeNull();
+    // ...the listing SURVIVES (not deleted)...
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0]._id).toBe('lst-det');
+    // ...and the store's listing count decreased (1 after attach → 0 now).
+    const countAfterDetach = await fakeListingModel.countDocuments({ store_id: store._id, status: 'active' });
+    expect(countAfterDetach).toBe(0);
+  });
+
+  it('detach-listing → 403 when the listing belongs to someone else; listing untouched', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({ _id: 'lst-det2', store_id: 'sto-1', ownerTokenHash: sha256hex('real-listing-owner'), expiresAt: new Date(Date.now() + 86400000), status: 'active' }));
+
+    const res = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', 'raw-owner-token').set('X-Owner-Token', 'attacker-token')
+      .send({ listingId: 'lst-det2' });
+    expect(res.status).toBe(403);
+    // Nothing changed by the rejected attempt.
+    expect(String(h.listings[0].store_id)).toBe('sto-1');
+    expect(h.listings[0].ownerTokenHash).toBe(sha256hex('real-listing-owner'));
+  });
 });
 
 // ─── Admin 2FA flow + moderation gate ───────────────────────────────────────
