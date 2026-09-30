@@ -12,22 +12,13 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(hashA, hashB);
 }
 
-// Generate a URL-friendly slug from a store name. Handles collisions by
-// appending -2, -3, etc. until a unique slug is found.
-async function generateSlug(name) {
-  let base = name
+// Generate a URL-friendly slug from a store name.
+function slugifyBase(name) {
+  const base = String(name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  if (!base) base = 'store';
-
-  let slug = base;
-  let counter = 2;
-  while (await Store.findOne({ slug })) {
-    slug = `${base}-${counter}`;
-    counter++;
-  }
-  return slug;
+  return base || 'store';
 }
 
 // Extract Cloudinary public_id from a URL (same pattern as listingController.js)
@@ -125,19 +116,25 @@ exports.updateStore = async (req, res, next) => {
       }
     }
 
-    // If name changed, regenerate slug
+    // If name changed, derive the new slug and REFUSE if another store
+    // already owns it (409 — actionable) instead of silently assigning a
+    // suffixed slug the user never asked for.
     if (updates.name && updates.name !== req.store.name) {
-      updates.slug = await generateSlug(updates.name);
+      const desired = slugifyBase(updates.name);
+      const clash = await Store.findOne({ slug: desired, _id: { $ne: req.params.id } });
+      if (clash) {
+        return res.status(409).json({ success: false, error: 'That slug is already taken' });
+      }
+      updates.slug = desired;
     }
 
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     res.json({ success: true, store });
   } catch (err) {
-    // Duplicate slug → retry with suffix
+    // Race-window duplicate (two concurrent renames to the same free slug):
+    // same user-facing contract as the pre-check above.
     if (err.code === 11000 && err.keyPattern?.slug) {
-      const fallbackSlug = await generateSlug(req.body.name || req.store.name);
-      const store = await Store.findByIdAndUpdate(req.params.id, { ...updates, slug: fallbackSlug }, { returnDocument: 'after' });
-      return res.json({ success: true, store });
+      return res.status(409).json({ success: false, error: 'That slug is already taken' });
     }
     return next(err);
   }
