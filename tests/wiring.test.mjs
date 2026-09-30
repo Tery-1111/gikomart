@@ -354,6 +354,35 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
     expect(h.listings).toHaveLength(0);
     expect(h.stores.size).toBe(0);
   });
+
+  it('challenge-mismatch log is whitelisted: no challenge or phone_number is logged', async () => {
+    const errorSpy = vi.spyOn(fakeLogger, 'error');
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await request(app).post('/api/payments/webhook').send({
+      challenge: 'wrong-challenge',
+      invoice_id: 'INV-LISTING-1',
+      state: 'COMPLETE',
+      api_ref: 'listing_123',
+      phone_number: '+254711000111',
+    });
+    expect(res.status).toBe(401);
+
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    const [message, logged] = errorSpy.mock.calls[0];
+    expect(message).toBe('Webhook challenge mismatch');
+    // Whitelisted debug fields ARE present.
+    expect(logged.invoice_id).toBe('INV-LISTING-1');
+    expect(logged.state).toBe('COMPLETE');
+    expect(logged.api_ref).toBe('listing_123');
+    // Secret + PII are NOT: neither the key nor the value may appear.
+    expect(logged.challenge).toBeUndefined();
+    expect(logged.phone_number).toBeUndefined();
+    expect(logged.body).toBeUndefined();
+    const loggedJson = JSON.stringify(logged);
+    expect(loggedJson).not.toContain('wrong-challenge');
+    expect(loggedJson).not.toContain('+254711000111');
+    errorSpy.mockRestore();
+  });
 });
 
 // ─── Webhook: boost payments ────────────────────────────────────────────────

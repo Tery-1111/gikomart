@@ -19,7 +19,7 @@ exports.getVersions = async (_req, res) => {
   });
 };
 
-exports.recordContactAcceptance = async (req, res) => {
+exports.recordContactAcceptance = async (req, res, next) => {
   try {
     const {
       acceptance,
@@ -72,7 +72,7 @@ exports.recordContactAcceptance = async (req, res) => {
     });
   } catch (err) {
     logger.error('Buyer contact acceptance failure', { error: err.message });
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 

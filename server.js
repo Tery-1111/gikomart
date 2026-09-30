@@ -85,6 +85,10 @@ app.use('/api/stores', require('./src/routes/stores'));
 app.use('/api/terms', require('./src/routes/terms'));
 app.use('/health', require('./src/routes/health'));
 
+// Central error handler — must be the LAST middleware so every thrown/
+// next(err)'d error is funnelled here and gated on NODE_ENV.
+app.use(require('./src/middleware/errorHandler'));
+
 if (require.main === module) {
   mongoose.connect(process.env.MONGO_URI)
     .then(() => {

@@ -63,7 +63,7 @@ function escapeRegex(str) {
 
 // Get all listings (paginated; default 50/cap 100 — low enough to slow bulk
 // scrapers, high enough for normal browsing). Only approved listings are shown.
-exports.getListings = async (req, res) => {
+exports.getListings = async (req, res, next) => {
   try {
     const { category, condition, search, page = 1, limit = 50 } = req.query;
     await Listing.updateMany(
@@ -106,12 +106,12 @@ exports.getListings = async (req, res) => {
       listings: sanitized,
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // Get single listing
-exports.getListing = async (req, res) => {
+exports.getListing = async (req, res, next) => {
   try {
     const listing = await Listing.findOneAndUpdate(
       { _id: req.params.id, status: 'active', moderationStatus: 'approved' },
@@ -121,7 +121,7 @@ exports.getListing = async (req, res) => {
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
     res.json({ success: true, listing });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
@@ -142,7 +142,7 @@ const UPDATABLE_FIELDS = [
   'location',
 ];
 
-exports.updateListing = async (req, res) => {
+exports.updateListing = async (req, res, next) => {
   try {
     // Fetch the target first (with the hidden hash) so ownership can be
     // verified BEFORE any mutation is applied.
@@ -161,12 +161,12 @@ exports.updateListing = async (req, res) => {
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     res.json({ success: true, listing });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // Delete listing — hard delete (no archiving). Removes Cloudinary images first, then the DB record.
-exports.deleteListing = async (req, res) => {
+exports.deleteListing = async (req, res, next) => {
   try {
     const listing = await Listing.findById(req.params.id).select('+ownerTokenHash');
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
@@ -192,14 +192,14 @@ exports.deleteListing = async (req, res) => {
     await Listing.deleteOne({ _id: req.params.id });
     res.json({ success: true, message: 'Listing deleted' });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
 
 // Admin moderation action — approve, flag, or remove a listing.
 // Warded by full admin auth (adminAuth middleware) so a leaked admin key alone
 // cannot alter moderation state without a valid TOTP session.
-exports.moderateListing = async (req, res) => {
+exports.moderateListing = async (req, res, next) => {
   try {
     const { action } = req.body;
     const VALID_ACTIONS = ['approved', 'flagged', 'removed'];
@@ -214,6 +214,6 @@ exports.moderateListing = async (req, res) => {
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
     res.json({ success: true, listing });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return next(err);
   }
 };
