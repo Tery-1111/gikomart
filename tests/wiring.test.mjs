@@ -934,3 +934,25 @@ describe('STORE_PLANS — unsellable plan removed (Fix 6)', () => {
     expect(paymentService.STORE_PLANS.standard_weekly).toBeUndefined();
   });
 });
+
+// ─── CSP: analytics origins ─────────────────────────────────────────────────
+describe('CSP analytics origins', () => {
+  function directive(header, name) {
+    const found = header.split(';').map(d => d.trim()).find(d => d.startsWith(name + ' '));
+    return found ? found.slice(name.length).trim().split(/\s+/) : [];
+  }
+
+  it('allows the GoatCounter image beacon host in img-src (sendBeacon fallback)', async () => {
+    const res = await request(app).get('/health');
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toBeTruthy();
+
+    // The legacy <img> beacon used when navigator.sendBeacon is unavailable is
+    // governed by img-src, not connect-src — so the host must appear there too.
+    expect(directive(csp, 'img-src')).toContain('https://gikomart.goatcounter.com');
+
+    // Primary path: the script itself, and the POST beacon it sends.
+    expect(directive(csp, 'script-src')).toContain('gc.zgo.at');
+    expect(directive(csp, 'connect-src')).toContain('https://gikomart.goatcounter.com');
+  });
+});
