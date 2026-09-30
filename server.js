@@ -26,6 +26,13 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
+// Permissions-Policy — helmet 8 dropped this header (not in its options), so
+// it is set directly. Disallow browser features the app does not use.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
 app.use(compression());
 
 // CORS — restrict to known origins. Allowlist is env-overridable (CORS_ORIGINS,
