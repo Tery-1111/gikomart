@@ -76,7 +76,6 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       quality: 'auto',
       fetch_format: 'auto',
       allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
-      transformation: [{ width: 1600, height: 1600, crop: 'limit' }],
     });
 
     res.json({ success: true, url: result.secure_url });

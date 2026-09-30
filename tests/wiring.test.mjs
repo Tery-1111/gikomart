@@ -767,6 +767,35 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
   });
+
+  it('does not ask Cloudinary to resize again — the buffer is already within 1600px', async () => {
+    // 2400x1800 = 4.3 MP, so sharp's resize must produce a 1600x1200 buffer.
+    // Cloudinary therefore receives an already-capped image and the no-op
+    // `transformation` would only cost a second resize pass per upload.
+    const png = await sharp({ create: { width: 2400, height: 1800, channels: 3, background: 'purple' } }).png().toBuffer();
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', png, { filename: 'wide.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+
+    expect(cloudinaryUpload).toHaveBeenCalledTimes(1);
+    const [dataURI, uploadOptions] = cloudinaryUpload.mock.calls[0];
+    // No resize instruction is handed to Cloudinary at all.
+    expect(uploadOptions).not.toHaveProperty('transformation');
+    // The every-other-option contract is intact.
+    expect(uploadOptions.folder).toBe('gikomart');
+    expect(uploadOptions.resource_type).toBe('image');
+    expect(uploadOptions.quality).toBe('auto');
+    expect(uploadOptions.fetch_format).toBe('auto');
+    expect(uploadOptions.allowed_formats).toEqual(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+
+    // The data URI handed over is the sharp output, i.e. already inside the box.
+    const capped = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
+    expect(Math.max(capped.width, capped.height)).toBeLessThanOrEqual(1600);
+  });
 });
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────
