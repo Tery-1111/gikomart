@@ -664,7 +664,12 @@ describe('Admin 2FA (real speakeasy) and moderation auth', () => {
     const verify = await request(app).post('/api/admin/verify-2fa').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
     expect(verify.status).toBe(200);
 
-    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
+    // Generate a FRESH code for login rather than reusing the verify code.
+    // With a reused code this test fails whenever the 30s TOTP window rolls
+    // between the two requests: the token then belongs to the previous window
+    // and login's replay protection (verifyDelta, delta < 0) rejects it with 401.
+    const loginCode = speakeasy.totp({ secret, encoding: 'base32' });
+    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code: loginCode });
     expect(login.status).toBe(200);
     expect(login.body.token).toBeTruthy();
 
