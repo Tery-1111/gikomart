@@ -49,13 +49,13 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
     // Reject GIF frames (potential denial-of-service via decompression bombs)
     // by re-encoding stills only. Animated GIFs slide through fine after this
     // because sharp re-encodes to a single still — acceptable behaviour here.
-    let data, info;
+    let data;
     try {
       // limitInputPixels caps DECODE, not output: a solid-colour PNG can declare
       // far more pixels than its file size suggests, so without an explicit cap
       // sharp falls back to its ~268 MP library default and happily allocates
       // hundreds of MB of raw pixels for a sub-5 MB upload.
-      ({ data, info } = await sharp(req.file.buffer, { animated: false, limitInputPixels: 25_000_000 })
+      ({ data } = await sharp(req.file.buffer, { animated: false, limitInputPixels: 25_000_000 })
         // Strip metadata (EXIF contains location + camera data) and cap resolution.
         .rotate() // bake EXIF orientation into pixels
         .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
@@ -65,11 +65,6 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       // Corrupt/malformed image bytes that passed magic-byte sniffing are the
       // caller's fault — a 4xx bad request, not a 5xx server error.
       return res.status(400).json({ success: false, error: 'Image could not be processed' });
-    }
-
-    // Reject absurd frame counts / extreme dimensions even after resize guard
-    if (info.width > 1600 || info.height > 1600) {
-      return res.status(400).json({ success: false, error: 'Image too large' });
     }
 
     const b64 = Buffer.from(data).toString('base64');
