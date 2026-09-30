@@ -51,7 +51,11 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
     // because sharp re-encodes to a single still — acceptable behaviour here.
     let data, info;
     try {
-      ({ data, info } = await sharp(req.file.buffer, { animated: false })
+      // limitInputPixels caps DECODE, not output: a solid-colour PNG can declare
+      // far more pixels than its file size suggests, so without an explicit cap
+      // sharp falls back to its ~268 MP library default and happily allocates
+      // hundreds of MB of raw pixels for a sub-5 MB upload.
+      ({ data, info } = await sharp(req.file.buffer, { animated: false, limitInputPixels: 25_000_000 })
         // Strip metadata (EXIF contains location + camera data) and cap resolution.
         .rotate() // bake EXIF orientation into pixels
         .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })

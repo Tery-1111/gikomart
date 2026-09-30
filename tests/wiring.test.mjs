@@ -737,6 +737,36 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
   });
+
+  it('rejects an image above the input pixel cap before decoding it (pixel bomb)', async () => {
+    // 6000x5000 = 30 megapixels: a fully decodable PNG that clears sharp's
+    // ~268 MP library default but exceeds the route's explicit 25 MP cap.
+    // A solid-colour image of this size deflates well under the 5 MB multer
+    // limit, so file size alone is no defence — the header declares the cost.
+    const bomb = await sharp({ create: { width: 6000, height: 5000, channels: 3, background: 'blue' } }).png().toBuffer();
+    expect(bomb.length).toBeLessThan(5 * 1024 * 1024);
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', bomb, { filename: 'bomb.png', contentType: 'image/png' });
+
+    // Rejected at 400 — a client fault, not a 5xx from an exhausted process.
+    expect(res.status).toBe(400);
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a legitimate under-cap photo after the pixel cap is applied', async () => {
+    // 2000x1500 = 3 MP — comfortably below the cap, so a normal listing photo
+    // must still pass end-to-end. Guards against over-tightening the ceiling.
+    const photo = await sharp({ create: { width: 2000, height: 1500, channels: 3, background: 'green' } }).png().toBuffer();
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', photo, { filename: 'photo.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+  });
 });
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────
