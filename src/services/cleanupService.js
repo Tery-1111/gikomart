@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const Listing = require('../models/Listing');
 const Store = require('../models/Store');
+const TermsAcceptance = require('../models/TermsAcceptance');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 
@@ -40,6 +41,62 @@ async function deleteExpiredListings() {
   }
 }
 
+// 30-day PII retention: strip contact/location fields from stores expired
+// longer than 30 days. The store record itself is kept; only PII is nulled.
+async function stripExpiredStoreContacts() {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const expired = await Store.find({
+      expires_at: { $lte: cutoff },
+      $or: [
+        { phone: { $nin: [null, ''] } },
+        { whatsapp: { $nin: [null, ''] } },
+        { email: { $nin: [null, ''] } },
+        { location: { $nin: [null, ''] } },
+        { pickup_location: { $nin: [null, ''] } },
+      ],
+    });
+
+    if (!expired.length) return;
+
+    for (const store of expired) {
+      store.phone = null;
+      store.whatsapp = null;
+      store.email = null;
+      store.location = null;
+      store.pickup_location = null;
+      await store.save();
+    }
+
+    logger.info('Retention: stripped store contact PII (expired >30d)', { count: expired.length });
+  } catch (err) {
+    logger.error('Store contact retention job error', { error: err.message });
+  }
+}
+
+// 30-day PII retention: null the actor IP on acceptance records older than
+// 30 days. The record itself is kept; only the IP is nulled.
+async function stripOldAcceptanceIps() {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const old = await TermsAcceptance.find({
+      timestamp: { $lte: cutoff },
+      'actor.ip': { $ne: null },
+    });
+
+    if (!old.length) return;
+
+    for (const record of old) {
+      record.actor.ip = null;
+      await record.save();
+    }
+
+    logger.info('Retention: stripped TermsAcceptance actor IPs (>30d)', { count: old.length });
+  } catch (err) {
+    logger.error('Acceptance IP retention job error', { error: err.message });
+  }
+}
+
 async function expireStores() {
   try {
     const expired = await Store.find({
@@ -65,8 +122,16 @@ function startCleanupScheduler() {
   cron.schedule('*/30 * * * *', async () => {
     await deleteExpiredListings();
     await expireStores();
+    await stripExpiredStoreContacts();
+    await stripOldAcceptanceIps();
   });
-  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry');
+  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + PII retention');
 }
 
-module.exports = { startCleanupScheduler, deleteExpiredListings, expireStores };
+module.exports = {
+  startCleanupScheduler,
+  deleteExpiredListings,
+  expireStores,
+  stripExpiredStoreContacts,
+  stripOldAcceptanceIps,
+};
