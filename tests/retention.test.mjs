@@ -61,7 +61,7 @@ injectModule('../src/models/TermsAcceptance.js', TermsAcceptanceFake);
 injectModule('../src/config/logger.js', loggerFake);
 injectModule('../src/config/cloudinary.js', cloudinaryFake);
 
-const { stripExpiredStoreContacts, stripOldAcceptanceIps } = require('../src/services/cleanupService');
+const { stripExpiredStoreContacts, stripOldAcceptancePII } = require('../src/services/cleanupService');
 
 // Seed data
 const oldStore = {
@@ -124,18 +124,18 @@ describe('30-day PII retention (cleanupService)', () => {
     expect(StoreFake.rows.length).toBe(2);
   });
 
-  it('strips actor IPs from TermsAcceptance records older than 30d, keeps recent ones, deletes nothing', async () => {
+  it('strips actor PII (ip, phoneHash, userAgent) from TermsAcceptance records older than 30d, keeps recent ones, deletes nothing', async () => {
     const countBefore = TermsAcceptanceFake.rows.length;
 
-    await stripOldAcceptanceIps();
+    await stripOldAcceptancePII();
 
     const oldRow = TermsAcceptanceFake.rows.find((r) => r._id === 'ta-old');
     const recentRow = TermsAcceptanceFake.rows.find((r) => r._id === 'ta-recent');
 
+    // All three PII fields nulled on old records
     expect(oldRow.actor.ip).toBeNull();
-    // only the IP field is touched
-    expect(oldRow.actor.userAgent).toBe('UA-old');
-    expect(oldRow.actor.phoneHash).toBe('hash-1');
+    expect(oldRow.actor.phoneHash).toBeNull();
+    expect(oldRow.actor.userAgent).toBeNull();
 
     expect(recentRow.actor.ip).toBe('198.51.100.20');
 

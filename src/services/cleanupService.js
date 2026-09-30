@@ -74,9 +74,11 @@ async function stripExpiredStoreContacts() {
   }
 }
 
-// 30-day PII retention: null the actor IP on acceptance records older than
-// 30 days. The record itself is kept; only the IP is nulled.
-async function stripOldAcceptanceIps() {
+// 30-day PII retention: null the actor IP, phoneHash, and userAgent on
+// acceptance records older than 30 days. phoneHash is brute-forceable over
+// the Kenyan phone space (pseudonymous, not anonymous); userAgent is a weak
+// fingerprint. The record itself is kept; only these fields are nulled.
+async function stripOldAcceptancePII() {
   try {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const old = await TermsAcceptance.find({
@@ -88,12 +90,14 @@ async function stripOldAcceptanceIps() {
 
     for (const record of old) {
       record.actor.ip = null;
+      record.actor.phoneHash = null;
+      record.actor.userAgent = null;
       await record.save();
     }
 
-    logger.info('Retention: stripped TermsAcceptance actor IPs (>30d)', { count: old.length });
+    logger.info('Retention: stripped TermsAcceptance actor PII (>30d)', { count: old.length });
   } catch (err) {
-    logger.error('Acceptance IP retention job error', { error: err.message });
+    logger.error('Acceptance PII retention job error', { error: err.message });
   }
 }
 
@@ -123,7 +127,7 @@ function startCleanupScheduler() {
     await deleteExpiredListings();
     await expireStores();
     await stripExpiredStoreContacts();
-    await stripOldAcceptanceIps();
+    await stripOldAcceptancePII();
   });
   logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + PII retention');
 }
@@ -133,5 +137,5 @@ module.exports = {
   deleteExpiredListings,
   expireStores,
   stripExpiredStoreContacts,
-  stripOldAcceptanceIps,
+  stripOldAcceptancePII,
 };
