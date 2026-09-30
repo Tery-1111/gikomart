@@ -6,3 +6,4 @@ totp-test.json
 .playwright-mcp/
 .venv-brand/
 server-load-states.log
+backups/

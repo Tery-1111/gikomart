@@ -4,6 +4,11 @@ const qrcode = require('qrcode');
 const Admin = require('../models/Admin');
 const logger = require('../config/logger');
 const { signSession, SESSION_TTL_MS } = require('../middleware/adminAuth');
+const {
+  check: checkLockout,
+  recordFailure: recordAuthFailure,
+  clear: clearLockout,
+} = require('../middleware/adminLockout');
 
 /**
  * Admin 2FA Controller
@@ -31,13 +36,61 @@ function adminKeyValid(req) {
   return safeEqual(adminKey, expected);
 }
 
+// FIX A2 — structured failed-auth log. Never log the key, token, code, or body.
+function logAuthFailure(req, reason) {
+  logger.warn('admin_auth_failed', {
+    reason,
+    path: req.originalUrl,
+    method: req.method,
+    ip: req.ip,
+  });
+}
+
+// FIX A3 — per-IP lockout gate for admin endpoints. Returns false (and has
+// already responded 429) when this IP is locked out.
+function lockoutOk(req, res) {
+  const status = checkLockout(req.ip);
+  if (status.locked) {
+    res.status(429).json({ error: 'Too many attempts', retryAfterSec: status.retryAfterSec });
+    return false;
+  }
+  return true;
+}
+
 const ADMIN_USERNAME = 'owner';
 
 // Step 1 — Generate a TOTP secret and QR code for the authenticator app.
 exports.setup2FA = async (req, res) => {
   try {
+    if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
+      logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
+      recordAuthFailure(req.ip);
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
+    }
+
+    // Enrollment gate: once an admin is enrolled (totpEnabled), resetting the
+    // seed requires BOTH the key and a valid TOTP code — otherwise a leaked
+    // key alone could silently replace the second factor. First-time setup
+    // (no enrolled admin) stays key-only.
+    const current = await Admin.findOne({ username: ADMIN_USERNAME }).select('+totpSecret');
+    if (current && current.totpEnabled === true) {
+      const { totpCode } = req.body || {};
+      if (!totpCode || typeof totpCode !== 'string') {
+        logAuthFailure(req, 'missing_totp');
+        return res.status(400).json({ success: false, error: 'TOTP code required' });
+      }
+      const seedOk = speakeasy.totp.verify({
+        secret: current.totpSecret,
+        encoding: 'base32',
+        token: totpCode,
+        window: 1, // ±1 time-step drift — same config as verify2FA
+      });
+      if (!seedOk) {
+        logAuthFailure(req, 'invalid_totp');
+        recordAuthFailure(req.ip);
+        return res.status(401).json({ success: false, error: 'Invalid credentials' });
+      }
     }
 
     const secret = speakeasy.generateSecret({
@@ -84,12 +137,16 @@ exports.setup2FA = async (req, res) => {
 // Step 2 — Verify an initial TOTP code and enable 2FA.
 exports.verify2FA = async (req, res) => {
   try {
+    if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
+      logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
+      recordAuthFailure(req.ip);
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
     }
 
     const { code } = req.body;
     if (!code || typeof code !== 'string') {
+      logAuthFailure(req, 'missing_totp');
       return res.status(400).json({ success: false, error: 'TOTP code required' });
     }
 
@@ -106,6 +163,8 @@ exports.verify2FA = async (req, res) => {
     });
 
     if (!verified) {
+      logAuthFailure(req, 'invalid_totp');
+      recordAuthFailure(req.ip);
       return res.status(401).json({ success: false, error: 'Invalid verification code' });
     }
 
@@ -122,12 +181,16 @@ exports.verify2FA = async (req, res) => {
 // Step 3 — Authenticate: ADMIN_KEY + TOTP code → 24h session token.
 exports.login = async (req, res) => {
   try {
+    if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
+      logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
+      recordAuthFailure(req.ip);
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
     }
 
     const { code } = req.body;
     if (!code || typeof code !== 'string') {
+      logAuthFailure(req, 'missing_totp');
       return res.status(400).json({ success: false, error: 'TOTP code required' });
     }
 
@@ -149,6 +212,8 @@ exports.login = async (req, res) => {
     });
 
     if (!verified || verified.delta < 0) {
+      logAuthFailure(req, 'invalid_totp');
+      recordAuthFailure(req.ip);
       return res.status(401).json({ success: false, error: 'Invalid TOTP code' });
     }
 
@@ -158,11 +223,16 @@ exports.login = async (req, res) => {
     const window = 30;
     const counter = Math.floor(now / window);
     if (admin.lastUsedCounter >= counter) {
+      logAuthFailure(req, 'invalid_totp');
+      recordAuthFailure(req.ip);
       return res.status(401).json({ success: false, error: 'TOTP code already used' });
     }
 
     admin.lastUsedCounter = counter;
     await admin.save();
+
+    // Successful auth clears this IP's failure count (FIX A3).
+    clearLockout(req.ip);
 
     const sessionToken = signSession({
       username: admin.username,

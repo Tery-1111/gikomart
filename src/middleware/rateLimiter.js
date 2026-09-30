@@ -55,4 +55,13 @@ const contactLimiter = rateLimit({
   message: { success: false, error: 'Too many contact requests — please wait before trying again' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter };
+// Admin endpoints: 10 per minute per IP (additive to the global limiter)
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many admin requests — please try again later' },
+});
+
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter };
