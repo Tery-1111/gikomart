@@ -500,6 +500,22 @@ describe('Store routes — auth, secret hygiene, CRUD', () => {
     expect(ok.body.store.description).toBe('updated');
   });
 
+  it('PUT /stores/:id rename onto an existing slug → 409 "That slug is already taken"; nothing mutated', async () => {
+    await seedStore(); // sto-1, slug 'my-shop'
+    await fakeStoreModel.create({ name: 'Other Shop', slug: 'other-shop', category: 'Books', ownerTokenHash: sha256hex('token-b'), plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5, started_at: new Date(), expires_at: new Date(), status: 'active' });
+
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', 'raw-owner-token')
+      .send({ name: 'Other Shop' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('That slug is already taken');
+    // The renamed store is untouched...
+    expect(h.stores.get('sto-1').slug).toBe('my-shop');
+    expect(h.stores.get('sto-1').name).toBe('My Shop');
+    // ...and so is the store that owns the slug.
+    expect(h.stores.get('sto-2').slug).toBe('other-shop');
+  });
+
   it('DELETE /stores/:id cascades: store + its listings removed', async () => {
     const store = await seedStore();
     h.listings.push(makeDoc({ _id: 'lst-in-store', store_id: store._id, title: 'x' }));
