@@ -45,7 +45,7 @@ const sha256hex = (s) => require('crypto').createHash('sha256').update(String(s)
 // .select() — return a thenable that resolves to the SAME stored object, with
 // a select() that resolves to it too (fake models don't project fields).
 function selectableDoc(doc) {
-  if (!doc) return Promise.resolve(null);
+  // Mirrors Mongoose: even a query that resolves to null carries .select().
   return {
     select: () => Promise.resolve(doc),
     then: (res, rej) => Promise.resolve(doc).then(res, rej),

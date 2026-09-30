@@ -18,6 +18,18 @@ const crypto = require('crypto');
  * Phase 2C — Security Hardening
  */
 const Admin = require('../models/Admin');
+const { check, recordFailure, clear } = require('./adminLockout');
+const logger = require('../config/logger');
+
+// FIX A2 — structured failed-auth log. Never log the key, token, code, or body.
+function logAuthFailure(req, reason) {
+  logger.warn('admin_auth_failed', {
+    reason,
+    path: req.originalUrl,
+    method: req.method,
+    ip: req.ip,
+  });
+}
 
 // Short-lived HMAC session tokens — no DB lookup required to validate.
 // Signature proves the token was minted by this server; expiry keeps it lean.
@@ -90,15 +102,28 @@ async function authenticateAdmin(req) {
 
 async function adminAuth(req, res, next) {
   try {
+    // FIX A3 — per-IP lockout gate.
+    const lock = check(req.ip);
+    if (lock.locked) {
+      return res.status(429).json({ error: 'Too many attempts', retryAfterSec: lock.retryAfterSec });
+    }
+
     const { needs2fa, payload } = await authenticateAdmin(req);
     if (payload) {
       req.admin = payload;
+      clear(req.ip); // successful auth resets the failure counter
       return next();
     }
     // 2FA active but no valid session → 401; legacy key missing/mismatched → 403.
     if (needs2fa) {
+      const reason = req.headers['x-admin-session'] ? 'invalid_session' : 'missing_session';
+      logAuthFailure(req, reason);
+      recordFailure(req.ip);
       return res.status(401).json({ success: false, error: 'Admin 2FA required' });
     }
+    const reason = req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key';
+    logAuthFailure(req, reason);
+    recordFailure(req.ip);
     return res.status(403).json({ success: false, error: 'Admin authorization required' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Admin auth error' });
