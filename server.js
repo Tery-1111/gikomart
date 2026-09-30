@@ -53,6 +53,9 @@ app.use(cors({
   },
 }));
 
+const requestId = require('./src/middleware/requestId');
+app.use(requestId);
+
 // Global rate limiter
 app.use(globalLimiter);
 

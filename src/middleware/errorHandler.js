@@ -19,6 +19,7 @@ module.exports = function errorHandler(err, req, res, next) {
     status,
     message: err && err.message,
     stack: err && err.stack,
+    requestId: req.id,
   });
 
   // 4. Body.

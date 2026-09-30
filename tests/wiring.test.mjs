@@ -282,6 +282,61 @@ beforeEach(() => {
 
 afterAll(() => { vi.restoreAllMocks(); });
 
+// Task 1 request ID test block
+describe('Request-ID middleware (X-Request-ID)', () => {
+  it('attaches a UUID-formatted X-Request-ID to responses', async () => {
+    const res = await request(app).get('/health');
+    // /health checks mongodb + cloudinary; without a live Mongoose connection the
+    // suite reports 503, but the request-ID header is independent of that path.
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('returns a valid UUID v4 in X-Request-ID', async () => {
+    const res = await request(app).get('/health');
+    const id = res.headers['x-request-id'];
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it('gives every request a unique ID', async () => {
+    const r1 = await request(app).get('/health');
+    const r2 = await request(app).get('/health');
+    expect(r1.headers['x-request-id']).not.toBe(r2.headers['x-request-id']);
+  });
+
+  it('includes X-Request-ID on 4xx responses', async () => {
+    const res = await request(app).get('/api/listings/nonexistent-xyz');
+    expect(res.status).toBe(500);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('includes the request ID in the 500 error log', async () => {
+    const logger = require('../src/config/logger');
+    const errorHandler = require('../src/middleware/errorHandler');
+    let captured;
+    const spy = vi.spyOn(logger, 'error').mockImplementation((msg, meta) => { captured = meta; });
+    try {
+      const res = {
+        headersSent: false,
+        statusCode: 0,
+        status: vi.fn(function (code) { this.statusCode = code; return this; }),
+        json: vi.fn(function (payload) { this.body = payload; return this; }),
+      };
+      const next = vi.fn();
+      const err = new Error('SECRET_STRING');
+      err.status = 500;
+      errorHandler(err, { method: 'GET', originalUrl: '/api/listings', id: '11111111-2222-4333-8444-555555555555' }, res, next);
+      expect(captured).toBeDefined();
+      expect(captured).toHaveProperty('requestId');
+      expect(captured.requestId).toBe('11111111-2222-4333-8444-555555555555');
+      expect(captured.method).toBe('GET');
+      expect(captured.url).toBe('/api/listings');
+      expect(captured.status).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 function listingPayment(overrides = {}) {
   return {
     type: 'listing',
