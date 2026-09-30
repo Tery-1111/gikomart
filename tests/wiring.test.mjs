@@ -755,6 +755,114 @@ describe('cleanupService.deleteExpiredListings', () => {
   });
 });
 
+// ─── Payment error UX (Task 2) ──────────────────────────────────────────────
+// The IntaSend SDK rejects with a raw unparsed buffer/string on HTTP errors —
+// no stable type/code field — so a payment-start failure cannot be classified.
+// It must therefore surface as a FIXED, actionable 503 carrying only the
+// request ID, never the raw SDK error text.
+//
+// The stub keeps the REAL pricing maps (the controller validates package/plan
+// before calling the service) and only replaces the three initiate* calls.
+// It is injected HERE — after the other fakes but before server.js is imported
+// by the module-level beforeAll below — so paymentController's destructured
+// require() bindings pick up the rejecting versions.
+const { TERMS_VERSIONS } = require('../src/config/termsVersions');
+const rawIntasendError = 'intasend-raw-error-xyz';
+const rejectWithRawIntasendError = async () => { throw new Error(rawIntasendError); };
+injectModule('../src/services/paymentService.js', {
+  ...require('../src/services/paymentService.js'),
+  initiateBoostPayment: rejectWithRawIntasendError,
+  initiateListingPayment: rejectWithRawIntasendError,
+  initiateStorePlanPayment: rejectWithRawIntasendError,
+});
+
+describe('Payment error UX (Task 2)', () => {
+  const FIXED_ERROR = 'Payment could not be started — please try again in a moment';
+
+  // Valid acceptance payloads — the controller validates terms acceptance
+  // before it ever reaches the payment call.
+  const listingAcceptance = {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+  };
+  const storeAcceptance = {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    storeOwnerTermsVersion: TERMS_VERSIONS.STORE_OWNER_TERMS,
+  };
+
+  beforeEach(() => {
+    // initiateBoost looks the listing up through the injected Listing model.
+    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false }));
+  });
+
+  // The 503 body must be exactly the fixed message plus the request ID, with
+  // no trace of the underlying SDK error.
+  function expectFixedErrorBody(body) {
+    expect(body).toEqual({ error: FIXED_ERROR, requestId: expect.any(String) });
+    expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.stringify(body)).not.toContain(rawIntasendError);
+    expect(Object.keys(body)).toHaveLength(2);
+  }
+
+  it('initiate-listing 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing').send({
+      phoneNumber: '0700000000',
+      package: 'quick',
+      listingData: {
+        title: 'Test Book',
+        category: 'Books',
+        condition: 'Good',
+        price: 500,
+        description: 'Used calc textbook',
+        sellerName: 'Jane',
+        sellerWhatsapp: '0711111111',
+        location: 'Egerton',
+        images: [],
+      },
+      acceptance: listingAcceptance,
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('initiate-store-plan 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/initiate-store-plan').send({
+      phoneNumber: '0700000000',
+      storePlan: 'starter_weekly',
+      storeData: {
+        name: 'Shop1',
+        category: 'Books',
+        description: '',
+        phone: '0700000000',
+        whatsapp: '0711111111',
+        email: '',
+        location: 'Egerton',
+      },
+      acceptance: storeAcceptance,
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('initiate-boost 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/boost').send({
+      listingId: 'lst-plain',
+      phoneNumber: '0700000000',
+      boostType: 'featured',
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+});
+
 // ─── Pricing config: standard_weekly removed (Fix 6) ────────────────────────
 describe('STORE_PLANS — unsellable plan removed (Fix 6)', () => {
   it('standard_weekly no longer exists backend-side', async () => {
