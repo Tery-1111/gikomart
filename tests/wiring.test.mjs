@@ -1298,6 +1298,63 @@ describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
   });
 });
 
+// ─── Admin payment replay (recreates what a lost webhook should have made) ──
+describe('POST /api/admin/payments/:ref/replay', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  it('returns already_processed and creates nothing for a completed payment whose listing exists', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-replay', invoiceId: 'INV-REPLAY', status: 'completed' })));
+    h.listings.push(makeDoc({ _id: 'lst-existing', paymentId: 'pay-replay', status: 'active', moderationStatus: 'approved' }));
+
+    const res = await request(app)
+      .post('/api/admin/payments/INV-REPLAY/replay')
+      .set('X-Admin-Session', session());
+
+    expect(res.status).toBe(200);
+    expect(res.body.already_processed).toBe(true);
+    expect(String(res.body.paymentId)).toBe('pay-replay');
+    expect(res.body.resource).toEqual({ type: 'listing', id: 'lst-existing' });
+    expect(h.listings).toHaveLength(1); // nothing created
+  });
+
+  it('recreates the listing for a stuck pending payment and returns the new resource', async () => {
+    const stored = makeDoc(listingPayment({ _id: 'pay-stuck', invoiceId: 'INV-STUCK-REPLAY', status: 'pending' }));
+    h.payments.push(stored);
+    // The shared fake's findOne returns a COPY, so field mutations would not be
+    // observable. Real Mongoose findOne returns the live document; return the
+    // stored object here so the pending→completed transition is assertable.
+    const spy = vi.spyOn(fakePaymentModel, 'findOne')
+      .mockImplementation(async (filter) => h.payments.find(p => p.invoiceId === filter.invoiceId) || null);
+
+    try {
+      const res = await request(app)
+        .post('/api/admin/payments/INV-STUCK-REPLAY/replay')
+        .set('X-Admin-Session', session());
+
+      expect(res.status).toBe(200);
+      expect(res.body.resource.type).toBe('listing');
+      expect(res.body.resource.id).toBeTruthy();
+      expect(h.listings).toHaveLength(1);
+      expect(h.listings[0].paymentId).toBe('pay-stuck');
+      expect(stored.status).toBe('completed');
+      expect(stored.listingId).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('rejects a request with no admin session and creates nothing (401)', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-nosess', invoiceId: 'INV-NOSESS', status: 'pending' })));
+
+    const res = await request(app).post('/api/admin/payments/INV-NOSESS/replay');
+
+    expect([401, 403]).toContain(res.status);
+    expect(h.listings).toHaveLength(0);
+    expect(h.payments[0].status).toBe('pending');
+  });
+});
+
 describe('CSP analytics origins', () => {
   function directive(header, name) {
     const found = header.split(';').map(d => d.trim()).find(d => d.startsWith(name + ' '));
