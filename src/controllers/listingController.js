@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
-const { emit, adminActor, OWNER_ACTOR } = require('../services/auditService');
+const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
@@ -35,6 +35,7 @@ async function isOwnerOrAdmin(req, listing) {
   if (ownerToken && listing.ownerTokenHash) {
     const providedHash = crypto.createHash('sha256').update(ownerToken).digest('hex');
     if (safeEqual(providedHash, listing.ownerTokenHash)) {
+      req.ownerTokenHash = listing.ownerTokenHash;
       return { authorized: true, credential: 'owner' };
     }
   }
@@ -192,7 +193,7 @@ exports.deleteListing = async (req, res, next) => {
 
     await Listing.deleteOne({ _id: req.params.id });
     emit({
-      actor: authz.credential === 'owner' ? OWNER_ACTOR : adminActor(req),
+      actor: authz.credential === 'owner' ? ownerActor(req) : adminActor(req),
       action: 'listing.delete',
       resource: 'listing',
       resourceId: String(req.params.id),

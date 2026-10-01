@@ -3,7 +3,7 @@ const Store = require('../models/Store');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
-const { emit, adminActor, OWNER_ACTOR } = require('../services/auditService');
+const { emit, adminActor, ownerActor } = require('../services/auditService');
 const mongoose = require('mongoose');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -131,7 +131,7 @@ exports.updateStore = async (req, res, next) => {
 
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     emit({
-      actor: req.admin ? adminActor(req) : OWNER_ACTOR,
+      actor: req.admin ? adminActor(req) : ownerActor(req),
       action: 'store.update',
       resource: 'store',
       resourceId: String(req.params.id),
@@ -200,7 +200,7 @@ exports.deleteStore = async (req, res, next) => {
       storeId: store._id, name: store.name, credentialType, adminUser,
     });
     emit({
-      actor: req.admin ? adminActor(req) : OWNER_ACTOR,
+      actor: req.admin ? adminActor(req) : ownerActor(req),
       action: 'store.delete',
       resource: 'store',
       resourceId: String(store._id),

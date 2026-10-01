@@ -82,6 +82,9 @@ function storeAuth(options = {}) {
 
       req.store = store;
       req.storeCredentialType = credentialType;
+      if (store.ownerTokenHash) {
+        req.ownerTokenHash = store.ownerTokenHash;
+      }
       next();
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

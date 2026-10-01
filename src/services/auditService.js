@@ -1,11 +1,16 @@
 const AuditEvent = require('../models/AuditEvent');
 const logger = require('../config/logger');
 
-// No owner-token hash field is attached to req by the auth middleware (storeAuth
-// exposes req.store / req.storeCredentialType; the listing owner path keeps the
-// hash on the loaded document). So owner-credentialed actions record a stable
-// sentinel actor rather than inventing a field that does not exist.
-const OWNER_ACTOR = 'owner:unknown';
+// Owner-credentialed actions attribute to the sha256 hash of the owner token
+// that authenticated the request (req.ownerTokenHash, attached by the storeAuth
+// middleware and by the listing owner path). The hash is the same value already
+// stored as ownerTokenHash on Store/Listing documents. When no hash is present
+// (unexpected flow), fall back to a stable sentinel rather than inventing one.
+const OWNER_ACTOR_FALLBACK = 'owner:unknown';
+
+function ownerActor(req) {
+  return req && req.ownerTokenHash ? req.ownerTokenHash : OWNER_ACTOR_FALLBACK;
+}
 const SYSTEM_ACTOR = 'system';
 
 // Admin actions: prefer the authenticated admin's username, fall back to the
@@ -36,4 +41,4 @@ function emitSync(event) {
   return AuditEvent.create(event);
 }
 
-module.exports = { emit, emitSync, adminActor, OWNER_ACTOR, SYSTEM_ACTOR };
+module.exports = { emit, emitSync, adminActor, ownerActor, OWNER_ACTOR_FALLBACK, SYSTEM_ACTOR };

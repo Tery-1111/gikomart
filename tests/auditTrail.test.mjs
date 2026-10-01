@@ -170,8 +170,9 @@ let listingController;
 let adminAuthController;
 let adminAuth;
 let auditService;
-let OWNER_ACTOR;
+let OWNER_ACTOR_FALLBACK;
 let SYSTEM_ACTOR;
+let storeAuth;
 
 beforeEach(async () => {
   h.listings.length = 0;
@@ -195,8 +196,9 @@ beforeEach(async () => {
   listingController = require('../src/controllers/listingController.js');
   adminAuthController = require('../src/controllers/adminAuthController.js');
   adminAuth = require('../src/middleware/adminAuth.js');
+  storeAuth = require('../src/middleware/storeAuth.js');
   auditService = require('../src/services/auditService.js');
-  ({ OWNER_ACTOR, SYSTEM_ACTOR } = auditService);
+  ({ OWNER_ACTOR_FALLBACK, SYSTEM_ACTOR } = auditService);
 });
 
 afterAll(() => { vi.restoreAllMocks(); });
@@ -307,41 +309,72 @@ describe('Audit trail — payment and webhook sites', () => {
 // ─── Store sites ────────────────────────────────────────────────────────────
 describe('Audit trail — store sites', () => {
   it('records store.update success', async () => {
-    const store = makeDoc({ _id: 'sto-1', name: 'Old', slug: 'old', status: 'active', expires_at: new Date(Date.now() + 1e9) });
+    // The route's storeAuth middleware attaches req.ownerTokenHash from the
+    // store document; run it so this proves the full attribution path.
+    const ownerHash = sha256hex('sto-1-owner-token');
+    const store = makeDoc({ _id: 'sto-1', name: 'Old', slug: 'old', status: 'active', expires_at: new Date(Date.now() + 1e9), ownerTokenHash: ownerHash });
     h.stores.set('sto-1', store);
-    const req = { params: { id: 'sto-1' }, body: { name: 'New' }, store, headers: {} };
+    const headers = { 'X-Store-Owner-Token': 'sto-1-owner-token' };
+    const req = { params: { id: 'sto-1' }, body: { name: 'New' }, headers, get: getHeader(headers) };
     const res = fakeRes();
+    const next = vi.fn();
+    await storeAuth({ requireActive: true })(req, res, next);
+    expect(next).toHaveBeenCalled();
     await storeController.updateStore(req, res, vi.fn());
     await flush();
 
     const ev = findEvent('store.update');
     expect(ev).toBeTruthy();
-    expect(ev.actor).toBe(OWNER_ACTOR);
+    expect(ev.actor).toBe(ownerHash);
     expect(ev.resource).toBe('store');
     expect(ev.resourceId).toBe('sto-1');
     expect(ev.result).toBe('success');
   });
 
   it('records store.delete success', async () => {
-    const store = makeDoc({ _id: 'sto-2', name: 'Shop', status: 'active' });
+    const ownerHash = sha256hex('sto-2-owner-token');
+    const store = makeDoc({ _id: 'sto-2', name: 'Shop', status: 'active', ownerTokenHash: ownerHash });
     h.stores.set('sto-2', store);
     h.listings.push(makeDoc({ _id: 'lst-x', store_id: 'sto-2', images: [] }));
-    const req = { params: { id: 'sto-2' }, store, storeCredentialType: 'owner', admin: null, headers: {} };
+    const headers = { 'X-Store-Owner-Token': 'sto-2-owner-token' };
+    const req = { params: { id: 'sto-2' }, headers, get: getHeader(headers) };
     const res = fakeRes();
+    const next = vi.fn();
+    // Route uses storeAuth({ allowAdmin: true }); a valid owner token authorizes.
+    await storeAuth({ allowAdmin: true })(req, res, next);
+    expect(next).toHaveBeenCalled();
     await storeController.deleteStore(req, res, vi.fn());
     await flush();
 
     const ev = findEvent('store.delete');
     expect(ev).toBeTruthy();
+    expect(ev.actor).toBe(ownerHash);
     expect(ev.resourceId).toBe('sto-2');
     expect(ev.result).toBe('success');
+  });
+
+  it('falls back to owner:unknown when no owner hash is available', async () => {
+    // Unexpected flow: credential is 'owner' but nothing attached a hash to req
+    // and the document carries none. The stable fallback must still be recorded.
+    const store = makeDoc({ _id: 'sto-3', name: 'Old', slug: 'old', status: 'active', expires_at: new Date(Date.now() + 1e9) });
+    h.stores.set('sto-3', store);
+    const req = { params: { id: 'sto-3' }, body: { name: 'New' }, store, headers: {} };
+    const res = fakeRes();
+    await storeController.updateStore(req, res, vi.fn());
+    await flush();
+
+    const ev = findEvent('store.update');
+    expect(ev).toBeTruthy();
+    expect(ev.actor).toBe(OWNER_ACTOR_FALLBACK);
+    expect(ev.actor).toBe('owner:unknown');
   });
 });
 
 // ─── Listing sites ──────────────────────────────────────────────────────────
 describe('Audit trail — listing sites', () => {
   it('records listing.delete success (owner credential)', async () => {
-    h.listings.push(makeDoc({ _id: 'lst-1', ownerTokenHash: sha256hex('tok'), images: [] }));
+    const ownerHash = sha256hex('tok');
+    h.listings.push(makeDoc({ _id: 'lst-1', ownerTokenHash: ownerHash, images: [] }));
     const req = { params: { id: 'lst-1' }, headers: { 'X-Owner-Token': 'tok' }, get: getHeader({ 'X-Owner-Token': 'tok' }) };
     const res = fakeRes();
     await listingController.deleteListing(req, res, vi.fn());
@@ -349,7 +382,7 @@ describe('Audit trail — listing sites', () => {
 
     const ev = findEvent('listing.delete');
     expect(ev).toBeTruthy();
-    expect(ev.actor).toBe(OWNER_ACTOR);
+    expect(ev.actor).toBe(ownerHash);
     expect(ev.resourceId).toBe('lst-1');
   });
 
