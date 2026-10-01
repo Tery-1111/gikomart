@@ -53,6 +53,7 @@ exports.initiateBoost = async (req, res, next) => {
       phoneNumber,
       amount,
       boostType,
+      expectedAmount: BOOST_PRICES[boostType],
       invoiceId,
       status: 'pending',
     });
@@ -162,6 +163,7 @@ exports.initiateListing = async (req, res, next) => {
       phoneNumber,
       amount,
       package: pkg,
+      expectedAmount: LISTING_PRICES[pkg].amount,
       listingData,
       ownerTokenHash,
       invoiceId,
@@ -268,6 +270,7 @@ exports.initiateStorePlan = async (req, res, next) => {
       phoneNumber,
       amount,
       storePlan,
+      expectedAmount: STORE_PLANS[storePlan].amount,
       storeData: { ...storeData, slug },
       ownerTokenHash,
       invoiceId,
@@ -419,29 +422,20 @@ exports.handleWebhook = async (req, res, next) => {
         return res.status(200).json({ success: true, message: 'Payment already processed' });
       }
 
-      // Server-side amount validation. The amount was derived from the price
-      // table at initiation time; if the stored amount no longer matches the
-      // canonical price for this package/plan/boost, the record was tampered
-      // with (or the table changed after initiation) and the resource must not
-      // be provisioned. Reject before any creation side effect.
-      let expectedAmount;
-      if (payment.type === 'listing') {
-        expectedAmount = LISTING_PRICES[payment.package]?.amount;
-      } else if (payment.type === 'store') {
-        expectedAmount = STORE_PLANS[payment.storePlan]?.amount;
-      } else if (payment.type === 'boost') {
-        expectedAmount = BOOST_PRICES[payment.boostType];
-      }
-
-      if (payment.amount !== expectedAmount) {
-        logger.error(`Payment amount mismatch: expected ${expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
+      // Server-side amount validation. Compare the stored amount against the
+      // canonical price captured on the Payment at initiation time
+      // (Payment.expectedAmount) — NOT the live price table, so a price change
+      // between initiation and completion never rejects a genuinely paid
+      // record. Any drift between the two must not provision a resource.
+      if (payment.amount !== payment.expectedAmount) {
+        logger.error(`Payment amount mismatch: expected ${payment.expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
         emit({
           actor: SYSTEM_ACTOR,
           action: 'payment.amount_mismatch',
           resource: 'payment',
           resourceId: String(payment._id),
           result: 'failure',
-          metadata: { type: payment.type, expectedAmount: expectedAmount ?? null, storedAmount: payment.amount ?? null },
+          metadata: { type: payment.type, expectedAmount: payment.expectedAmount ?? null, storedAmount: payment.amount ?? null },
         });
         return res.status(400).json({ success: false, error: 'Payment amount validation failed' });
       }

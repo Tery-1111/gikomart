@@ -445,6 +445,7 @@ function listingPayment(overrides = {}) {
     package: 'standard',
     invoiceId: 'INV-LISTING-1',
     amount: 50,
+    expectedAmount: 50,
     ownerTokenHash: 'a'.repeat(64),
     listingData: {
       title: 'Vintage Lens Camera',
@@ -472,12 +473,25 @@ describe('Webhook amount validation', () => {
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ success: false, error: 'Payment amount validation failed' });
     expect(h.listings).toHaveLength(0);
+    // The mismatch is computed from the amount captured at initiation, which is
+    // stored on the Payment document.
+    expect(h.payments[0].expectedAmount).toBe(50);
 
     await new Promise((r) => setImmediate(r));
     const ev = auditEvents.find(e => e.action === 'payment.amount_mismatch');
     expect(ev).toBeTruthy();
     expect(ev.result).toBe('failure');
     expect(ev.resource).toBe('payment');
+  });
+
+  it('accepts a COMPLETE whose amount matches the initiation-time price even if the live table has changed', async () => {
+    // Initiated when a 'standard' listing cost 30; the live table now says 50.
+    // Validation uses expectedAmount, so the genuinely paid record still succeeds.
+    h.payments.push(makeDoc(listingPayment({ amount: 30, expectedAmount: 30, invoiceId: 'INV-OLD-PRICE' })));
+    const res = await webhook({ invoice_id: 'INV-OLD-PRICE', state: 'COMPLETE' });
+
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
   });
 
   it('accepts a COMPLETE whose stored amount matches the price table (200)', async () => {
@@ -604,7 +618,7 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
 describe('Webhook COMPLETE (boost) → listing mutation', () => {
   it('featured boost sets featured + featuredUntil (+24h)', async () => {
     h.listings.push(makeDoc({ _id: 'lst-boost-1', featured: false, boostType: null, featuredUntil: null }));
-    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 50, invoiceId: 'INV-BOOST-1', listingId: 'lst-boost-1', boostType: 'featured' }));
+    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 50, expectedAmount: 50, invoiceId: 'INV-BOOST-1', listingId: 'lst-boost-1', boostType: 'featured' }));
 
     const res = await webhook({ invoice_id: 'INV-BOOST-1', state: 'COMPLETE' });
     expect(res.status).toBe(200);
@@ -615,7 +629,7 @@ describe('Webhook COMPLETE (boost) → listing mutation', () => {
 
   it('priority_broadcast boost marks priorityBroadcast AND re-broadcasts the listing (Fix 1)', async () => {
     h.listings.push(makeDoc({ _id: 'lst-boost-2', priorityBroadcast: false }));
-    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 30, invoiceId: 'INV-BOOST-2', listingId: 'lst-boost-2', boostType: 'priority_broadcast' }));
+    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 30, expectedAmount: 30, invoiceId: 'INV-BOOST-2', listingId: 'lst-boost-2', boostType: 'priority_broadcast' }));
 
     const res = await webhook({ invoice_id: 'INV-BOOST-2', state: 'COMPLETE' });
     expect(res.status).toBe(200);
@@ -643,7 +657,7 @@ describe('GET /api/listings — priorityBroadcast ranks above non-priority (Fix 
 describe('Webhook COMPLETE (store) → Store created', () => {
   it('creates the store from payment.storeData with plan pricing', async () => {
     h.payments.push(makeDoc({
-      type: 'store', status: 'pending', amount: 150, invoiceId: 'INV-STORE-1', storePlan: 'starter_weekly',
+      type: 'store', status: 'pending', amount: 150, expectedAmount: 150, invoiceId: 'INV-STORE-1', storePlan: 'starter_weekly',
       storeData: { name: 'Test Shop', slug: 'test-shop', category: 'Books', phone: '07', whatsapp: '07', email: '', location: 'Egerton' },
       ownerTokenHash: 'b'.repeat(64),
     }));
@@ -1358,6 +1372,7 @@ describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
       status: 'pending',
       storePlan: 'standard_monthly',
       amount: 200,
+      expectedAmount: 200,
       invoiceId: 'INV-STORE-1',
       ownerTokenHash: 'b'.repeat(64),
       storeData: {

@@ -7,6 +7,10 @@ const paymentSchema = new mongoose.Schema({
   package: { type: String, enum: ['quick', 'standard', 'premium'] }, // used only for type:'listing'
   phoneNumber: { type: String, required: true },
   amount: { type: Number, required: true },
+  // Canonical price captured at initiation time. The webhook and admin replay
+  // validate against THIS, not the live price table, so a price change between
+  // initiation and completion never rejects a genuinely paid record.
+  expectedAmount: { type: Number, required: true },
   boostType: { type: String, enum: ['featured', 'rush', 'priority_broadcast'] }, // used only for type:'boost'
   storePlan: { type: String, enum: ['starter_weekly', 'standard_monthly', 'pro_monthly'] }, // used only for type:'store'; standard_weekly removed (never sellable)
   storeData: { type: mongoose.Schema.Types.Mixed }, // pending store-form payload, used only for type:'store'

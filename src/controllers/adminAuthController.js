@@ -6,7 +6,6 @@ const Listing = require('../models/Listing');
 const Store = require('../models/Store');
 const Payment = require('../models/Payment');
 const { createResourceForPayment } = require('./paymentController');
-const { LISTING_PRICES, STORE_PLANS, BOOST_PRICES } = require('../services/paymentService');
 const logger = require('../config/logger');
 const { emit, adminActor } = require('../services/auditService');
 const { signSession, SESSION_TTL_MS } = require('../middleware/adminAuth');
@@ -372,27 +371,18 @@ exports.replayPayment = async (req, res) => {
     // Same creation path as the webhook. Idempotent: the unique sparse paymentId
     // index makes a duplicate/concurrent replay collide (E11000) and re-read the
     // existing document instead of creating a second.
-    // Server-side amount validation (same rule as the webhook): refuse to
-    // provision a resource when the stored amount does not match the canonical
-    // price for the payment's package/plan/boost.
-    let expectedAmount;
-    if (payment.type === 'listing') {
-      expectedAmount = LISTING_PRICES[payment.package]?.amount;
-    } else if (payment.type === 'store') {
-      expectedAmount = STORE_PLANS[payment.storePlan]?.amount;
-    } else if (payment.type === 'boost') {
-      expectedAmount = BOOST_PRICES[payment.boostType];
-    }
-
-    if (payment.amount !== expectedAmount) {
-      logger.error(`Payment amount mismatch: expected ${expectedAmount}, stored ${payment.amount}, invoice ${paymentReference}`);
+    // Amount validation (same rule as the webhook): compare the stored amount
+    // against the price captured at initiation (Payment.expectedAmount), not
+    // the live table, so a genuinely paid old-price record is not rejected.
+    if (payment.amount !== payment.expectedAmount) {
+      logger.error(`Payment amount mismatch: expected ${payment.expectedAmount}, stored ${payment.amount}, invoice ${paymentReference}`);
       emit({
         actor: adminActor(req),
         action: 'payment.amount_mismatch',
         resource: 'Payment',
         resourceId: paymentReference,
         result: 'failure',
-        metadata: { type: payment.type, expectedAmount: expectedAmount ?? null, storedAmount: payment.amount ?? null },
+        metadata: { type: payment.type, expectedAmount: payment.expectedAmount ?? null, storedAmount: payment.amount ?? null },
       });
       return res.status(400).json({ success: false, error: 'Payment amount validation failed' });
     }
