@@ -951,6 +951,16 @@ function setupImageUpload() {
       // Surface the server's actual rejection instead of a generic status. upload.js
       // answers 400/429 with { success:false, error }, and that message is the only
       // way a user learns e.g. that their image format isn't supported.
+      // A 503 is the server signalling it is momentarily out of upload
+      // capacity — an operational, retryable condition, not a bad file. Read
+      // nothing from the body (it may be malformed) and keep the selected file
+      // so the user can simply press Upload again.
+      if (res.status === 503) {
+        status.textContent = 'Server is busy — please try again in a moment';
+        status.className = 'image-upload-status error';
+        return;
+      }
+
       if (!res.ok) {
         const bodyText = await res.text().catch(() => '');
         let serverError = '';

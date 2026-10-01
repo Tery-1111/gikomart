@@ -256,6 +256,38 @@ injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
 
+// ── Transparent sharp wrapper for the decode-concurrency test. While tracking
+// is off it is the real sharp, so every other test is unaffected.
+const realSharp = require('sharp');
+const sharpState = { tracking: false, concurrent: 0, max: 0, delayMs: 0 };
+function sharpSpy(...args) {
+  const pipeline = realSharp(...args);
+  if (!sharpState.tracking) return pipeline;
+  const runToBuffer = pipeline.toBuffer.bind(pipeline);
+  pipeline.toBuffer = async (...tbArgs) => {
+    sharpState.concurrent += 1;
+    sharpState.max = Math.max(sharpState.max, sharpState.concurrent);
+    try {
+      if (sharpState.delayMs) await new Promise((r) => setTimeout(r, sharpState.delayMs));
+      return await runToBuffer(...tbArgs);
+    } finally {
+      sharpState.concurrent -= 1;
+    }
+  };
+  return pipeline;
+}
+injectModule('sharp', sharpSpy);
+
+// Uploads in this suite (5 in test 6, 15 in test 7) blow past uploadLimiter's
+// 10/min per-IP production limit, which would otherwise mask the decode bound
+// behind 429s. The upload limiter is not what these tests exercise, so uploads
+// pass straight through; every other limiter keeps its real configuration.
+const realRateLimiter = require('../src/middleware/rateLimiter');
+injectModule('../src/middleware/rateLimiter.js', {
+  ...realRateLimiter,
+  uploadLimiter: (req, _res, next) => next(),
+});
+
 let app;
 
 beforeAll(async () => {
@@ -800,6 +832,57 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     // The data URI handed over is the sharp output, i.e. already inside the box.
     const capped = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
     expect(Math.max(capped.width, capped.height)).toBeLessThanOrEqual(1600);
+  });
+
+  it('bounds concurrent sharp decoding to 3 under 5 parallel uploads (Rule D)', async () => {
+    const png = await sharp({ create: { width: 900, height: 900, channels: 3, background: 'blue' } }).png().toBuffer();
+
+    sharpState.tracking = true;
+    sharpState.concurrent = 0;
+    sharpState.max = 0;
+    sharpState.delayMs = 60;
+    let responses;
+    try {
+      responses = await Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          request(app)
+            .post('/api/upload')
+            .set('Content-Type', 'multipart/form-data')
+            .attach('image', png, { filename: `c${i}.png`, contentType: 'image/png' })
+        )
+      );
+    } finally {
+      sharpState.tracking = false;
+      sharpState.delayMs = 0;
+    }
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(sharpState.max).toBe(3);
+  });
+
+  it('answers 503 with the busy message once uploads exceed the queue (Rule D)', async () => {
+    const png = await sharp({ create: { width: 400, height: 400, channels: 3, background: 'red' } }).png().toBuffer();
+
+    sharpState.tracking = true;
+    sharpState.delayMs = 200;
+    let responses;
+    try {
+      responses = await Promise.all(
+        Array.from({ length: 15 }, (_, i) =>
+          request(app)
+            .post('/api/upload')
+            .set('Content-Type', 'multipart/form-data')
+            .attach('image', png, { filename: `p${i}.png`, contentType: 'image/png' })
+        )
+      );
+    } finally {
+      sharpState.tracking = false;
+      sharpState.delayMs = 0;
+    }
+
+    const busy = responses.filter((r) => r.status === 503);
+    expect(busy.length).toBeGreaterThanOrEqual(1);
+    expect(busy[0].body).toEqual({ success: false, error: 'Server busy — please try again in a moment' });
   });
 });
 

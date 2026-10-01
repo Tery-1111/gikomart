@@ -4,12 +4,20 @@ const multer = require('multer');
 const sharp = require('sharp');
 const cloudinary = require('../config/cloudinary');
 const { uploadLimiter } = require('../middleware/rateLimiter');
+const { createSemaphore } = require('../utils/semaphore');
 
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5MB max, single file
 });
+
+// Bound concurrent sharp decoding. A single decode can allocate tens of MB at
+// the 25 MP input cap, and the route awaits sharp inline in the request, so
+// without a limit enough parallel uploads can exhaust the process. Three decode
+// at once, up to ten more wait; beyond that the caller is asked to retry rather
+// than queued indefinitely.
+const uploadSemaphore = createSemaphore(3, 10);
 
 // MIME types we accept despite what the client claims. The actual format is
 // validated by magic-byte sniffing (file-type), so an attacker can't bypass
@@ -49,6 +57,19 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
     // Reject GIF frames (potential denial-of-service via decompression bombs)
     // by re-encoding stills only. Animated GIFs slide through fine after this
     // because sharp re-encodes to a single still — acceptable behaviour here.
+    // Acquire a decode slot BEFORE touching sharp. This needs its own try/catch:
+    // the sharp block below answers 400 for ANY error, so a shared catch would
+    // misreport an overloaded server as a client-side bad image.
+    let release;
+    try {
+      release = await uploadSemaphore.acquire();
+    } catch (err) {
+      if (err && err.code === 'UPLOAD_BUSY') {
+        return res.status(503).json({ success: false, error: 'Server busy — please try again in a moment' });
+      }
+      throw err;
+    }
+
     let data;
     try {
       // limitInputPixels caps DECODE, not output: a solid-colour PNG can declare
@@ -65,6 +86,9 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       // Corrupt/malformed image bytes that passed magic-byte sniffing are the
       // caller's fault — a 4xx bad request, not a 5xx server error.
       return res.status(400).json({ success: false, error: 'Image could not be processed' });
+    } finally {
+      // Always return the slot, whether the decode succeeded or 400'd.
+      release();
     }
 
     const b64 = Buffer.from(data).toString('base64');
