@@ -294,6 +294,15 @@ exports.handleWebhook = async (req, res, next) => {
 
     const { invoice_id, state } = req.body;
 
+    // Mongoose 9 strips `undefined` from query filters, so a valid-challenge
+    // webhook with no invoice_id would collapse the claim filter below to
+    // `{ status: { $ne: 'completed' } }` and claim an arbitrary pending payment.
+    // Fail closed before any lookup.
+    if (!invoice_id) {
+      logger.error('Webhook missing invoice_id', { state });
+      return res.status(400).json({ success: false, error: 'invoice_id is required' });
+    }
+
     if (state === 'COMPLETE') {
       // Atomic idempotency guard: transition the payment to 'completed' and mark
       // it as claimed in a single operation. Webhooks can be delivered more than

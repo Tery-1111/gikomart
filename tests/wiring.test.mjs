@@ -393,6 +393,21 @@ function listingPayment(overrides = {}) {
 
 const webhook = (body) => request(app).post('/api/payments/webhook').send({ challenge: TEST_WEBHOOK_CHALLENGE, ...body });
 
+// ─── Webhook: required-field validation ─────────────────────────────────────
+describe('Webhook COMPLETE — missing invoice_id fails closed', () => {
+  it('rejects with 400 and cannot claim an arbitrary pending payment', async () => {
+    // Mongoose 9 drops `undefined` from filter objects, so without the guard the
+    // claim filter { invoiceId: undefined, status: { $ne: 'completed' } } collapses
+    // to { status: { $ne: 'completed' } } and claims whichever payment is pending.
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await webhook({ state: 'COMPLETE' }); // no invoice_id
+
+    expect(res.status).toBe(400);
+    expect(h.payments[0].status).toBe('pending');
+    expect(h.listings).toHaveLength(0);
+  });
+});
+
 // ─── Webhook: listing payments ──────────────────────────────────────────────
 describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSent', () => {
   it('creates the listing, copies ownerTokenHash, calls broadcastListing, sets broadcastSent=true', async () => {
