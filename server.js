@@ -7,6 +7,13 @@ const sanitize = require('./src/middleware/sanitize');
 const { globalLimiter } = require('./src/middleware/rateLimiter');
 const logger = require('./src/config/logger');
 require('dotenv').config();
+
+// Fail fast on insecure production secrets BEFORE any route module is required
+// (adminAuth reads ADMIN_SESSION_SECRET at module load). Development/test are
+// exempt — see src/config/envGuard.js.
+const { assertProductionSecrets } = require('./src/config/envGuard');
+assertProductionSecrets();
+
 const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 const app = express();
