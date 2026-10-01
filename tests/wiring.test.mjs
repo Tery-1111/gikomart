@@ -108,6 +108,7 @@ const fakeListingModel = {
     if (data && data.paymentId != null && h.listings.some(l => String(l.paymentId) === String(data.paymentId))) {
       const dup = new Error('E11000 duplicate key error');
       dup.code = 11000;
+      dup.keyPattern = { paymentId: 1 };
       throw dup;
     }
     const doc = makeDoc({ _id: `lst-${h.listings.length + 1}`, views: 0, status: 'active', store_id: null, broadcastSent: false, priorityBroadcast: false, featured: false, boostType: null, featuredUntil: null, moderationStatus: 'approved', ...data });
@@ -174,6 +175,7 @@ const fakeStoreModel = {
     if (data && data.paymentId != null && [...h.stores.values()].some(s => String(s.paymentId) === String(data.paymentId))) {
       const dup = new Error('E11000 duplicate key error');
       dup.code = 11000;
+      dup.keyPattern = { paymentId: 1 };
       throw dup;
     }
     const doc = makeDoc({ _id: `sto-${h.stores.size + 1}`, status: 'active', subcategories: [], ...data });
@@ -315,14 +317,19 @@ function sharpSpy(...args) {
 }
 injectModule('sharp', sharpSpy);
 
-// Uploads in this suite (5 in test 6, 15 in test 7) blow past uploadLimiter's
-// 10/min per-IP production limit, which would otherwise mask the decode bound
-// behind 429s. The upload limiter is not what these tests exercise, so uploads
-// pass straight through; every other limiter keeps its real configuration.
+// This integration suite issues well over 100 requests per run and reuses the
+// payment/upload buckets across many endpoints, so the low production windows
+// (global 100/min, payment 5/min, listing-create 5/min, upload 10/min) would
+// mask unrelated assertions behind 429s. None of these limiter behaviors is
+// asserted here, so they pass straight through — every limiter implementation
+// and every other limiter (contact, admin) keeps its real configuration.
 const realRateLimiter = require('../src/middleware/rateLimiter');
 injectModule('../src/middleware/rateLimiter.js', {
   ...realRateLimiter,
+  globalLimiter: (req, _res, next) => next(),
   uploadLimiter: (req, _res, next) => next(),
+  paymentLimiter: (req, _res, next) => next(),
+  listingCreateLimiter: (req, _res, next) => next(),
 });
 
 let app;
@@ -721,6 +728,71 @@ describe('Store routes — auth, secret hygiene, CRUD', () => {
     // Nothing changed by the rejected attempt.
     expect(String(h.listings[0].store_id)).toBe('sto-1');
     expect(h.listings[0].ownerTokenHash).toBe(sha256hex('real-listing-owner'));
+  });
+});
+
+// ─── Input validation: condition allowlist + media URL scheme ───────────────
+describe('Owner update validation — condition allowlist and media URL schemes', () => {
+  const OWNER_TOKEN = 'raw-owner-token';
+  function seedOwnedListing() {
+    h.listings.push(makeDoc({
+      _id: 'lst-val', title: 'Widget', condition: 'Good', images: [],
+      ownerTokenHash: sha256hex(OWNER_TOKEN), status: 'active', moderationStatus: 'approved',
+    }));
+  }
+  function seedOwnedStore() {
+    return fakeStoreModel.create({
+      name: 'Val Shop', slug: 'val-shop', category: 'Books',
+      ownerTokenHash: sha256hex(OWNER_TOKEN),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+  }
+
+  it('PUT /listings/:id rejects a condition outside the allowlist (400) and does not mutate', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ condition: '<img src=x onerror=alert(1)>' });
+    expect(res.status).toBe(400);
+    expect(h.listings[0].condition).toBe('Good');
+  });
+
+  it('PUT /listings/:id rejects a non-http(s) image URL (400)', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ images: ['javascript:alert(1)'] });
+    expect(res.status).toBe(400);
+    expect(h.listings[0].images).toEqual([]);
+  });
+
+  it('PUT /listings/:id still accepts a legitimate condition and https images (200)', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ condition: 'Like New', images: ['https://res.cloudinary.com/demo/image/upload/v1/gikomart/a.jpg'] });
+    expect(res.status).toBe(200);
+    expect(res.body.listing.condition).toBe('Like New');
+    expect(h.listings[0].images[0]).toMatch(/^https:\/\//);
+  });
+
+  it('PUT /stores/:id rejects a dangerous logo_url scheme (400) and does not mutate', async () => {
+    const store = await seedOwnedStore();
+    const res = await request(app).put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ logo_url: 'javascript:alert(1)' });
+    expect(res.status).toBe(400);
+    expect(h.stores.get(String(store._id)).logo_url).toBeUndefined();
+  });
+
+  it('PUT /stores/:id still accepts a legitimate https cover_url (200)', async () => {
+    const store = await seedOwnedStore();
+    const res = await request(app).put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ cover_url: 'https://res.cloudinary.com/demo/image/upload/v1/gikomart/c.jpg' });
+    expect(res.status).toBe(200);
+    expect(res.body.store.cover_url).toMatch(/^https:\/\//);
   });
 });
 
@@ -1181,6 +1253,32 @@ describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
     }
 
     expect(h.stores.size).toBe(1);
+  });
+
+  it('T4 (regression): an unrelated duplicate key (slug) fails loudly instead of being treated as a payment replay', async () => {
+    const payment = makeDoc(storePaymentHere({ _id: 'pay-3' }));
+    h.payments.push(payment);
+    const claimSpy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    // Store.create raises a NON-paymentId duplicate (slug unique index), as when
+    // a slug collides with a different payment's store. Before the fix this was
+    // swallowed as "an idempotent replay"; findOne({ paymentId })
+    // then returned null and the code crashed on store._id.
+    const origCreate = fakeStoreModel.create;
+    fakeStoreModel.create = async () => {
+      const dup = new Error('E11000 duplicate key error collection: stores index: slug_1');
+      dup.code = 11000;
+      dup.keyPattern = { slug: 1 };
+      throw dup;
+    };
+    try {
+      const res = await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+      // Surfaced as a server error (retryable) — never misread as idempotent.
+      expect(res.status).toBe(500);
+      expect(h.stores.size).toBe(0);
+    } finally {
+      fakeStoreModel.create = origCreate;
+      claimSpy.mockRestore();
+    }
   });
 });
 

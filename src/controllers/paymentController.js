@@ -4,6 +4,8 @@ const Payment = require('../models/Payment');
 const logger = require('../config/logger');
 const { emit, SYSTEM_ACTOR } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
+const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing } = require('../services/moderationService');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
@@ -85,11 +87,14 @@ exports.initiateListing = async (req, res, next) => {
     // Validate every field the Listing model requires BEFORE starting the STK push —
     // once payment completes, the webhook creates the listing from this data, and a
     // failed create at that point would mean the user paid but got nothing.
-    const VALID_CONDITIONS = ['New', 'Like New', 'Excellent', 'Good', 'Fair', 'Poor'];
     const errors = [];
     if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
     if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
     if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
+    // Image entries are rendered into <img src> — reject non-http(s) schemes
+    // (javascript:, data:, …) before the STK push so they are never stored.
+    if (listingData.images !== undefined
+      && (!Array.isArray(listingData.images) || !listingData.images.every(isHttpUrl))) errors.push('images');
     const price = Number(listingData.price);
     if (!Number.isFinite(price) || price < 0) errors.push('price');
     if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
@@ -358,7 +363,7 @@ exports.handleWebhook = async (req, res, next) => {
             ownerTokenHash: payment.ownerTokenHash,
           });
         } catch (err) {
-          if (err && err.code === 11000) {
+          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
             listing = await Listing.findOne({ paymentId: payment._id });
           } else {
             throw err;
@@ -465,7 +470,7 @@ exports.handleWebhook = async (req, res, next) => {
             status: 'active',
           });
         } catch (err) {
-          if (err && err.code === 11000) {
+          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
             store = await Store.findOne({ paymentId: payment._id });
           } else {
             throw err;

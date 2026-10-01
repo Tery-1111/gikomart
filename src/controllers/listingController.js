@@ -4,6 +4,8 @@ const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { authenticateAdmin } = require('../middleware/adminAuth');
+const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { isHttpUrl } = require('../utils/safeUrl');
 
 // Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
 // digest first, so crypto.timingSafeEqual never throws on length mismatch and
@@ -159,6 +161,17 @@ exports.updateListing = async (req, res, next) => {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+    // Bound the two fields the UI renders into HTML elements. `condition` is a
+    // finite vocabulary; image entries are media URLs the frontend feeds to
+    // <img src>. Rejecting here means a bad value is never stored in the first
+    // place, not merely escaped on render.
+    if (updates.condition !== undefined && !VALID_CONDITIONS.includes(updates.condition)) {
+      return res.status(400).json({ success: false, error: 'Invalid condition' });
+    }
+    if (updates.images !== undefined
+      && (!Array.isArray(updates.images) || !updates.images.every(isHttpUrl))) {
+      return res.status(400).json({ success: false, error: 'images must be an array of http(s) image URLs' });
     }
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     res.json({ success: true, listing });

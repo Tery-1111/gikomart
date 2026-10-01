@@ -4,6 +4,7 @@ const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
+const { isHttpUrl } = require('../utils/safeUrl');
 const mongoose = require('mongoose');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -127,6 +128,15 @@ exports.updateStore = async (req, res, next) => {
         return res.status(409).json({ success: false, error: 'That slug is already taken' });
       }
       updates.slug = desired;
+    }
+
+    // Media fields are rendered into <img src> / CSS url() by the frontend, so
+    // only http(s) URLs are accepted. null/'' clears the field and stays legal.
+    for (const field of ['logo_url', 'cover_url']) {
+      const value = updates[field];
+      if (value !== undefined && value !== null && value !== '' && !isHttpUrl(value)) {
+        return res.status(400).json({ success: false, error: `${field} must be an http(s) URL` });
+      }
     }
 
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
