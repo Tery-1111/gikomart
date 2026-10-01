@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
+const { emit, adminActor, OWNER_ACTOR } = require('../services/auditService');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
@@ -190,6 +191,14 @@ exports.deleteListing = async (req, res, next) => {
     }
 
     await Listing.deleteOne({ _id: req.params.id });
+    emit({
+      actor: authz.credential === 'owner' ? OWNER_ACTOR : adminActor(req),
+      action: 'listing.delete',
+      resource: 'listing',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: { credential: authz.credential },
+    });
     res.json({ success: true, message: 'Listing deleted' });
   } catch (err) {
     return next(err);
@@ -212,6 +221,14 @@ exports.moderateListing = async (req, res, next) => {
       { returnDocument: 'after' }
     );
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
+    emit({
+      actor: adminActor(req),
+      action: 'listing.moderate',
+      resource: 'listing',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: { moderationStatus: action },
+    });
     res.json({ success: true, listing });
   } catch (err) {
     return next(err);

@@ -241,6 +241,15 @@ const fakeCloudinary = {
 
 const fakeLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
+// Audit events are fire-and-forget side effects of privileged/payment actions.
+// The app under test writes them through the DISCONNECTED real model unless a
+// fake is injected, which would leave buffering promises pending for the whole
+// suite. Record them instead.
+const auditEvents = [];
+const fakeAuditEvent = {
+  create: vi.fn(async (data) => { auditEvents.push(data); return data; }),
+};
+
 // ── require.cache injection (must precede importing server.js) ──
 function injectModule(relPath, exportsObj) {
   const resolved = resolveFromTests(relPath);
@@ -255,6 +264,7 @@ injectModule('../src/models/Admin.js', fakeAdminModel);
 injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
+injectModule('../src/models/AuditEvent.js', fakeAuditEvent);
 
 // ── Transparent sharp wrapper for the decode-concurrency test. While tracking
 // is off it is the real sharp, so every other test is unaffected.

@@ -3,6 +3,7 @@ const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const Admin = require('../models/Admin');
 const logger = require('../config/logger');
+const { emit, adminActor } = require('../services/auditService');
 const { signSession, SESSION_TTL_MS } = require('../middleware/adminAuth');
 const {
   check: checkLockout,
@@ -61,11 +62,19 @@ const ADMIN_USERNAME = 'owner';
 
 // Step 1 — Generate a TOTP secret and QR code for the authenticator app.
 exports.setup2FA = async (req, res) => {
+  const AUDIT_ACTION = 'admin.setup_2fa';
   try {
     if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
       logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key' },
+      });
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
     }
 
@@ -89,6 +98,13 @@ exports.setup2FA = async (req, res) => {
       if (!seedOk) {
         logAuthFailure(req, 'invalid_totp');
         recordAuthFailure(req.ip);
+        emit({
+          actor: adminActor(req),
+          action: AUDIT_ACTION,
+          resource: 'admin',
+          result: 'failure',
+          metadata: { reason: 'invalid_totp' },
+        });
         return res.status(401).json({ success: false, error: 'Invalid credentials' });
       }
     }
@@ -122,6 +138,14 @@ exports.setup2FA = async (req, res) => {
 
     const qrDataUrl = await qrcode.toDataURL(otpauthUrl);
 
+    emit({
+      actor: adminActor(req),
+      action: AUDIT_ACTION,
+      resource: 'admin',
+      result: 'success',
+      metadata: { step: 'seed_issued' },
+    });
+
     res.json({
       success: true,
       message: 'Scan the QR with your authenticator app, then call /verify-2fa',
@@ -136,11 +160,19 @@ exports.setup2FA = async (req, res) => {
 
 // Step 2 — Verify an initial TOTP code and enable 2FA.
 exports.verify2FA = async (req, res) => {
+  const AUDIT_ACTION = 'admin.verify_2fa';
   try {
     if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
       logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key' },
+      });
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
     }
 
@@ -165,12 +197,25 @@ exports.verify2FA = async (req, res) => {
     if (!verified) {
       logAuthFailure(req, 'invalid_totp');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: 'invalid_totp' },
+      });
       return res.status(401).json({ success: false, error: 'Invalid verification code' });
     }
 
     admin.totpEnabled = true;
     await admin.save();
 
+    emit({
+      actor: adminActor(req),
+      action: AUDIT_ACTION,
+      resource: 'admin',
+      result: 'success',
+    });
     res.json({ success: true, message: '2FA enabled' });
   } catch (err) {
     logger.error('2FA verify error', { error: err.message });
@@ -180,11 +225,19 @@ exports.verify2FA = async (req, res) => {
 
 // Step 3 — Authenticate: ADMIN_KEY + TOTP code → 24h session token.
 exports.login = async (req, res) => {
+  const AUDIT_ACTION = 'admin.login';
   try {
     if (!lockoutOk(req, res)) return;
     if (!adminKeyValid(req)) {
       logAuthFailure(req, req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key' },
+      });
       return res.status(403).json({ success: false, error: 'Invalid admin key' });
     }
 
@@ -214,6 +267,13 @@ exports.login = async (req, res) => {
     if (!verified || verified.delta < 0) {
       logAuthFailure(req, 'invalid_totp');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: 'invalid_totp' },
+      });
       return res.status(401).json({ success: false, error: 'Invalid TOTP code' });
     }
 
@@ -225,6 +285,13 @@ exports.login = async (req, res) => {
     if (admin.lastUsedCounter >= counter) {
       logAuthFailure(req, 'invalid_totp');
       recordAuthFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'admin',
+        result: 'failure',
+        metadata: { reason: 'totp_replayed' },
+      });
       return res.status(401).json({ success: false, error: 'TOTP code already used' });
     }
 
@@ -240,6 +307,12 @@ exports.login = async (req, res) => {
       exp: Date.now() + SESSION_TTL_MS,
     });
 
+    emit({
+      actor: adminActor(req),
+      action: AUDIT_ACTION,
+      resource: 'admin',
+      result: 'success',
+    });
     res.json({ success: true, token: sessionToken });
   } catch (err) {
     logger.error('2FA login error', { error: err.message });

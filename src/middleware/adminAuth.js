@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const Admin = require('../models/Admin');
 const { check, recordFailure, clear } = require('./adminLockout');
 const logger = require('../config/logger');
+const { emit, adminActor } = require('../services/auditService');
 
 // FIX A2 — structured failed-auth log. Never log the key, token, code, or body.
 function logAuthFailure(req, reason) {
@@ -105,6 +106,13 @@ async function adminAuth(req, res, next) {
     // FIX A3 — per-IP lockout gate.
     const lock = check(req.ip);
     if (lock.locked) {
+      emit({
+        actor: adminActor(req),
+        action: 'admin.lockout_triggered',
+        resource: 'admin',
+        result: 'failure',
+        metadata: { retryAfterSec: lock.retryAfterSec },
+      });
       return res.status(429).json({ error: 'Too many attempts', retryAfterSec: lock.retryAfterSec });
     }
 
@@ -119,6 +127,12 @@ async function adminAuth(req, res, next) {
       const reason = req.headers['x-admin-session'] ? 'invalid_session' : 'missing_session';
       logAuthFailure(req, reason);
       recordFailure(req.ip);
+      emit({
+        actor: adminActor(req),
+        action: 'admin.session_invalid',
+        resource: 'admin',
+        result: 'failure',
+      });
       return res.status(401).json({ success: false, error: 'Admin 2FA required' });
     }
     const reason = req.headers['x-admin-key'] ? 'invalid_key' : 'missing_key';

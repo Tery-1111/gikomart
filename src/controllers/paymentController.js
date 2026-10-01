@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const Payment = require('../models/Payment');
 const logger = require('../config/logger');
+const { emit, SYSTEM_ACTOR } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
 const { checkListing } = require('../services/moderationService');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
@@ -300,6 +301,13 @@ exports.handleWebhook = async (req, res, next) => {
     // Fail closed before any lookup.
     if (!invoice_id) {
       logger.error('Webhook missing invoice_id', { state });
+      emit({
+        actor: SYSTEM_ACTOR,
+        action: 'webhook.missing_invoice_id',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { state },
+      });
       return res.status(400).json({ success: false, error: 'invoice_id is required' });
     }
 
@@ -360,6 +368,14 @@ exports.handleWebhook = async (req, res, next) => {
         }
 
         await payment.save();
+        emit({
+          actor: SYSTEM_ACTOR,
+          action: 'payment.completed',
+          resource: 'payment',
+          resourceId: String(payment._id),
+          result: 'success',
+          metadata: { type: 'listing' },
+        });
         if (!moderation.approved) {
           logger.warn('Listing flagged by moderation', { listingId: String(listing._id), flaggedBy: moderation.flaggedBy });
           return res.status(200).json({ success: true });
@@ -369,9 +385,16 @@ exports.handleWebhook = async (req, res, next) => {
         // fire-and-forget (failures are logged, never retried).
         listing.broadcastSent = true;
         await listing.save();
-        broadcastListing(listing).catch(err =>
-  logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message })
-);
+        broadcastListing(listing).catch(err => {
+          logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message });
+          emit({
+            actor: SYSTEM_ACTOR,
+            action: 'webhook.broadcast_skipped',
+            resource: 'listing',
+            resourceId: String(listing._id),
+            result: 'failure',
+          });
+        });
       } else if (payment.type === 'boost') {
         const listing = await Listing.findById(payment.listingId);
         if (listing) {
@@ -437,6 +460,14 @@ exports.handleWebhook = async (req, res, next) => {
         }
 
         await payment.save();
+        emit({
+          actor: SYSTEM_ACTOR,
+          action: 'payment.completed',
+          resource: 'payment',
+          resourceId: String(payment._id),
+          result: 'success',
+          metadata: { type: 'store' },
+        });
       }
     } else if (state === 'FAILED') {
       const payment = await Payment.findOne({ invoiceId: invoice_id });
