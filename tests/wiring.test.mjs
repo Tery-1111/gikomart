@@ -103,9 +103,22 @@ function applyFind(state) {
 
 const fakeListingModel = {
   create: async (data) => {
+    // Emulate the unique sparse index on paymentId (Item 4): a second create for
+    // the same payment collides, exactly as MongoDB reports it.
+    if (data && data.paymentId != null && h.listings.some(l => String(l.paymentId) === String(data.paymentId))) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      throw dup;
+    }
     const doc = makeDoc({ _id: `lst-${h.listings.length + 1}`, views: 0, status: 'active', store_id: null, broadcastSent: false, priorityBroadcast: false, featured: false, boostType: null, featuredUntil: null, moderationStatus: 'approved', ...data });
     h.listings.push(doc);
     return doc;
+  },
+  findOne: async (filter = {}) => {
+    if (filter.paymentId != null) {
+      return h.listings.find(l => String(l.paymentId) === String(filter.paymentId)) || null;
+    }
+    return null;
   },
   findById: (id) => selectableDoc(h.listings.find(l => String(l._id) === String(id)) || null),
   find: (filter = {}) => {
@@ -157,6 +170,12 @@ const fakeListingModel = {
 // ── Store fake (select:false emulated on read paths, hash passthrough on findById) ──
 const fakeStoreModel = {
   create: async (data) => {
+    // Emulate the unique sparse index on paymentId (Item 4).
+    if (data && data.paymentId != null && [...h.stores.values()].some(s => String(s.paymentId) === String(data.paymentId))) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      throw dup;
+    }
     const doc = makeDoc({ _id: `sto-${h.stores.size + 1}`, status: 'active', subcategories: [], ...data });
     h.stores.set(String(doc._id), doc);
     return doc;
@@ -164,6 +183,14 @@ const fakeStoreModel = {
   // .select('+ownerTokenHash') → same doc incl. hash (fakes don't project)
   findById: (id) => selectableDoc(h.stores.get(String(id)) || null),
   findOne: async (filter = {}) => {
+    if (filter.paymentId != null) {
+      for (const s of h.stores.values()) {
+        if (String(s.paymentId) === String(filter.paymentId)) {
+          const view = { ...s }; delete view.ownerTokenHash; return view;
+        }
+      }
+      return null;
+    }
     for (const s of h.stores.values()) {
       const slugOk = filter.slug === undefined || s.slug === filter.slug;
       const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
@@ -1084,6 +1111,76 @@ describe('Logger meta redaction (Item 2)', () => {
     expect(JSON.stringify(info)).not.toContain(rawToken);
     expect(JSON.stringify(info)).not.toContain(rawPhone);
     spy.mockRestore();
+  });
+});
+
+// ─── Item 4: side-effect idempotency via paymentId ──────────────────────────
+describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
+  function storePaymentHere(overrides = {}) {
+    return {
+      type: 'store',
+      status: 'pending',
+      storePlan: 'standard_monthly',
+      invoiceId: 'INV-STORE-1',
+      ownerTokenHash: 'b'.repeat(64),
+      storeData: {
+        name: 'Campus Store',
+        slug: 'campus-store',
+        category: 'Food',
+        phone: '0700000000',
+        whatsapp: '0700000000',
+      },
+      ...overrides,
+    };
+  }
+
+  it('T1: one COMPLETE delivery creates one listing carrying the payment id', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-1' })));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].paymentId).toBeTruthy();
+    expect(String(h.listings[0].paymentId)).toBe(String(h.payments[0]._id));
+  });
+
+  it('T2: duplicate delivery short-circuits and creates no second listing', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+    await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    const res2 = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+
+    expect(res2.status).toBe(200);
+    expect(res2.body.message).toBe('Payment already processed');
+    expect(h.listings).toHaveLength(1);
+  });
+
+  it('T3 (listing): bypassing the claim still yields exactly one listing', async () => {
+    const payment = makeDoc(listingPayment({ _id: 'pay-1' }));
+    h.payments.push(payment);
+    // Force BOTH deliveries past the atomic claim and into the creation branch.
+    const spy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    try {
+      await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+      await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(h.listings).toHaveLength(1);
+  });
+
+  it('T3 (store): bypassing the claim still yields exactly one store', async () => {
+    const payment = makeDoc(storePaymentHere({ _id: 'pay-2' }));
+    h.payments.push(payment);
+    const spy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    try {
+      await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+      await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(h.stores.size).toBe(1);
   });
 });
 
