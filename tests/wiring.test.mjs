@@ -882,7 +882,9 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
 
     const busy = responses.filter((r) => r.status === 503);
     expect(busy.length).toBeGreaterThanOrEqual(1);
-    expect(busy[0].body).toEqual({ success: false, error: 'Server busy — please try again in a moment' });
+    expect(busy[0].body.success).toBe(false);
+    expect(busy[0].body.error).toBe('Server busy — please try again in a moment');
+    expect(busy[0].body.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
 

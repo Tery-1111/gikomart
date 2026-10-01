@@ -16,7 +16,7 @@ function createSemaphore(maxConcurrent, maxQueued) {
 
   // Free one slot. If someone is waiting, hand the slot straight to them
   // (active stays the same, since one lease ends and another begins).
-  function release() {
+  function promoteOrDecrement() {
     const next = waiters.shift();
     if (next) {
       next();
@@ -25,12 +25,12 @@ function createSemaphore(maxConcurrent, maxQueued) {
     active -= 1;
   }
 
-  // Resolve to a release() function. Blocks (returns a pending promise) when all
+  // Resolve to an idempotent release function. Blocks (returns a pending promise) when all
   // slots are busy but the wait list still has room; throws UPLOAD_BUSY past that.
   function acquire() {
     if (active < maxConcurrent) {
       active += 1;
-      return Promise.resolve(release);
+      return Promise.resolve(makeRelease());
     }
     if (waiters.length >= maxQueued) {
       const err = new Error('Upload capacity exhausted — server busy');
@@ -38,8 +38,19 @@ function createSemaphore(maxConcurrent, maxQueued) {
       throw err;
     }
     return new Promise((resolve) => {
-      waiters.push(() => resolve(release));
+      waiters.push(() => resolve(makeRelease()));
     });
+  }
+
+  // Hand the caller an idempotent release. Calling it twice must not free two
+  // slots — the route's finally could run alongside another unwinding path.
+  function makeRelease() {
+    let released = false;
+    return function releaseOnce() {
+      if (released) return;
+      released = true;
+      promoteOrDecrement();
+    };
   }
 
   return { acquire };

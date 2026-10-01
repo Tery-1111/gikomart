@@ -65,7 +65,7 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       release = await uploadSemaphore.acquire();
     } catch (err) {
       if (err && err.code === 'UPLOAD_BUSY') {
-        return res.status(503).json({ success: false, error: 'Server busy — please try again in a moment' });
+        return res.status(503).json({ success: false, error: 'Server busy — please try again in a moment', requestId: req.id });
       }
       throw err;
     }

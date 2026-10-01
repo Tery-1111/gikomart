@@ -76,4 +76,28 @@ describe('createSemaphore', () => {
     expect(typeof release2).toBe('function');
     release2();
   });
+
+  it('ignores a second release call on the same slot', async () => {
+    const sem = createSemaphore(1, 0);
+    const release = await sem.acquire();
+    expect(typeof release).toBe('function');
+
+    release();
+    release(); // second call must be a no-op
+
+    // Slot should still be free (active === 0), so acquire resolves immediately.
+    const release2 = await sem.acquire();
+    expect(typeof release2).toBe('function');
+    release2();
+
+    // And the counter must not have gone negative: a further acquire with no
+    // held slot still succeeds.
+    const release3 = await sem.acquire();
+    expect(typeof release3).toBe('function');
+    // With the guard, the double release leaked no slot: after taking the one
+    // free slot, a second immediate acquire (no queue room) must be rejected.
+    // A leaked slot would let it through, which is what this asserts against.
+    expect(() => sem.acquire()).toThrow(/busy/i);
+    release3();
+  });
 });
