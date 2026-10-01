@@ -10,6 +10,7 @@ const {
 } = require('../controllers/adminAuthController');
 const adminAuth = require('../middleware/adminAuth');
 const { moderateStore, suspendStore } = require('../controllers/storeController');
+const { getAuditLogs } = require('../controllers/adminController');
 
 // FIX A4 — dedicated stricter limiter for admin endpoints (additive to the
 // global limiter, which still applies at app level).
@@ -41,5 +42,8 @@ router.post('/payments/:paymentReference/replay', requireAdminSession, replayPay
 // enabled). Mirrors the listing moderation endpoint.
 router.put('/stores/:id/moderate', adminAuth, moderateStore);
 router.put('/stores/:id/suspend', adminAuth, suspendStore);
+
+// Read-only admin views — session-only, matching the replay action.
+router.get('/audit-logs', requireAdminSession, getAuditLogs);
 
 module.exports = router;

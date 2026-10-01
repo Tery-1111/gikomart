@@ -303,6 +303,25 @@ const fakeLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () 
 const auditEvents = [];
 const fakeAuditEvent = {
   create: vi.fn(async (data) => { auditEvents.push(data); return data; }),
+  // Supports the admin audit-log endpoint: find(filter).sort({timestamp:-1}).limit(n).lean()
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = auditEvents.filter(e => matchesFilter(e, filter));
+        if (state.sort && state.sort.timestamp === -1) {
+          out = [...out].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map(e => ({ ...e }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
 };
 
 // ── require.cache injection (must precede importing server.js) ──
@@ -1602,6 +1621,48 @@ describe('Admin store moderation and suspension', () => {
     await seedStore({ status: 'suspended' });
     const res = await request(app).get('/api/stores/slug/mod-shop');
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── GET /api/admin/audit-logs (Priority 2, Domain 3) ───────────────────────
+describe('GET /api/admin/audit-logs', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  it('401 without an admin session', async () => {
+    const res = await request(app).get('/api/admin/audit-logs');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns events newest-first and redacts sensitive metadata keys', async () => {
+    auditEvents.push(
+      { actor: 'system', action: 'payment.completed', resource: 'payment', result: 'success', metadata: { type: 'listing' }, timestamp: new Date('2026-01-01') },
+      { actor: 'admin:owner', action: 'store.moderate', resource: 'store', result: 'success', metadata: { moderationStatus: 'removed', phoneNumber: '0700000000' }, timestamp: new Date('2026-02-01') },
+    );
+    const res = await request(app).get('/api/admin/audit-logs').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.logs).toHaveLength(2);
+    expect(res.body.logs[0].action).toBe('store.moderate'); // newest first
+    expect(res.body.logs[0].metadata.phoneNumber).toBe('[REDACTED]');
+    expect(res.body.logs[0].metadata.moderationStatus).toBe('removed');
+  });
+
+  it('supports ?action filter and caps ?limit at 50', async () => {
+    for (let i = 0; i < 3; i++) {
+      auditEvents.push({
+        actor: 'system', action: i === 0 ? 'payment.completed' : 'store.update', resource: 'x',
+        result: 'success', metadata: {}, timestamp: new Date(Date.now() + i),
+      });
+    }
+    const filtered = await request(app).get('/api/admin/audit-logs?action=store.update').set('X-Admin-Session', session());
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.logs).toHaveLength(2);
+    expect(filtered.body.logs.every(l => l.action === 'store.update')).toBe(true);
+
+    const capped = await request(app).get('/api/admin/audit-logs?limit=999').set('X-Admin-Session', session());
+    expect(capped.body.logs.length).toBeLessThanOrEqual(50);
   });
 });
 
