@@ -498,10 +498,10 @@ function renderListings() {
 }
 
 function listingCardHTML(l) {
-  const condClass = 'cond-' + l.condition.replace(/\s+/g, '-');
+  const condClass = 'cond-' + String(l.condition).replace(/\s+/g, '-');
   const hasImage = l.images && l.images.length > 0;
   const imageContent = hasImage
-    ? `<img src="${cloudinaryResize(l.images[0], 'w_400,h_400,c_fill,q_auto,f_auto')}" alt="${escapeHTML(l.title)}" loading="lazy">`
+    ? `<img src="${escapeAttr(cloudinaryResize(l.images[0], 'w_400,h_400,c_fill,q_auto,f_auto'))}" alt="${escapeAttr(l.title)}" loading="lazy">`
     : l.icon;
   const badgeHTML = l.featured
     ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
@@ -521,7 +521,7 @@ function listingCardHTML(l) {
       <div class="listing-image">
         ${imageContent}
         ${badgeHTML}
-        <span class="condition-badge ${condClass}">${l.condition}</span>
+        <span class="condition-badge ${escapeAttr(condClass)}">${escapeHTML(l.condition)}</span>
       </div>
       <div class="listing-body">
         ${storeBadgeHTML}
@@ -566,16 +566,16 @@ function openListingModal(id, source) {
   const listing = (source || allListings).find(l => l._id === id);
   if (!listing) return;
 
-  const condClass = 'cond-' + listing.condition.replace(/\s+/g, '-');
+  const condClass = 'cond-' + String(listing.condition).replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
-    ? `<img src="${cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto')}" alt="${escapeHTML(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`
+    ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}" alt="${escapeAttr(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
     <button class="modal-close" data-action="close-modal">✕</button>
     <div class="modal-image">${modalImageContent}</div>
-    <span class="condition-badge ${condClass}">${listing.condition}</span>
+    <span class="condition-badge ${escapeAttr(condClass)}">${escapeHTML(listing.condition)}</span>
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
     <div class="modal-price">KSh ${Number(listing.price).toLocaleString()}</div>
     <div class="modal-meta-row">
@@ -1347,7 +1347,7 @@ function renderStoreManagementPanel(store, listingCount) {
     <div style="background:var(--card); border-radius:var(--radius-lg); padding:24px; margin-bottom:20px; box-shadow:var(--shadow-soft);">
       <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
         ${store.logo_url
-          ? `<img src="${cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto')}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
+          ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
           : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px;">🏪</div>'}
         <div>
           <h3 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h3>
@@ -1744,12 +1744,12 @@ async function openStorePage(slug) {
     container.innerHTML = `
       <div style="background:var(--card); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-soft); margin-bottom:24px;">
         ${store.cover_url
-          ? `<div style="height:200px; background:url('${cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto')}') center/cover;"></div>`
+          ? `<div style="height:200px; background:url('${escapeAttr(cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto'))}') center/cover;"></div>`
           : '<div style="height:120px; background:linear-gradient(135deg, var(--marigold), var(--teal));"></div>'}
         <div style="padding:24px;">
           <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
             ${store.logo_url
-              ? `<img src="${cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto')}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover; border:3px solid var(--card);">`
+              ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover; border:3px solid var(--card);">`
               : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px; border:3px solid var(--card);">🏪</div>'}
             <div>
               <h2 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h2>

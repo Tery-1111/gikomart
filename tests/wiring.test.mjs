@@ -103,9 +103,23 @@ function applyFind(state) {
 
 const fakeListingModel = {
   create: async (data) => {
+    // Emulate the unique sparse index on paymentId (Item 4): a second create for
+    // the same payment collides, exactly as MongoDB reports it.
+    if (data && data.paymentId != null && h.listings.some(l => String(l.paymentId) === String(data.paymentId))) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      dup.keyPattern = { paymentId: 1 };
+      throw dup;
+    }
     const doc = makeDoc({ _id: `lst-${h.listings.length + 1}`, views: 0, status: 'active', store_id: null, broadcastSent: false, priorityBroadcast: false, featured: false, boostType: null, featuredUntil: null, moderationStatus: 'approved', ...data });
     h.listings.push(doc);
     return doc;
+  },
+  findOne: async (filter = {}) => {
+    if (filter.paymentId != null) {
+      return h.listings.find(l => String(l.paymentId) === String(filter.paymentId)) || null;
+    }
+    return null;
   },
   findById: (id) => selectableDoc(h.listings.find(l => String(l._id) === String(id)) || null),
   find: (filter = {}) => {
@@ -157,6 +171,13 @@ const fakeListingModel = {
 // ── Store fake (select:false emulated on read paths, hash passthrough on findById) ──
 const fakeStoreModel = {
   create: async (data) => {
+    // Emulate the unique sparse index on paymentId (Item 4).
+    if (data && data.paymentId != null && [...h.stores.values()].some(s => String(s.paymentId) === String(data.paymentId))) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      dup.keyPattern = { paymentId: 1 };
+      throw dup;
+    }
     const doc = makeDoc({ _id: `sto-${h.stores.size + 1}`, status: 'active', subcategories: [], ...data });
     h.stores.set(String(doc._id), doc);
     return doc;
@@ -164,6 +185,14 @@ const fakeStoreModel = {
   // .select('+ownerTokenHash') → same doc incl. hash (fakes don't project)
   findById: (id) => selectableDoc(h.stores.get(String(id)) || null),
   findOne: async (filter = {}) => {
+    if (filter.paymentId != null) {
+      for (const s of h.stores.values()) {
+        if (String(s.paymentId) === String(filter.paymentId)) {
+          const view = { ...s }; delete view.ownerTokenHash; return view;
+        }
+      }
+      return null;
+    }
     for (const s of h.stores.values()) {
       const slugOk = filter.slug === undefined || s.slug === filter.slug;
       const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
@@ -241,6 +270,15 @@ const fakeCloudinary = {
 
 const fakeLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
+// Audit events are fire-and-forget side effects of privileged/payment actions.
+// The app under test writes them through the DISCONNECTED real model unless a
+// fake is injected, which would leave buffering promises pending for the whole
+// suite. Record them instead.
+const auditEvents = [];
+const fakeAuditEvent = {
+  create: vi.fn(async (data) => { auditEvents.push(data); return data; }),
+};
+
 // ── require.cache injection (must precede importing server.js) ──
 function injectModule(relPath, exportsObj) {
   const resolved = resolveFromTests(relPath);
@@ -255,6 +293,7 @@ injectModule('../src/models/Admin.js', fakeAdminModel);
 injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
+injectModule('../src/models/AuditEvent.js', fakeAuditEvent);
 
 // ── Transparent sharp wrapper for the decode-concurrency test. While tracking
 // is off it is the real sharp, so every other test is unaffected.
@@ -278,14 +317,19 @@ function sharpSpy(...args) {
 }
 injectModule('sharp', sharpSpy);
 
-// Uploads in this suite (5 in test 6, 15 in test 7) blow past uploadLimiter's
-// 10/min per-IP production limit, which would otherwise mask the decode bound
-// behind 429s. The upload limiter is not what these tests exercise, so uploads
-// pass straight through; every other limiter keeps its real configuration.
+// This integration suite issues well over 100 requests per run and reuses the
+// payment/upload buckets across many endpoints, so the low production windows
+// (global 100/min, payment 5/min, listing-create 5/min, upload 10/min) would
+// mask unrelated assertions behind 429s. None of these limiter behaviors is
+// asserted here, so they pass straight through — every limiter implementation
+// and every other limiter (contact, admin) keeps its real configuration.
 const realRateLimiter = require('../src/middleware/rateLimiter');
 injectModule('../src/middleware/rateLimiter.js', {
   ...realRateLimiter,
+  globalLimiter: (req, _res, next) => next(),
   uploadLimiter: (req, _res, next) => next(),
+  paymentLimiter: (req, _res, next) => next(),
+  listingCreateLimiter: (req, _res, next) => next(),
 });
 
 let app;
@@ -687,6 +731,71 @@ describe('Store routes — auth, secret hygiene, CRUD', () => {
   });
 });
 
+// ─── Input validation: condition allowlist + media URL scheme ───────────────
+describe('Owner update validation — condition allowlist and media URL schemes', () => {
+  const OWNER_TOKEN = 'raw-owner-token';
+  function seedOwnedListing() {
+    h.listings.push(makeDoc({
+      _id: 'lst-val', title: 'Widget', condition: 'Good', images: [],
+      ownerTokenHash: sha256hex(OWNER_TOKEN), status: 'active', moderationStatus: 'approved',
+    }));
+  }
+  function seedOwnedStore() {
+    return fakeStoreModel.create({
+      name: 'Val Shop', slug: 'val-shop', category: 'Books',
+      ownerTokenHash: sha256hex(OWNER_TOKEN),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+  }
+
+  it('PUT /listings/:id rejects a condition outside the allowlist (400) and does not mutate', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ condition: '<img src=x onerror=alert(1)>' });
+    expect(res.status).toBe(400);
+    expect(h.listings[0].condition).toBe('Good');
+  });
+
+  it('PUT /listings/:id rejects a non-http(s) image URL (400)', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ images: ['javascript:alert(1)'] });
+    expect(res.status).toBe(400);
+    expect(h.listings[0].images).toEqual([]);
+  });
+
+  it('PUT /listings/:id still accepts a legitimate condition and https images (200)', async () => {
+    seedOwnedListing();
+    const res = await request(app).put('/api/listings/lst-val')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ condition: 'Like New', images: ['https://res.cloudinary.com/demo/image/upload/v1/gikomart/a.jpg'] });
+    expect(res.status).toBe(200);
+    expect(res.body.listing.condition).toBe('Like New');
+    expect(h.listings[0].images[0]).toMatch(/^https:\/\//);
+  });
+
+  it('PUT /stores/:id rejects a dangerous logo_url scheme (400) and does not mutate', async () => {
+    const store = await seedOwnedStore();
+    const res = await request(app).put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ logo_url: 'javascript:alert(1)' });
+    expect(res.status).toBe(400);
+    expect(h.stores.get(String(store._id)).logo_url).toBeUndefined();
+  });
+
+  it('PUT /stores/:id still accepts a legitimate https cover_url (200)', async () => {
+    const store = await seedOwnedStore();
+    const res = await request(app).put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ cover_url: 'https://res.cloudinary.com/demo/image/upload/v1/gikomart/c.jpg' });
+    expect(res.status).toBe(200);
+    expect(res.body.store.cover_url).toMatch(/^https:\/\//);
+  });
+});
+
 // ─── Admin 2FA flow + moderation gate ───────────────────────────────────────
 describe('Admin 2FA (real speakeasy) and moderation auth', () => {
   it('moderate endpoint: 403 without credentials, 200 with admin key (pre-2FA)', async () => {
@@ -941,7 +1050,7 @@ injectModule('../src/services/paymentService.js', {
 });
 
 describe('Payment error UX (Task 2)', () => {
-  const FIXED_ERROR = 'Payment could not be started — please try again in a moment';
+  const FIXED_ERROR = 'Payment could not be started — check your M-Pesa balance and phone number, then try again.';
 
   // Valid acceptance payloads — the controller validates terms acceptance
   // before it ever reaches the payment call.
@@ -1036,6 +1145,143 @@ describe('STORE_PLANS — unsellable plan removed (Fix 6)', () => {
 });
 
 // ─── CSP: analytics origins ─────────────────────────────────────────────────
+// ─── Item 2: logger meta redaction ───────────────────────────────────────────
+// The app under test uses the injected bare mock logger (fakeLogger, above), so
+// the real transport pipeline never runs for the routes exercised in this file.
+// For this test we load the REAL logger module directly, spy on its real File
+// transport, then restore the injected mock so the app keeps using the fake.
+// That proves redaction on the real format + real transport, not on a mock.
+describe('Logger meta redaction (Item 2)', () => {
+  it('redacts sensitive meta before the real transport receives it', async () => {
+    const loggerPath = require.resolve('../src/config/logger.js');
+    const injectedLogger = require.cache[loggerPath];
+    delete require.cache[loggerPath];
+    const realLogger = require('../src/config/logger.js');
+    require.cache[loggerPath] = injectedLogger;
+
+    const fileTransport = realLogger.transports.find((t) => t.name === 'file');
+    expect(fileTransport).toBeTruthy();
+
+    const spy = vi.spyOn(fileTransport, 'log');
+    const rawToken = 'raw-secret-token-abc';
+    const rawPhone = '0712345678';
+
+    realLogger.error('redaction-integration', {
+      token: rawToken,
+      phoneNumber: rawPhone,
+      nested: { email: 'user@example.com' },
+      safe: 'visible',
+    });
+    await new Promise((r) => setImmediate(r));
+
+    expect(spy).toHaveBeenCalled();
+    const info = spy.mock.calls[spy.mock.calls.length - 1][0];
+    expect(info.token).toBe('[REDACTED]');
+    expect(info.phoneNumber).toBe('[REDACTED]');
+    expect(info.nested.email).toBe('[REDACTED]');
+    expect(info.safe).toBe('visible');
+    expect(JSON.stringify(info)).not.toContain(rawToken);
+    expect(JSON.stringify(info)).not.toContain(rawPhone);
+    spy.mockRestore();
+  });
+});
+
+// ─── Item 4: side-effect idempotency via paymentId ──────────────────────────
+describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
+  function storePaymentHere(overrides = {}) {
+    return {
+      type: 'store',
+      status: 'pending',
+      storePlan: 'standard_monthly',
+      invoiceId: 'INV-STORE-1',
+      ownerTokenHash: 'b'.repeat(64),
+      storeData: {
+        name: 'Campus Store',
+        slug: 'campus-store',
+        category: 'Food',
+        phone: '0700000000',
+        whatsapp: '0700000000',
+      },
+      ...overrides,
+    };
+  }
+
+  it('T1: one COMPLETE delivery creates one listing carrying the payment id', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-1' })));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].paymentId).toBeTruthy();
+    expect(String(h.listings[0].paymentId)).toBe(String(h.payments[0]._id));
+  });
+
+  it('T2: duplicate delivery short-circuits and creates no second listing', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+    await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    const res2 = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+
+    expect(res2.status).toBe(200);
+    expect(res2.body.message).toBe('Payment already processed');
+    expect(h.listings).toHaveLength(1);
+  });
+
+  it('T3 (listing): bypassing the claim still yields exactly one listing', async () => {
+    const payment = makeDoc(listingPayment({ _id: 'pay-1' }));
+    h.payments.push(payment);
+    // Force BOTH deliveries past the atomic claim and into the creation branch.
+    const spy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    try {
+      await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+      await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(h.listings).toHaveLength(1);
+  });
+
+  it('T3 (store): bypassing the claim still yields exactly one store', async () => {
+    const payment = makeDoc(storePaymentHere({ _id: 'pay-2' }));
+    h.payments.push(payment);
+    const spy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    try {
+      await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+      await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(h.stores.size).toBe(1);
+  });
+
+  it('T4 (regression): an unrelated duplicate key (slug) fails loudly instead of being treated as a payment replay', async () => {
+    const payment = makeDoc(storePaymentHere({ _id: 'pay-3' }));
+    h.payments.push(payment);
+    const claimSpy = vi.spyOn(fakePaymentModel, 'findOneAndUpdate').mockResolvedValue(payment);
+    // Store.create raises a NON-paymentId duplicate (slug unique index), as when
+    // a slug collides with a different payment's store. Before the fix this was
+    // swallowed as "an idempotent replay"; findOne({ paymentId })
+    // then returned null and the code crashed on store._id.
+    const origCreate = fakeStoreModel.create;
+    fakeStoreModel.create = async () => {
+      const dup = new Error('E11000 duplicate key error collection: stores index: slug_1');
+      dup.code = 11000;
+      dup.keyPattern = { slug: 1 };
+      throw dup;
+    };
+    try {
+      const res = await webhook({ invoice_id: 'INV-STORE-1', state: 'COMPLETE' });
+      // Surfaced as a server error (retryable) — never misread as idempotent.
+      expect(res.status).toBe(500);
+      expect(h.stores.size).toBe(0);
+    } finally {
+      fakeStoreModel.create = origCreate;
+      claimSpy.mockRestore();
+    }
+  });
+});
+
 describe('CSP analytics origins', () => {
   function directive(header, name) {
     const found = header.split(';').map(d => d.trim()).find(d => d.startsWith(name + ' '));

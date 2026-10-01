@@ -36,6 +36,10 @@ const storeSchema = new mongoose.Schema({
   // Ownership — same pattern as Listing
   ownerTokenHash: { type: String, select: false },
 
+  // The payment that produced this store. Unique so a duplicate webhook
+  // delivery cannot create a second store for the same payment.
+  paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+
   // Plan
   plan:           { type: String, enum: ['starter_weekly', 'standard_monthly', 'pro_monthly'], required: true }, // standard_weekly removed (never sellable)
   plan_price:     { type: Number, required: true },
@@ -53,5 +57,6 @@ const storeSchema = new mongoose.Schema({
 storeSchema.index({ ownerTokenHash: 1 }, { unique: true });
 storeSchema.index({ expires_at: 1 });
 storeSchema.index({ status: 1, category: 1, createdAt: -1 });
+storeSchema.index({ paymentId: 1 }, { unique: true, sparse: true }); // webhook idempotency
 
 module.exports = mongoose.model('Store', storeSchema);

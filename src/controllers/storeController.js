@@ -3,6 +3,8 @@ const Store = require('../models/Store');
 const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
+const { emit, adminActor, ownerActor } = require('../services/auditService');
+const { isHttpUrl } = require('../utils/safeUrl');
 const mongoose = require('mongoose');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -128,7 +130,24 @@ exports.updateStore = async (req, res, next) => {
       updates.slug = desired;
     }
 
+    // Media fields are rendered into <img src> / CSS url() by the frontend, so
+    // only http(s) URLs are accepted. null/'' clears the field and stays legal.
+    for (const field of ['logo_url', 'cover_url']) {
+      const value = updates[field];
+      if (value !== undefined && value !== null && value !== '' && !isHttpUrl(value)) {
+        return res.status(400).json({ success: false, error: `${field} must be an http(s) URL` });
+      }
+    }
+
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.update',
+      resource: 'store',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: { updatedFieldCount: Object.keys(updates).length },
+    });
     res.json({ success: true, store });
   } catch (err) {
     // Race-window duplicate (two concurrent renames to the same free slug):
@@ -189,6 +208,14 @@ exports.deleteStore = async (req, res, next) => {
 
     logger.info('Store cascade delete completed', {
       storeId: store._id, name: store.name, credentialType, adminUser,
+    });
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.delete',
+      resource: 'store',
+      resourceId: String(store._id),
+      result: 'success',
+      metadata: { credentialType },
     });
     res.json({ success: true, message: 'Store and all associated listings deleted' });
   } catch (err) {

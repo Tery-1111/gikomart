@@ -2,7 +2,10 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const Payment = require('../models/Payment');
 const logger = require('../config/logger');
+const { emit, SYSTEM_ACTOR } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
+const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing } = require('../services/moderationService');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
@@ -37,7 +40,7 @@ exports.initiateBoost = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
@@ -84,11 +87,14 @@ exports.initiateListing = async (req, res, next) => {
     // Validate every field the Listing model requires BEFORE starting the STK push —
     // once payment completes, the webhook creates the listing from this data, and a
     // failed create at that point would mean the user paid but got nothing.
-    const VALID_CONDITIONS = ['New', 'Like New', 'Excellent', 'Good', 'Fair', 'Poor'];
     const errors = [];
     if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
     if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
     if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
+    // Image entries are rendered into <img src> — reject non-http(s) schemes
+    // (javascript:, data:, …) before the STK push so they are never stored.
+    if (listingData.images !== undefined
+      && (!Array.isArray(listingData.images) || !listingData.images.every(isHttpUrl))) errors.push('images');
     const price = Number(listingData.price);
     if (!Number.isFinite(price) || price < 0) errors.push('price');
     if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
@@ -119,7 +125,7 @@ exports.initiateListing = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
@@ -226,7 +232,7 @@ exports.initiateStorePlan = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
@@ -300,6 +306,13 @@ exports.handleWebhook = async (req, res, next) => {
     // Fail closed before any lookup.
     if (!invoice_id) {
       logger.error('Webhook missing invoice_id', { state });
+      emit({
+        actor: SYSTEM_ACTOR,
+        action: 'webhook.missing_invoice_id',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { state },
+      });
       return res.status(400).json({ success: false, error: 'invoice_id is required' });
     }
 
@@ -333,14 +346,29 @@ exports.handleWebhook = async (req, res, next) => {
         // Content moderation gate: flagged listings are created (payment already
         // completed) but hidden from public views and NOT broadcast.
         const moderation = checkListing(payment.listingData || {});
-        const listing = await Listing.create({
-          ...payment.listingData,
-          package: payment.package,
-          expiresAt: new Date(Date.now() + pricing.durationMs),
-          moderationStatus: moderation.approved ? 'approved' : 'flagged',
-          // Only the hash is copied — the raw token never touches the database.
-          ownerTokenHash: payment.ownerTokenHash,
-        });
+        // Idempotent creation: the unique index on paymentId makes a duplicate
+        // delivery (or a retry after a mid-processing throw) collide with
+        // E11000, in which case we re-read the listing the first attempt made.
+        // create() — not findOneAndUpdate/upsert — so schema setters and hooks
+        // still run.
+        let listing;
+        try {
+          listing = await Listing.create({
+            paymentId: payment._id,
+            ...payment.listingData,
+            package: payment.package,
+            expiresAt: new Date(Date.now() + pricing.durationMs),
+            moderationStatus: moderation.approved ? 'approved' : 'flagged',
+            // Only the hash is copied — the raw token never touches the database.
+            ownerTokenHash: payment.ownerTokenHash,
+          });
+        } catch (err) {
+          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
+            listing = await Listing.findOne({ paymentId: payment._id });
+          } else {
+            throw err;
+          }
+        }
         // Record which listing this payment produced (Payment.listingId is
         // designed to stay absent until the listing payment completes) so the
         // status endpoint can tell the payer which listing they now own.
@@ -360,6 +388,14 @@ exports.handleWebhook = async (req, res, next) => {
         }
 
         await payment.save();
+        emit({
+          actor: SYSTEM_ACTOR,
+          action: 'payment.completed',
+          resource: 'payment',
+          resourceId: String(payment._id),
+          result: 'success',
+          metadata: { type: 'listing' },
+        });
         if (!moderation.approved) {
           logger.warn('Listing flagged by moderation', { listingId: String(listing._id), flaggedBy: moderation.flaggedBy });
           return res.status(200).json({ success: true });
@@ -369,9 +405,16 @@ exports.handleWebhook = async (req, res, next) => {
         // fire-and-forget (failures are logged, never retried).
         listing.broadcastSent = true;
         await listing.save();
-        broadcastListing(listing).catch(err =>
-  logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message })
-);
+        broadcastListing(listing).catch(err => {
+          logger.warn('WhatsApp broadcast skipped (Whapi unavailable)', { error: err.message });
+          emit({
+            actor: SYSTEM_ACTOR,
+            action: 'webhook.broadcast_skipped',
+            resource: 'listing',
+            resourceId: String(listing._id),
+            result: 'failure',
+          });
+        });
       } else if (payment.type === 'boost') {
         const listing = await Listing.findById(payment.listingId);
         if (listing) {
@@ -401,27 +444,38 @@ exports.handleWebhook = async (req, res, next) => {
         const Store = require('../models/Store');
         const pricing = STORE_PLANS[payment.storePlan];
 
-        const store = await Store.create({
-          name: payment.storeData.name,
-          slug: payment.storeData.slug,
-          description: payment.storeData.description || '',
-          category: payment.storeData.category,
-          subcategories: payment.storeData.subcategories || [],
-          phone: payment.storeData.phone || '',
-          whatsapp: payment.storeData.whatsapp || '',
-          email: payment.storeData.email || '',
-          campus: payment.storeData.campus || 'Egerton University',
-          location: payment.storeData.location || '',
-          pickup_location: payment.storeData.pickup_location || '',
-          ownerTokenHash: payment.ownerTokenHash,
-          plan: payment.storePlan,
-          plan_price: pricing.amount,
-          plan_duration: pricing.durationMs,
-          listing_limit: pricing.listingLimit,
-          started_at: new Date(),
-          expires_at: new Date(Date.now() + pricing.durationMs),
-          status: 'active',
-        });
+        // Same idempotency contract as the listing branch above.
+        let store;
+        try {
+          store = await Store.create({
+            paymentId: payment._id,
+            name: payment.storeData.name,
+            slug: payment.storeData.slug,
+            description: payment.storeData.description || '',
+            category: payment.storeData.category,
+            subcategories: payment.storeData.subcategories || [],
+            phone: payment.storeData.phone || '',
+            whatsapp: payment.storeData.whatsapp || '',
+            email: payment.storeData.email || '',
+            campus: payment.storeData.campus || 'Egerton University',
+            location: payment.storeData.location || '',
+            pickup_location: payment.storeData.pickup_location || '',
+            ownerTokenHash: payment.ownerTokenHash,
+            plan: payment.storePlan,
+            plan_price: pricing.amount,
+            plan_duration: pricing.durationMs,
+            listing_limit: pricing.listingLimit,
+            started_at: new Date(),
+            expires_at: new Date(Date.now() + pricing.durationMs),
+            status: 'active',
+          });
+        } catch (err) {
+          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
+            store = await Store.findOne({ paymentId: payment._id });
+          } else {
+            throw err;
+          }
+        }
 
         payment.storeId = store._id;
 
@@ -437,6 +491,14 @@ exports.handleWebhook = async (req, res, next) => {
         }
 
         await payment.save();
+        emit({
+          actor: SYSTEM_ACTOR,
+          action: 'payment.completed',
+          resource: 'payment',
+          resourceId: String(payment._id),
+          result: 'success',
+          metadata: { type: 'store' },
+        });
       }
     } else if (state === 'FAILED') {
       const payment = await Payment.findOne({ invoiceId: invoice_id });
