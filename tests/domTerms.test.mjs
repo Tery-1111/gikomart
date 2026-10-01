@@ -17,6 +17,8 @@ const V2 = { GIKOMART_TERMS_OF_SERVICE: '1.0.1', STORE_OWNER_TERMS: '1.0.1', SEL
 
 // Whatever this holds when /terms/versions is called is what the server "is".
 let nextVersions = V1;
+// What /api/upload answers. The 503 test flips this later to prove the branch.
+let uploadResponse = { ok: false, status: 503, json: async () => ({}), text: async () => '' };
 const fetchCalls = [];
 
 beforeAll(async () => {
@@ -37,6 +39,11 @@ beforeAll(async () => {
   globalThis.window = dom.window;
   globalThis.Event = dom.window.Event;
   globalThis.localStorage = dom.window.localStorage;
+  // The upload flow builds FormData and reads the chosen file with FileReader —
+  // both must come from the jsdom realm (Node has no global FileReader).
+  globalThis.FormData = dom.window.FormData;
+  globalThis.File = dom.window.File;
+  globalThis.FileReader = dom.window.FileReader;
 
   const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body });
   vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => {
@@ -47,6 +54,7 @@ beforeAll(async () => {
       return jsonResponse({ success: true, message: 'STK push sent. Check your phone.', amount: 150, invoiceId: 'INV-STG-1', ownerToken: 'tok-abc' });
     }
     if (u.includes('/payments/status/')) return jsonResponse({ success: true, storeId: 'sto-9' });
+    if (u.includes('/upload')) return uploadResponse;
     return { ok: false, status: 404, json: async () => ({ success: false }) };
   }));
 
@@ -101,6 +109,23 @@ describe('Store modal terms freshness (Fix 4)', () => {
 
     // 5. The VISIBLE notice was re-rendered to v1.0.1 too.
     const noticeAfter = [...document.querySelectorAll('#storeCreationForm .terms-acceptance .terms-version')].map((s) => s.textContent);
+
     expect(noticeAfter).toEqual(['v1.0.1', 'v1.0.1']);
+  });
+});
+
+describe('Upload 503 handling (Rule D)', () => {
+  it('shows the busy message on a 503 and keeps the chosen file for a manual retry', async () => {
+    const input = document.getElementById('f-image');
+    const file = new window.File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
+    Object.defineProperty(input, 'files', { value: [file], configurable: true });
+    uploadResponse = { ok: false, status: 503, json: async () => ({}), text: async () => '' };
+
+    input.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 50));
+
+    const status = document.getElementById('imageUploadStatus');
+    expect(status.textContent).toBe('Server is busy — please try again in a moment');
+    expect(input.files[0]).toBe(file);
   });
 });

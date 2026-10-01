@@ -9,7 +9,7 @@ export default defineConfig({
     // First test issues the server's first real HTTP request after a cold
     // import; on CI (fresh transform, no warm caches) that can exceed the 5s
     // default. Generous ceiling keeps the suite reliable on GitHub runners.
-    hookTimeout: 30000,
+    hookTimeout: 60000,
     testTimeout: 30000,
   },
 });

@@ -27,7 +27,20 @@ exports.initiateBoost = async (req, res, next) => {
     }
 
     const apiRef = `boost_${listingId}_${Date.now()}`;
-    const { response, amount } = await initiateBoostPayment({ phoneNumber, boostType, apiRef });
+    let response;
+    let amount;
+    try {
+      // Payment-start failure must not leak IntaSend internals to the client;
+      // a fixed, actionable message is returned instead.
+      ({ response, amount } = await initiateBoostPayment({ phoneNumber, boostType, apiRef }));
+    } catch (err) {
+      // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
+      // — no stable type/code field — so it is not classified or logged here.
+      return res.status(503).json({
+        error: 'Payment could not be started — please try again in a moment',
+        requestId: req.id,
+      });
+    }
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
@@ -96,7 +109,20 @@ exports.initiateListing = async (req, res, next) => {
     const ownerTokenHash = crypto.createHash('sha256').update(rawOwnerToken).digest('hex');
 
     const apiRef = `listing_${Date.now()}`;
-    const { response, amount } = await initiateListingPayment({ phoneNumber, package: pkg, apiRef });
+    let response;
+    let amount;
+    try {
+      // Payment-start failure must not leak IntaSend internals to the client;
+      // a fixed, actionable message is returned instead.
+      ({ response, amount } = await initiateListingPayment({ phoneNumber, package: pkg, apiRef }));
+    } catch (err) {
+      // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
+      // — no stable type/code field — so it is not classified or logged here.
+      return res.status(503).json({
+        error: 'Payment could not be started — please try again in a moment',
+        requestId: req.id,
+      });
+    }
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
@@ -190,7 +216,20 @@ exports.initiateStorePlan = async (req, res, next) => {
     }
 
     const apiRef = `store_${Date.now()}`;
-    const { response, amount } = await initiateStorePlanPayment({ phoneNumber, storePlan, apiRef });
+    let response;
+    let amount;
+    try {
+      // Payment-start failure must not leak IntaSend internals to the client;
+      // a fixed, actionable message is returned instead.
+      ({ response, amount } = await initiateStorePlanPayment({ phoneNumber, storePlan, apiRef }));
+    } catch (err) {
+      // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
+      // — no stable type/code field — so it is not classified or logged here.
+      return res.status(503).json({
+        error: 'Payment could not be started — please try again in a moment',
+        requestId: req.id,
+      });
+    }
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
@@ -254,6 +293,15 @@ exports.handleWebhook = async (req, res, next) => {
     }
 
     const { invoice_id, state } = req.body;
+
+    // Mongoose 9 strips `undefined` from query filters, so a valid-challenge
+    // webhook with no invoice_id would collapse the claim filter below to
+    // `{ status: { $ne: 'completed' } }` and claim an arbitrary pending payment.
+    // Fail closed before any lookup.
+    if (!invoice_id) {
+      logger.error('Webhook missing invoice_id', { state });
+      return res.status(400).json({ success: false, error: 'invoice_id is required' });
+    }
 
     if (state === 'COMPLETE') {
       // Atomic idempotency guard: transition the payment to 'completed' and mark

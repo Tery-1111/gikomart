@@ -256,6 +256,38 @@ injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
 
+// ── Transparent sharp wrapper for the decode-concurrency test. While tracking
+// is off it is the real sharp, so every other test is unaffected.
+const realSharp = require('sharp');
+const sharpState = { tracking: false, concurrent: 0, max: 0, delayMs: 0 };
+function sharpSpy(...args) {
+  const pipeline = realSharp(...args);
+  if (!sharpState.tracking) return pipeline;
+  const runToBuffer = pipeline.toBuffer.bind(pipeline);
+  pipeline.toBuffer = async (...tbArgs) => {
+    sharpState.concurrent += 1;
+    sharpState.max = Math.max(sharpState.max, sharpState.concurrent);
+    try {
+      if (sharpState.delayMs) await new Promise((r) => setTimeout(r, sharpState.delayMs));
+      return await runToBuffer(...tbArgs);
+    } finally {
+      sharpState.concurrent -= 1;
+    }
+  };
+  return pipeline;
+}
+injectModule('sharp', sharpSpy);
+
+// Uploads in this suite (5 in test 6, 15 in test 7) blow past uploadLimiter's
+// 10/min per-IP production limit, which would otherwise mask the decode bound
+// behind 429s. The upload limiter is not what these tests exercise, so uploads
+// pass straight through; every other limiter keeps its real configuration.
+const realRateLimiter = require('../src/middleware/rateLimiter');
+injectModule('../src/middleware/rateLimiter.js', {
+  ...realRateLimiter,
+  uploadLimiter: (req, _res, next) => next(),
+});
+
 let app;
 
 beforeAll(async () => {
@@ -360,6 +392,21 @@ function listingPayment(overrides = {}) {
 }
 
 const webhook = (body) => request(app).post('/api/payments/webhook').send({ challenge: TEST_WEBHOOK_CHALLENGE, ...body });
+
+// ─── Webhook: required-field validation ─────────────────────────────────────
+describe('Webhook COMPLETE — missing invoice_id fails closed', () => {
+  it('rejects with 400 and cannot claim an arbitrary pending payment', async () => {
+    // Mongoose 9 drops `undefined` from filter objects, so without the guard the
+    // claim filter { invoiceId: undefined, status: { $ne: 'completed' } } collapses
+    // to { status: { $ne: 'completed' } } and claims whichever payment is pending.
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await webhook({ state: 'COMPLETE' }); // no invoice_id
+
+    expect(res.status).toBe(400);
+    expect(h.payments[0].status).toBe('pending');
+    expect(h.listings).toHaveLength(0);
+  });
+});
 
 // ─── Webhook: listing payments ──────────────────────────────────────────────
 describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSent', () => {
@@ -664,7 +711,12 @@ describe('Admin 2FA (real speakeasy) and moderation auth', () => {
     const verify = await request(app).post('/api/admin/verify-2fa').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
     expect(verify.status).toBe(200);
 
-    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code });
+    // Generate a FRESH code for login rather than reusing the verify code.
+    // With a reused code this test fails whenever the 30s TOTP window rolls
+    // between the two requests: the token then belongs to the previous window
+    // and login's replay protection (verifyDelta, delta < 0) rejects it with 401.
+    const loginCode = speakeasy.totp({ secret, encoding: 'base32' });
+    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code: loginCode });
     expect(login.status).toBe(200);
     expect(login.body.token).toBeTruthy();
 
@@ -737,6 +789,118 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
   });
+
+  it('rejects an image above the input pixel cap before decoding it (pixel bomb)', async () => {
+    // 6000x5000 = 30 megapixels: a fully decodable PNG that clears sharp's
+    // ~268 MP library default but exceeds the route's explicit 25 MP cap.
+    // A solid-colour image of this size deflates well under the 5 MB multer
+    // limit, so file size alone is no defence — the header declares the cost.
+    const bomb = await sharp({ create: { width: 6000, height: 5000, channels: 3, background: 'blue' } }).png().toBuffer();
+    expect(bomb.length).toBeLessThan(5 * 1024 * 1024);
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', bomb, { filename: 'bomb.png', contentType: 'image/png' });
+
+    // Rejected at 400 — a client fault, not a 5xx from an exhausted process.
+    expect(res.status).toBe(400);
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a legitimate under-cap photo after the pixel cap is applied', async () => {
+    // 2000x1500 = 3 MP — comfortably below the cap, so a normal listing photo
+    // must still pass end-to-end. Guards against over-tightening the ceiling.
+    const photo = await sharp({ create: { width: 2000, height: 1500, channels: 3, background: 'green' } }).png().toBuffer();
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', photo, { filename: 'photo.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+  });
+
+  it('does not ask Cloudinary to resize again — the buffer is already within 1600px', async () => {
+    // 2400x1800 = 4.3 MP, so sharp's resize must produce a 1600x1200 buffer.
+    // Cloudinary therefore receives an already-capped image and the no-op
+    // `transformation` would only cost a second resize pass per upload.
+    const png = await sharp({ create: { width: 2400, height: 1800, channels: 3, background: 'purple' } }).png().toBuffer();
+
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', png, { filename: 'wide.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+
+    expect(cloudinaryUpload).toHaveBeenCalledTimes(1);
+    const [dataURI, uploadOptions] = cloudinaryUpload.mock.calls[0];
+    // No resize instruction is handed to Cloudinary at all.
+    expect(uploadOptions).not.toHaveProperty('transformation');
+    // The every-other-option contract is intact.
+    expect(uploadOptions.folder).toBe('gikomart');
+    expect(uploadOptions.resource_type).toBe('image');
+    expect(uploadOptions.quality).toBe('auto');
+    expect(uploadOptions.fetch_format).toBe('auto');
+    expect(uploadOptions.allowed_formats).toEqual(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+
+    // The data URI handed over is the sharp output, i.e. already inside the box.
+    const capped = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
+    expect(Math.max(capped.width, capped.height)).toBeLessThanOrEqual(1600);
+  });
+
+  it('bounds concurrent sharp decoding to 3 under 5 parallel uploads (Rule D)', async () => {
+    const png = await sharp({ create: { width: 900, height: 900, channels: 3, background: 'blue' } }).png().toBuffer();
+
+    sharpState.tracking = true;
+    sharpState.concurrent = 0;
+    sharpState.max = 0;
+    sharpState.delayMs = 60;
+    let responses;
+    try {
+      responses = await Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          request(app)
+            .post('/api/upload')
+            .set('Content-Type', 'multipart/form-data')
+            .attach('image', png, { filename: `c${i}.png`, contentType: 'image/png' })
+        )
+      );
+    } finally {
+      sharpState.tracking = false;
+      sharpState.delayMs = 0;
+    }
+
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(sharpState.max).toBe(3);
+  });
+
+  it('answers 503 with the busy message once uploads exceed the queue (Rule D)', async () => {
+    const png = await sharp({ create: { width: 400, height: 400, channels: 3, background: 'red' } }).png().toBuffer();
+
+    sharpState.tracking = true;
+    sharpState.delayMs = 200;
+    let responses;
+    try {
+      responses = await Promise.all(
+        Array.from({ length: 15 }, (_, i) =>
+          request(app)
+            .post('/api/upload')
+            .set('Content-Type', 'multipart/form-data')
+            .attach('image', png, { filename: `p${i}.png`, contentType: 'image/png' })
+        )
+      );
+    } finally {
+      sharpState.tracking = false;
+      sharpState.delayMs = 0;
+    }
+
+    const busy = responses.filter((r) => r.status === 503);
+    expect(busy.length).toBeGreaterThanOrEqual(1);
+    expect(busy[0].body.success).toBe(false);
+    expect(busy[0].body.error).toBe('Server busy — please try again in a moment');
+    expect(busy[0].body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
 });
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────
@@ -755,10 +919,140 @@ describe('cleanupService.deleteExpiredListings', () => {
   });
 });
 
+// ─── Payment error UX (Task 2) ──────────────────────────────────────────────
+// The IntaSend SDK rejects with a raw unparsed buffer/string on HTTP errors —
+// no stable type/code field — so a payment-start failure cannot be classified.
+// It must therefore surface as a FIXED, actionable 503 carrying only the
+// request ID, never the raw SDK error text.
+//
+// The stub keeps the REAL pricing maps (the controller validates package/plan
+// before calling the service) and only replaces the three initiate* calls.
+// It is injected HERE — after the other fakes but before server.js is imported
+// by the module-level beforeAll below — so paymentController's destructured
+// require() bindings pick up the rejecting versions.
+const { TERMS_VERSIONS } = require('../src/config/termsVersions');
+const rawIntasendError = 'intasend-raw-error-xyz';
+const rejectWithRawIntasendError = async () => { throw new Error(rawIntasendError); };
+injectModule('../src/services/paymentService.js', {
+  ...require('../src/services/paymentService.js'),
+  initiateBoostPayment: rejectWithRawIntasendError,
+  initiateListingPayment: rejectWithRawIntasendError,
+  initiateStorePlanPayment: rejectWithRawIntasendError,
+});
+
+describe('Payment error UX (Task 2)', () => {
+  const FIXED_ERROR = 'Payment could not be started — please try again in a moment';
+
+  // Valid acceptance payloads — the controller validates terms acceptance
+  // before it ever reaches the payment call.
+  const listingAcceptance = {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+  };
+  const storeAcceptance = {
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    storeOwnerTermsVersion: TERMS_VERSIONS.STORE_OWNER_TERMS,
+  };
+
+  beforeEach(() => {
+    // initiateBoost looks the listing up through the injected Listing model.
+    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false }));
+  });
+
+  // The 503 body must be exactly the fixed message plus the request ID, with
+  // no trace of the underlying SDK error.
+  function expectFixedErrorBody(body) {
+    expect(body).toEqual({ error: FIXED_ERROR, requestId: expect.any(String) });
+    expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.stringify(body)).not.toContain(rawIntasendError);
+    expect(Object.keys(body)).toHaveLength(2);
+  }
+
+  it('initiate-listing 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing').send({
+      phoneNumber: '0700000000',
+      package: 'quick',
+      listingData: {
+        title: 'Test Book',
+        category: 'Books',
+        condition: 'Good',
+        price: 500,
+        description: 'Used calc textbook',
+        sellerName: 'Jane',
+        sellerWhatsapp: '0711111111',
+        location: 'Egerton',
+        images: [],
+      },
+      acceptance: listingAcceptance,
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('initiate-store-plan 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/initiate-store-plan').send({
+      phoneNumber: '0700000000',
+      storePlan: 'starter_weekly',
+      storeData: {
+        name: 'Shop1',
+        category: 'Books',
+        description: '',
+        phone: '0700000000',
+        whatsapp: '0711111111',
+        email: '',
+        location: 'Egerton',
+      },
+      acceptance: storeAcceptance,
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+
+  it('initiate-boost 503 on IntaSend failure', async () => {
+    const res = await request(app).post('/api/payments/boost').send({
+      listingId: 'lst-plain',
+      phoneNumber: '0700000000',
+      boostType: 'featured',
+    });
+
+    expect(res.status).toBe(503);
+    expectFixedErrorBody(res.body);
+    expect(res.headers['x-request-id']).toBeTruthy();
+  });
+});
+
 // ─── Pricing config: standard_weekly removed (Fix 6) ────────────────────────
 describe('STORE_PLANS — unsellable plan removed (Fix 6)', () => {
   it('standard_weekly no longer exists backend-side', async () => {
     const paymentService = await import('../src/services/paymentService.js');
     expect(paymentService.STORE_PLANS.standard_weekly).toBeUndefined();
+  });
+});
+
+// ─── CSP: analytics origins ─────────────────────────────────────────────────
+describe('CSP analytics origins', () => {
+  function directive(header, name) {
+    const found = header.split(';').map(d => d.trim()).find(d => d.startsWith(name + ' '));
+    return found ? found.slice(name.length).trim().split(/\s+/) : [];
+  }
+
+  it('allows the GoatCounter image beacon host in img-src (sendBeacon fallback)', async () => {
+    const res = await request(app).get('/health');
+    const csp = res.headers['content-security-policy'];
+    expect(csp).toBeTruthy();
+
+    // The legacy <img> beacon used when navigator.sendBeacon is unavailable is
+    // governed by img-src, not connect-src — so the host must appear there too.
+    expect(directive(csp, 'img-src')).toContain('https://gikomart.goatcounter.com');
+
+    // Primary path: the script itself, and the POST beacon it sends.
+    expect(directive(csp, 'script-src')).toContain('gc.zgo.at');
+    expect(directive(csp, 'connect-src')).toContain('https://gikomart.goatcounter.com');
   });
 });

@@ -19,7 +19,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "gc.zgo.at", "us.i.posthog.com", "us-assets.i.posthog.com", "eu.i.posthog.com", "eu-assets.i.posthog.com", "'sha256-rqVYfj8ffdtUcz9D4+PFMNRtvPCPi1wPxdcs0/GnAw0='"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https://res.cloudinary.com"],
+      imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://gikomart.goatcounter.com"],
       connectSrc: ["'self'", "https://gikomart.goatcounter.com", "https://us.i.posthog.com", "https://eu.i.posthog.com"],
     },
   },
@@ -84,7 +84,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// Static frontend. No build step and no hashed filenames, so /assets/* is cached
+// for a week and everything that is HTML is left to revalidate on every load —
+// index.html must never be cached long or a deploy would appear broken until the
+// TTL lapsed.
+app.use(express.static('public', {
+  maxAge: '7d',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'public, max-age=0');
+    }
+  },
+}));
 
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));
