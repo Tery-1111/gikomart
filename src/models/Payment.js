@@ -19,4 +19,9 @@ const paymentSchema = new mongoose.Schema({
   termsAcceptanceId: { type: mongoose.Schema.Types.ObjectId, ref: 'TermsAcceptance' },
 }, { timestamps: true });
 
+// Supports the webhook atomic claim and the status/FAILED lookups, which all
+// filter on an exact invoiceId (paymentController.js:305, 315, 433, 455).
+// Payment has no other index, and the collection grows one record per payment.
+paymentSchema.index({ invoiceId: 1 });
+
 module.exports = mongoose.model('Payment', paymentSchema);
