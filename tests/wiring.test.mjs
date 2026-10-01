@@ -484,6 +484,17 @@ describe('Webhook amount validation', () => {
     expect(ev.resource).toBe('payment');
   });
 
+  it('accepts a legacy payment with no expectedAmount by falling back to the live price table', async () => {
+    // Payment document created before expectedAmount existed: the field is
+    // absent, so validation must fall back to the current price table rather
+    // than rejecting the amount as !== undefined.
+    h.payments.push(makeDoc(listingPayment({ expectedAmount: undefined, invoiceId: 'INV-LEGACY' })));
+    const res = await webhook({ invoice_id: 'INV-LEGACY', state: 'COMPLETE' });
+
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+  });
+
   it('accepts a COMPLETE whose amount matches the initiation-time price even if the live table has changed', async () => {
     // Initiated when a 'standard' listing cost 30; the live table now says 50.
     // Validation uses expectedAmount, so the genuinely paid record still succeeds.

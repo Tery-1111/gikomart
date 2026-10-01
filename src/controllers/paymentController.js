@@ -422,20 +422,24 @@ exports.handleWebhook = async (req, res, next) => {
         return res.status(200).json({ success: true, message: 'Payment already processed' });
       }
 
-      // Server-side amount validation. Compare the stored amount against the
-      // canonical price captured on the Payment at initiation time
-      // (Payment.expectedAmount) — NOT the live price table, so a price change
-      // between initiation and completion never rejects a genuinely paid
-      // record. Any drift between the two must not provision a resource.
-      if (payment.amount !== payment.expectedAmount) {
-        logger.error(`Payment amount mismatch: expected ${payment.expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
+      // Server-side amount validation. Prefer the canonical price captured on
+      // the Payment at initiation time (Payment.expectedAmount) so a price
+      // change between initiation and completion never rejects a genuinely paid
+      // record. Legacy payments predating that field have no value and fall
+      // back to the live price table. Any drift must not provision a resource.
+      const expectedAmount = payment.expectedAmount
+        ?? LISTING_PRICES[payment.package]?.amount
+        ?? STORE_PLANS[payment.storePlan]?.amount
+        ?? BOOST_PRICES[payment.boostType];
+      if (payment.amount !== expectedAmount) {
+        logger.error(`Payment amount mismatch: expected ${expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
         emit({
           actor: SYSTEM_ACTOR,
           action: 'payment.amount_mismatch',
           resource: 'payment',
           resourceId: String(payment._id),
           result: 'failure',
-          metadata: { type: payment.type, expectedAmount: payment.expectedAmount ?? null, storedAmount: payment.amount ?? null },
+          metadata: { type: payment.type, expectedAmount: expectedAmount ?? null, storedAmount: payment.amount ?? null },
         });
         return res.status(400).json({ success: false, error: 'Payment amount validation failed' });
       }
