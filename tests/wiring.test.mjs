@@ -1493,6 +1493,20 @@ describe('POST /api/admin/payments/:ref/replay', () => {
     }
   });
 
+  it('rejects a replay whose stored amount does not match the price table (400) and creates nothing', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-amt', invoiceId: 'INV-AMT-REPLAY', status: 'pending', amount: 999 })));
+
+    const res = await request(app)
+      .post('/api/admin/payments/INV-AMT-REPLAY/replay')
+      .set('X-Admin-Session', session());
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ success: false, error: 'Payment amount validation failed' });
+    expect(h.listings).toHaveLength(0);
+    // The mismatched payment must not be advanced to completed.
+    expect(h.payments[0].status).toBe('pending');
+  });
+
   it('rejects a request with no admin session and creates nothing (401)', async () => {
     h.payments.push(makeDoc(listingPayment({ _id: 'pay-nosess', invoiceId: 'INV-NOSESS', status: 'pending' })));
 
