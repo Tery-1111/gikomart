@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const Store = require('../models/Store');
+const logger = require('../config/logger');
 const { authenticateAdmin } = require('./adminAuth');
 
 // Constant-time comparison (same pattern as listingController.js safeEqual)
@@ -82,12 +83,18 @@ function storeAuth(options = {}) {
 
       req.store = store;
       req.storeCredentialType = credentialType;
-      if (store.ownerTokenHash) {
+      // Attach the owner hash ONLY when the owner token actually authenticated
+      // this request. An admin override must not carry owner identity, or the
+      // audit trail could later attribute an admin action to the owner hash.
+      if (credentialType === 'owner' && store.ownerTokenHash) {
         req.ownerTokenHash = store.ownerTokenHash;
       }
       next();
     } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
+      // Log the detail server-side; never return the raw error text to a client
+      // (it can carry driver/query internals). Mirrors the central handler.
+      logger.error('storeAuth failed', { error: err.message });
+      res.status(500).json({ success: false, error: 'Store authorization failed' });
     }
   };
 }
