@@ -7,3 +7,5 @@ totp-test.json
 .venv-brand/
 server-load-states.log
 backups/
+# Local security audit snapshots (not committed)
+docs/security/
