@@ -282,11 +282,89 @@ exports.initiateStorePlan = async (req, res, next) => {
   }
 };
 
+// Create the resource a completed payment should produce, with paymentId
+// attached so a duplicate delivery collides on the unique sparse index
+// (E11000) and re-reads the first attempt's document rather than creating a
+// second. Shared by the webhook and the admin replay endpoint so both run the
+// identical payload mapping. This function does ONLY creation + the E11000
+// re-read; the caller owns every other side effect (payment back-reference,
+// audit emit, broadcast, logging).
+async function createResourceForPayment(payment) {
+  if (payment.type === 'listing') {
+    const pricing = LISTING_PRICES[payment.package];
+    const moderation = checkListing(payment.listingData || {});
+    let listing;
+    try {
+      listing = await Listing.create({
+        paymentId: payment._id,
+        ...payment.listingData,
+        package: payment.package,
+        expiresAt: new Date(Date.now() + pricing.durationMs),
+        moderationStatus: moderation.approved ? 'approved' : 'flagged',
+        ownerTokenHash: payment.ownerTokenHash,
+      });
+    } catch (err) {
+      if (err && err.code === 11000 && err.keyPattern?.paymentId) {
+        listing = await Listing.findOne({ paymentId: payment._id });
+      } else {
+        throw err;
+      }
+    }
+    return { type: 'listing', doc: listing };
+  }
+
+  if (payment.type === 'store') {
+    const Store = require('../models/Store');
+    const pricing = STORE_PLANS[payment.storePlan];
+    let store;
+    try {
+      store = await Store.create({
+        paymentId: payment._id,
+        name: payment.storeData.name,
+        slug: payment.storeData.slug,
+        description: payment.storeData.description || '',
+        category: payment.storeData.category,
+        subcategories: payment.storeData.subcategories || [],
+        phone: payment.storeData.phone || '',
+        whatsapp: payment.storeData.whatsapp || '',
+        email: payment.storeData.email || '',
+        campus: payment.storeData.campus || 'Egerton University',
+        location: payment.storeData.location || '',
+        pickup_location: payment.storeData.pickup_location || '',
+        ownerTokenHash: payment.ownerTokenHash,
+        plan: payment.storePlan,
+        plan_price: pricing.amount,
+        plan_duration: pricing.durationMs,
+        listing_limit: pricing.listingLimit,
+        started_at: new Date(),
+        expires_at: new Date(Date.now() + pricing.durationMs),
+        status: 'active',
+      });
+    } catch (err) {
+      if (err && err.code === 11000 && err.keyPattern?.paymentId) {
+        store = await Store.findOne({ paymentId: payment._id });
+      } else {
+        throw err;
+      }
+    }
+    return { type: 'store', doc: store };
+  }
+
+  throw new Error(`createResourceForPayment: unsupported payment type ${payment.type}`);
+}
+
+exports.createResourceForPayment = createResourceForPayment;
+
 // Webhook: IntaSend calls this when payment status changes
 exports.handleWebhook = async (req, res, next) => {
   try {
     const receivedChallenge = req.body.challenge;
-    if (receivedChallenge !== process.env.INTASEND_WEBHOOK_CHALLENGE) {
+    const expectedChallenge = process.env.INTASEND_WEBHOOK_CHALLENGE;
+    // Fail closed when the expected challenge is unset: an absent body `challenge`
+    // would otherwise compare equal to an absent env value (`undefined !==
+    // undefined` is false) and accept a forged webhook. Read at call time so the
+    // check reflects the current deployment environment rather than module load.
+    if (!expectedChallenge || receivedChallenge !== expectedChallenge) {
       // Whitelist only debug-useful fields — the raw body contains the webhook
       // challenge secret and payer phone numbers (audit §4.3).
       logger.error('Webhook challenge mismatch', {
@@ -342,33 +420,10 @@ exports.handleWebhook = async (req, res, next) => {
       }
 
       if (payment.type === 'listing') {
-        const pricing = LISTING_PRICES[payment.package];
         // Content moderation gate: flagged listings are created (payment already
         // completed) but hidden from public views and NOT broadcast.
         const moderation = checkListing(payment.listingData || {});
-        // Idempotent creation: the unique index on paymentId makes a duplicate
-        // delivery (or a retry after a mid-processing throw) collide with
-        // E11000, in which case we re-read the listing the first attempt made.
-        // create() — not findOneAndUpdate/upsert — so schema setters and hooks
-        // still run.
-        let listing;
-        try {
-          listing = await Listing.create({
-            paymentId: payment._id,
-            ...payment.listingData,
-            package: payment.package,
-            expiresAt: new Date(Date.now() + pricing.durationMs),
-            moderationStatus: moderation.approved ? 'approved' : 'flagged',
-            // Only the hash is copied — the raw token never touches the database.
-            ownerTokenHash: payment.ownerTokenHash,
-          });
-        } catch (err) {
-          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
-            listing = await Listing.findOne({ paymentId: payment._id });
-          } else {
-            throw err;
-          }
-        }
+        const { doc: listing } = await createResourceForPayment(payment);
         // Record which listing this payment produced (Payment.listingId is
         // designed to stay absent until the listing payment completes) so the
         // status endpoint can tell the payer which listing they now own.
@@ -441,41 +496,7 @@ exports.handleWebhook = async (req, res, next) => {
           }
         }
       } else if (payment.type === 'store') {
-        const Store = require('../models/Store');
-        const pricing = STORE_PLANS[payment.storePlan];
-
-        // Same idempotency contract as the listing branch above.
-        let store;
-        try {
-          store = await Store.create({
-            paymentId: payment._id,
-            name: payment.storeData.name,
-            slug: payment.storeData.slug,
-            description: payment.storeData.description || '',
-            category: payment.storeData.category,
-            subcategories: payment.storeData.subcategories || [],
-            phone: payment.storeData.phone || '',
-            whatsapp: payment.storeData.whatsapp || '',
-            email: payment.storeData.email || '',
-            campus: payment.storeData.campus || 'Egerton University',
-            location: payment.storeData.location || '',
-            pickup_location: payment.storeData.pickup_location || '',
-            ownerTokenHash: payment.ownerTokenHash,
-            plan: payment.storePlan,
-            plan_price: pricing.amount,
-            plan_duration: pricing.durationMs,
-            listing_limit: pricing.listingLimit,
-            started_at: new Date(),
-            expires_at: new Date(Date.now() + pricing.durationMs),
-            status: 'active',
-          });
-        } catch (err) {
-          if (err && err.code === 11000 && err.keyPattern?.paymentId) {
-            store = await Store.findOne({ paymentId: payment._id });
-          } else {
-            throw err;
-          }
-        }
+        const { doc: store } = await createResourceForPayment(payment);
 
         payment.storeId = store._id;
 

@@ -227,6 +227,7 @@ const fakePaymentModel = {
     return doc;
   },
   findOne: async (filter) => makeDoc(h.payments.find(p => p.invoiceId === filter.invoiceId) || null),
+  findById: async (id) => makeDoc(h.payments.find(p => String(p._id) === String(id)) || null),
   findOneAndUpdate: async (filter, update) => {
     const p = h.payments.find(x => x.invoiceId === filter.invoiceId && x.status !== 'completed');
     if (!p) return null;
@@ -499,6 +500,23 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
     expect(h.payments[0].status).toBe('pending');
     expect(h.listings).toHaveLength(0);
     expect(h.stores.size).toBe(0);
+  });
+
+  it('fails closed with 401 when INTASEND_WEBHOOK_CHALLENGE is unset (no forged completion)', async () => {
+    const saved = process.env.INTASEND_WEBHOOK_CHALLENGE;
+    delete process.env.INTASEND_WEBHOOK_CHALLENGE;
+    try {
+      // The exact forgery the old `undefined !== undefined` check accepted: a
+      // body with no `challenge` field at all.
+      h.payments.push(makeDoc(listingPayment()));
+      const res = await request(app).post('/api/payments/webhook').send({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+      expect(res.status).toBe(401);
+      expect(h.payments[0].status).toBe('pending');
+      expect(h.listings).toHaveLength(0);
+      expect(h.stores.size).toBe(0);
+    } finally {
+      process.env.INTASEND_WEBHOOK_CHALLENGE = saved;
+    }
   });
 
   it('challenge-mismatch log is whitelisted: no challenge or phone_number is logged', async () => {
@@ -1014,6 +1032,21 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────
 describe('cleanupService.deleteExpiredListings', () => {
+  it('skips hard-delete when the listing payment has not settled', async () => {
+    const { deleteExpiredListings } = await import('../src/services/cleanupService.js');
+    h.payments.push(makeDoc({ _id: 'pay-stuck', invoiceId: 'INV-STUCK', status: 'pending' }));
+    h.payments.push(makeDoc({ _id: 'pay-done', invoiceId: 'INV-DONE', status: 'completed' }));
+    // Both are expired; one points at an unsettled payment, one at a settled one.
+    h.listings.push(makeDoc({ _id: 'lst-stuck', expiresAt: new Date(Date.now() - 1000), images: [], paymentId: 'pay-stuck' }));
+    h.listings.push(makeDoc({ _id: 'lst-settled', expiresAt: new Date(Date.now() - 1000), images: [], paymentId: 'pay-done' }));
+
+    await deleteExpiredListings();
+
+    const ids = h.listings.map(l => l._id);
+    expect(ids).toContain('lst-stuck');        // unsettled payment → kept
+    expect(ids).not.toContain('lst-settled');  // settled payment → deleted
+  });
+
   it('deletes expired listings and destroys their Cloudinary images', async () => {
     const { deleteExpiredListings } = await import('../src/services/cleanupService.js');
     h.listings.push(makeDoc({ _id: 'lst-exp', expiresAt: new Date(Date.now() - 1000), images: ['https://res.cloudinary.com/demo/image/upload/v1/gikomart/old.webp'] }));
@@ -1279,6 +1312,63 @@ describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
       fakeStoreModel.create = origCreate;
       claimSpy.mockRestore();
     }
+  });
+});
+
+// ─── Admin payment replay (recreates what a lost webhook should have made) ──
+describe('POST /api/admin/payments/:ref/replay', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  it('returns already_processed and creates nothing for a completed payment whose listing exists', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-replay', invoiceId: 'INV-REPLAY', status: 'completed' })));
+    h.listings.push(makeDoc({ _id: 'lst-existing', paymentId: 'pay-replay', status: 'active', moderationStatus: 'approved' }));
+
+    const res = await request(app)
+      .post('/api/admin/payments/INV-REPLAY/replay')
+      .set('X-Admin-Session', session());
+
+    expect(res.status).toBe(200);
+    expect(res.body.already_processed).toBe(true);
+    expect(String(res.body.paymentId)).toBe('pay-replay');
+    expect(res.body.resource).toEqual({ type: 'listing', id: 'lst-existing' });
+    expect(h.listings).toHaveLength(1); // nothing created
+  });
+
+  it('recreates the listing for a stuck pending payment and returns the new resource', async () => {
+    const stored = makeDoc(listingPayment({ _id: 'pay-stuck', invoiceId: 'INV-STUCK-REPLAY', status: 'pending' }));
+    h.payments.push(stored);
+    // The shared fake's findOne returns a COPY, so field mutations would not be
+    // observable. Real Mongoose findOne returns the live document; return the
+    // stored object here so the pending→completed transition is assertable.
+    const spy = vi.spyOn(fakePaymentModel, 'findOne')
+      .mockImplementation(async (filter) => h.payments.find(p => p.invoiceId === filter.invoiceId) || null);
+
+    try {
+      const res = await request(app)
+        .post('/api/admin/payments/INV-STUCK-REPLAY/replay')
+        .set('X-Admin-Session', session());
+
+      expect(res.status).toBe(200);
+      expect(res.body.resource.type).toBe('listing');
+      expect(res.body.resource.id).toBeTruthy();
+      expect(h.listings).toHaveLength(1);
+      expect(h.listings[0].paymentId).toBe('pay-stuck');
+      expect(stored.status).toBe('completed');
+      expect(stored.listingId).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('rejects a request with no admin session and creates nothing (401)', async () => {
+    h.payments.push(makeDoc(listingPayment({ _id: 'pay-nosess', invoiceId: 'INV-NOSESS', status: 'pending' })));
+
+    const res = await request(app).post('/api/admin/payments/INV-NOSESS/replay');
+
+    expect([401, 403]).toContain(res.status);
+    expect(h.listings).toHaveLength(0);
+    expect(h.payments[0].status).toBe('pending');
   });
 });
 

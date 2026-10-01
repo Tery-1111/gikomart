@@ -15,6 +15,7 @@ describe('envGuard — insecure production secret detection', () => {
     const problems = findInsecureProductionSecrets({ NODE_ENV: 'production' });
     expect(problems).toContain('ADMIN_KEY');
     expect(problems).toContain('ADMIN_SESSION_SECRET');
+    expect(problems).toContain('INTASEND_WEBHOOK_CHALLENGE');
   });
 
   it('flags the documented placeholder "changeme" in production', () => {
@@ -22,8 +23,21 @@ describe('envGuard — insecure production secret detection', () => {
       NODE_ENV: 'production',
       ADMIN_KEY: 'changeme',
       ADMIN_SESSION_SECRET: 'changeme',
+      INTASEND_WEBHOOK_CHALLENGE: 'changeme',
     });
-    expect(problems).toEqual(['ADMIN_KEY', 'ADMIN_SESSION_SECRET']);
+    expect(problems).toEqual(['ADMIN_KEY', 'ADMIN_SESSION_SECRET', 'INTASEND_WEBHOOK_CHALLENGE']);
+  });
+
+  // The webhook guard fails open when the challenge is unset (an absent body
+  // `challenge` compares equal to an absent env value), so this must be a hard
+  // production requirement independent of the admin secrets.
+  it('flags a missing INTASEND_WEBHOOK_CHALLENGE even when the admin secrets are strong', () => {
+    const problems = findInsecureProductionSecrets({
+      NODE_ENV: 'production',
+      ADMIN_KEY: 'a-long-random-admin-key',
+      ADMIN_SESSION_SECRET: 'a-long-random-session-secret',
+    });
+    expect(problems).toEqual(['INTASEND_WEBHOOK_CHALLENGE']);
   });
 
   it('passes when strong values are configured in production', () => {
@@ -31,6 +45,7 @@ describe('envGuard — insecure production secret detection', () => {
       NODE_ENV: 'production',
       ADMIN_KEY: 'a-long-random-admin-key',
       ADMIN_SESSION_SECRET: 'a-long-random-session-secret',
+      INTASEND_WEBHOOK_CHALLENGE: 'a-long-random-webhook-challenge',
     })).toEqual([]);
   });
 
@@ -47,6 +62,7 @@ describe('envGuard — insecure production secret detection', () => {
       NODE_ENV: 'production',
       ADMIN_KEY: 'strong-key',
       ADMIN_SESSION_SECRET: 'strong-secret',
+      INTASEND_WEBHOOK_CHALLENGE: 'strong-challenge',
     }, onFatal);
     expect(onFatal).not.toHaveBeenCalled();
   });

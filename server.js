@@ -23,11 +23,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "gc.zgo.at", "us.i.posthog.com", "us-assets.i.posthog.com", "eu.i.posthog.com", "eu-assets.i.posthog.com", "'sha256-rqVYfj8ffdtUcz9D4+PFMNRtvPCPi1wPxdcs0/GnAw0='"],
+      scriptSrc: ["'self'", "gc.zgo.at", "'sha256-rqVYfj8ffdtUcz9D4+PFMNRtvPCPi1wPxdcs0/GnAw0='"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://gikomart.goatcounter.com"],
-      connectSrc: ["'self'", "https://gikomart.goatcounter.com", "https://us.i.posthog.com", "https://eu.i.posthog.com"],
+      connectSrc: ["'self'", "https://gikomart.goatcounter.com"],
     },
   },
   crossOriginEmbedderPolicy: false,

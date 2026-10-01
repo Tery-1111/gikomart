@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const Admin = require('../models/Admin');
+const Listing = require('../models/Listing');
+const Store = require('../models/Store');
+const Payment = require('../models/Payment');
+const { createResourceForPayment } = require('./paymentController');
 const logger = require('../config/logger');
 const { emit, adminActor } = require('../services/auditService');
 const { signSession, SESSION_TTL_MS } = require('../middleware/adminAuth');
@@ -317,5 +321,84 @@ exports.login = async (req, res) => {
   } catch (err) {
     logger.error('2FA login error', { error: err.message });
     res.status(500).json({ success: false, error: 'Login failed' });
+  }
+};
+
+// Replay a payment whose webhook never completed: recreate the listing/store
+// the webhook should have produced, reusing the exact same creation path
+// (createResourceForPayment). Session-gated by the route; the raw X-Admin-Key
+// is never accepted for this action.
+exports.replayPayment = async (req, res) => {
+  const AUDIT_ACTION = 'admin.payment_replay';
+  const paymentReference = req.params.paymentReference;
+  try {
+    const payment = await Payment.findOne({ invoiceId: paymentReference });
+    if (!payment) {
+      emit({
+        actor: adminActor(req),
+        action: AUDIT_ACTION,
+        resource: 'Payment',
+        resourceId: paymentReference,
+        result: 'failure',
+        metadata: { reason: 'not_found' },
+      });
+      return res.status(404).json({ success: false, error: 'Payment not found' });
+    }
+
+    // Already processed: a completed payment whose resource already exists is a
+    // no-op (double-click safe).
+    if (payment.status === 'completed') {
+      const existing = payment.type === 'store'
+        ? await Store.findOne({ paymentId: payment._id })
+        : await Listing.findOne({ paymentId: payment._id });
+      if (existing) {
+        emit({
+          actor: adminActor(req),
+          action: AUDIT_ACTION,
+          resource: 'Payment',
+          resourceId: paymentReference,
+          result: 'success',
+          metadata: { already_processed: true, type: payment.type },
+        });
+        return res.status(200).json({
+          already_processed: true,
+          paymentId: payment._id,
+          resource: { type: payment.type, id: existing._id },
+        });
+      }
+    }
+
+    // Same creation path as the webhook. Idempotent: the unique sparse paymentId
+    // index makes a duplicate/concurrent replay collide (E11000) and re-read the
+    // existing document instead of creating a second.
+    const { type, doc } = await createResourceForPayment(payment);
+    if (type === 'listing') payment.listingId = doc._id;
+    else payment.storeId = doc._id;
+
+    // Mirror the webhook transition. Never downgrade a payment already
+    // 'completed'; a 'pending' one becomes 'completed' once its resource exists.
+    if (payment.status !== 'completed') payment.status = 'completed';
+    await payment.save();
+
+    emit({
+      actor: adminActor(req),
+      action: AUDIT_ACTION,
+      resource: 'Payment',
+      resourceId: paymentReference,
+      result: 'success',
+      metadata: { type },
+    });
+    return res.status(200).json({ paymentId: payment._id, resource: { type, id: doc._id } });
+  } catch (err) {
+    logger.error('Payment replay error', { error: err.message });
+    emit({
+      actor: adminActor(req),
+      action: AUDIT_ACTION,
+      resource: 'Payment',
+      resourceId: paymentReference,
+      result: 'failure',
+      metadata: { error: err.message },
+    });
+    return res.status(500).json({ success: false, error: 'Payment replay failed' });
   }
 };

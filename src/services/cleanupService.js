@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const Listing = require('../models/Listing');
 const Store = require('../models/Store');
 const TermsAcceptance = require('../models/TermsAcceptance');
+const Payment = require('../models/Payment');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 
@@ -13,6 +14,25 @@ function extractPublicId(url) {
   return match ? match[1] : null;
 }
 
+// Safety net: a record whose payment has not settled must not be treated as
+// simply "expired" — the webhook that should have confirmed it never completed,
+// so removing it would discard a paid record. Returns true when deletion/expiry
+// may proceed: no paymentId (legacy/manual record), payment missing (orphaned
+// reference), or payment.status === 'completed'. Any other status skips+logs.
+async function paymentSettled(record, collection) {
+  if (!record.paymentId) return true;
+  const payment = await Payment.findById(record.paymentId);
+  if (!payment) return true;
+  if (payment.status === 'completed') return true;
+  logger.warn('Cleanup skipped: payment not settled', {
+    collection,
+    id: String(record._id),
+    paymentId: String(record.paymentId),
+    status: payment.status,
+  });
+  return false;
+}
+
 async function deleteExpiredListings() {
   try {
     const expired = await Listing.find({ expiresAt: { $lte: new Date() } });
@@ -20,6 +40,7 @@ async function deleteExpiredListings() {
     if (!expired.length) return;
 
     for (const listing of expired) {
+      if (!(await paymentSettled(listing, 'listings'))) continue;
       if (listing.images && listing.images.length > 0) {
         for (const imageUrl of listing.images) {
           const publicId = extractPublicId(imageUrl);
@@ -111,6 +132,7 @@ async function expireStores() {
     if (!expired.length) return;
 
     for (const store of expired) {
+      if (!(await paymentSettled(store, 'stores'))) continue;
       store.status = 'expired';
       await store.save();
     }

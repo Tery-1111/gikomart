@@ -11,6 +11,11 @@
  * with whatever the value is, so an absent value would make every admin session
  * token forgeable. ADMIN_KEY is the (pre-2FA) admin credential and the default
  * "changeme" grants admin access.
+ *
+ * INTASEND_WEBHOOK_CHALLENGE fails open in paymentController: the webhook guard
+ * compares the body's `challenge` against this value, so an unset value makes
+ * `undefined !== undefined` false and accepts a forged webhook that omits the
+ * challenge field. Requiring it here keeps that guard fail-closed.
  */
 const INSECURE_DEFAULTS = new Set(['changeme', 'undefined', '']);
 
@@ -24,6 +29,9 @@ function findInsecureProductionSecrets(env = process.env) {
   }
   if (!env.ADMIN_SESSION_SECRET || INSECURE_DEFAULTS.has(env.ADMIN_SESSION_SECRET)) {
     problems.push('ADMIN_SESSION_SECRET');
+  }
+  if (!env.INTASEND_WEBHOOK_CHALLENGE || INSECURE_DEFAULTS.has(env.INTASEND_WEBHOOK_CHALLENGE)) {
+    problems.push('INTASEND_WEBHOOK_CHALLENGE');
   }
   return problems;
 }
