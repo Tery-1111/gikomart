@@ -227,6 +227,7 @@ const fakePaymentModel = {
     return doc;
   },
   findOne: async (filter) => makeDoc(h.payments.find(p => p.invoiceId === filter.invoiceId) || null),
+  findById: async (id) => makeDoc(h.payments.find(p => String(p._id) === String(id)) || null),
   findOneAndUpdate: async (filter, update) => {
     const p = h.payments.find(x => x.invoiceId === filter.invoiceId && x.status !== 'completed');
     if (!p) return null;
@@ -1014,6 +1015,21 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────
 describe('cleanupService.deleteExpiredListings', () => {
+  it('skips hard-delete when the listing payment has not settled', async () => {
+    const { deleteExpiredListings } = await import('../src/services/cleanupService.js');
+    h.payments.push(makeDoc({ _id: 'pay-stuck', invoiceId: 'INV-STUCK', status: 'pending' }));
+    h.payments.push(makeDoc({ _id: 'pay-done', invoiceId: 'INV-DONE', status: 'completed' }));
+    // Both are expired; one points at an unsettled payment, one at a settled one.
+    h.listings.push(makeDoc({ _id: 'lst-stuck', expiresAt: new Date(Date.now() - 1000), images: [], paymentId: 'pay-stuck' }));
+    h.listings.push(makeDoc({ _id: 'lst-settled', expiresAt: new Date(Date.now() - 1000), images: [], paymentId: 'pay-done' }));
+
+    await deleteExpiredListings();
+
+    const ids = h.listings.map(l => l._id);
+    expect(ids).toContain('lst-stuck');        // unsettled payment → kept
+    expect(ids).not.toContain('lst-settled');  // settled payment → deleted
+  });
+
   it('deletes expired listings and destroys their Cloudinary images', async () => {
     const { deleteExpiredListings } = await import('../src/services/cleanupService.js');
     h.listings.push(makeDoc({ _id: 'lst-exp', expiresAt: new Date(Date.now() - 1000), images: ['https://res.cloudinary.com/demo/image/upload/v1/gikomart/old.webp'] }));
