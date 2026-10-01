@@ -253,6 +253,25 @@ const fakePaymentModel = {
   },
   findOne: async (filter) => makeDoc(h.payments.find(p => p.invoiceId === filter.invoiceId) || null),
   findById: async (id) => makeDoc(h.payments.find(p => String(p._id) === String(id)) || null),
+  // Supports GET /api/admin/payments: find(filter).sort({createdAt:-1}).limit(n).lean()
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = h.payments.filter(p => matchesFilter(p, filter));
+        if (state.sort && state.sort.createdAt === -1) {
+          out = [...out].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map(p => ({ ...p }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
   findOneAndUpdate: async (filter, update) => {
     const p = h.payments.find(x => x.invoiceId === filter.invoiceId && x.status !== 'completed');
     if (!p) return null;
@@ -1663,6 +1682,39 @@ describe('GET /api/admin/audit-logs', () => {
 
     const capped = await request(app).get('/api/admin/audit-logs?limit=999').set('X-Admin-Session', session());
     expect(capped.body.logs.length).toBeLessThanOrEqual(50);
+  });
+});
+
+// ─── GET /api/admin/payments (Priority 2, Domain 4) ─────────────────────────
+describe('GET /api/admin/payments', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  it('401 without an admin session', async () => {
+    const res = await request(app).get('/api/admin/payments');
+    expect(res.status).toBe(401);
+  });
+
+  it('strips ownerTokenHash from every payment but keeps phoneNumber', async () => {
+    h.payments.push(makeDoc({ _id: 'pay-a', type: 'listing', status: 'completed', amount: 50, phoneNumber: '0700000000', ownerTokenHash: 'a'.repeat(64), invoiceId: 'INV-A', createdAt: new Date('2026-02-01') }));
+    h.payments.push(makeDoc({ _id: 'pay-b', type: 'store', status: 'pending', amount: 200, phoneNumber: '0711111111', ownerTokenHash: 'b'.repeat(64), invoiceId: 'INV-B', createdAt: new Date('2026-01-01') }));
+
+    const res = await request(app).get('/api/admin/payments').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.payments).toHaveLength(2);
+    expect(res.body.payments[0]._id).toBe('pay-a'); // newest first
+    expect(JSON.stringify(res.body)).not.toContain('ownerTokenHash');
+    expect(JSON.stringify(res.body)).not.toContain('a'.repeat(64));
+    expect(res.body.payments[0].phoneNumber).toBe('0700000000');
+  });
+
+  it('filters by ?status', async () => {
+    h.payments.push(makeDoc({ _id: 'pay-c', type: 'listing', status: 'completed', amount: 50, phoneNumber: '0700000000', invoiceId: 'INV-C' }));
+    h.payments.push(makeDoc({ _id: 'pay-d', type: 'listing', status: 'pending', amount: 50, phoneNumber: '0700000000', invoiceId: 'INV-D' }));
+    const res = await request(app).get('/api/admin/payments?status=pending').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.payments).toHaveLength(1);
+    expect(res.body.payments[0]._id).toBe('pay-d');
   });
 });
 

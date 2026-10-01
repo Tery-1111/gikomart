@@ -1,4 +1,5 @@
 const AuditEvent = require('../models/AuditEvent');
+const Payment = require('../models/Payment');
 const logger = require('../config/logger');
 const { redact } = require('../utils/redact');
 const { emit, adminActor } = require('../services/auditService');
@@ -45,5 +46,34 @@ exports.getAuditLogs = async (req, res) => {
   } catch (err) {
     logger.error('Audit log retrieval error', { error: err.message });
     res.status(500).json({ success: false, error: 'Failed to retrieve audit logs' });
+  }
+};
+
+// GET /api/admin/payments — read-only, session-gated.
+// ?limit (<=50), ?status, ?type.
+exports.listPayments = async (req, res) => {
+  try {
+    const { status, type } = req.query;
+    const filter = {};
+    if (status) filter.status = status;
+    if (type) filter.type = type;
+
+    const payments = await Payment.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseLimit(req.query.limit))
+      .lean();
+
+    // ownerTokenHash is a bearer secret — never leave the server. phoneNumber is
+    // intentionally retained for dispute resolution.
+    const safe = payments.map((payment) => {
+      const copy = { ...payment };
+      delete copy.ownerTokenHash;
+      return copy;
+    });
+
+    res.json({ success: true, count: safe.length, payments: safe });
+  } catch (err) {
+    logger.error('Payment list error', { error: err.message });
+    res.status(500).json({ success: false, error: 'Failed to list payments' });
   }
 };
