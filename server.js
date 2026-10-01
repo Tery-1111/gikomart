@@ -84,7 +84,18 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static('public'));
+// Static frontend. No build step and no hashed filenames, so /assets/* is cached
+// for a week and everything that is HTML is left to revalidate on every load —
+// index.html must never be cached long or a deploy would appear broken until the
+// TTL lapsed.
+app.use(express.static('public', {
+  maxAge: '7d',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'public, max-age=0');
+    }
+  },
+}));
 
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));
