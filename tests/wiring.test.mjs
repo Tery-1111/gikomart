@@ -857,6 +857,30 @@ describe('Contact privacy on public read routes', () => {
   });
 });
 
+// ─── Ownership failures are normalized ──────────────────────────────
+describe('Ownership failures are normalized', () => {
+  it('PUT /api/listings/:id with an invalid owner token → 403 Not authorized', async () => {
+    h.listings.push(makeDoc({
+      _id: 'lst-403', status: 'active', moderationStatus: 'approved', ownerTokenHash: sha256hex('real-owner'),
+    }));
+    const res = await request(app).put('/api/listings/lst-403').set('X-Owner-Token', 'wrong-token').send({ title: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+
+  it('DELETE /api/stores/:id with an invalid owner token → 403 Not authorized', async () => {
+    await fakeStoreModel.create({
+      name: 'Norm Shop', slug: 'norm-shop', category: 'Books',
+      ownerTokenHash: sha256hex('real-owner'),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+    const res = await request(app).delete('/api/stores/sto-1').set('X-Store-Owner-Token', 'wrong-token');
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+});
+
 describe('Owner update validation — condition allowlist and media URL schemes', () => {
   const OWNER_TOKEN = 'raw-owner-token';
   function seedOwnedListing() {

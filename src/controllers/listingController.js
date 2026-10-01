@@ -162,7 +162,7 @@ exports.updateListing = async (req, res, next) => {
     if (!target) return res.status(404).json({ success: false, error: 'Listing not found' });
     const authz = await isOwnerOrAdmin(req, target);
     if (!authz.authorized) {
-      return res.status(403).json({ success: false, error: `Not authorized to edit this listing. Provide ${authz.required}` });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
     const updates = {};
     for (const field of UPDATABLE_FIELDS) {
@@ -195,7 +195,7 @@ exports.deleteListing = async (req, res, next) => {
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
     const authz = await isOwnerOrAdmin(req, listing);
     if (!authz.authorized) {
-      return res.status(403).json({ success: false, error: `Not authorized to delete this listing. Provide ${authz.required}` });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     if (listing.images && listing.images.length > 0) {

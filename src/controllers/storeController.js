@@ -86,11 +86,11 @@ exports.getStoreById = async (req, res, next) => {
     // Verify ownership
     const token = req.get('X-Store-Owner-Token');
     if (!token) {
-      return res.status(403).json({ success: false, error: 'X-Store-Owner-Token header required' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
     const providedHash = crypto.createHash('sha256').update(token).digest('hex');
     if (!safeEqual(providedHash, store.ownerTokenHash)) {
-      return res.status(403).json({ success: false, error: 'Not authorized to view this store' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
@@ -109,7 +109,7 @@ exports.getMyStores = async (req, res, next) => {
   try {
     const token = req.get('X-Store-Owner-Token');
     if (!token) {
-      return res.status(403).json({ success: false, error: 'X-Store-Owner-Token header required' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
     const hash = crypto.createHash('sha256').update(token).digest('hex');
     const stores = await Store.find({ ownerTokenHash: hash });
@@ -271,11 +271,11 @@ exports.attachListing = async (req, res, next) => {
     // Verify listing ownership (requires X-Owner-Token from the listing owner)
     const listingToken = req.get('X-Owner-Token');
     if (!listingToken || !listing.ownerTokenHash) {
-      return res.status(403).json({ success: false, error: 'Listing ownership verification required (X-Owner-Token)' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
     const listingHash = crypto.createHash('sha256').update(listingToken).digest('hex');
     if (!safeEqual(listingHash, listing.ownerTokenHash)) {
-      return res.status(403).json({ success: false, error: 'Not authorized to attach this listing' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     // Listing must not already be in a store
@@ -330,11 +330,11 @@ exports.detachListing = async (req, res, next) => {
     // Verify listing ownership
     const listingToken = req.get('X-Owner-Token');
     if (!listingToken || !listing.ownerTokenHash) {
-      return res.status(403).json({ success: false, error: 'Listing ownership verification required (X-Owner-Token)' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
     const listingHash = crypto.createHash('sha256').update(listingToken).digest('hex');
     if (!safeEqual(listingHash, listing.ownerTokenHash)) {
-      return res.status(403).json({ success: false, error: 'Not authorized to detach this listing' });
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     // Detach

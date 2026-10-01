@@ -55,20 +55,9 @@ function storeAuth(options = {}) {
       }
 
       if (!credentialType) {
-        if (options.allowAdmin) {
-          return res.status(403).json({
-            success: false,
-            error: token
-              ? 'Not authorized to manage this store'
-              : 'A valid X-Store-Owner-Token or admin session is required',
-          });
-        }
-        return res.status(403).json({
-          success: false,
-          error: token
-            ? 'Not authorized to manage this store'
-            : 'X-Store-Owner-Token header required',
-        });
+        // Uniform ownership failure: never disclose whether the token was
+        // present-but-wrong or absent, and never expose credential hints.
+        return res.status(403).json({ success: false, error: 'Not authorized' });
       }
 
       // Optional: reject expired/suspended stores for mutation operations
