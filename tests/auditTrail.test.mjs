@@ -221,6 +221,7 @@ function listingPayment(overrides = {}) {
     status: 'pending',
     package: 'standard',
     invoiceId: 'INV-LISTING-1',
+    amount: 50,
     ownerTokenHash: 'a'.repeat(64),
     listingData: {
       title: 'Vintage Lens Camera', category: 'Electronics', condition: 'Good', price: 500,
@@ -236,6 +237,7 @@ function storePayment(overrides = {}) {
     status: 'pending',
     storePlan: 'standard_monthly',
     invoiceId: 'INV-STORE-1',
+    amount: 200,
     ownerTokenHash: 'b'.repeat(64),
     storeData: {
       name: 'Campus Store', slug: 'campus-store', category: 'Food',

@@ -420,6 +420,7 @@ function listingPayment(overrides = {}) {
     status: 'pending',
     package: 'standard',
     invoiceId: 'INV-LISTING-1',
+    amount: 50,
     ownerTokenHash: 'a'.repeat(64),
     listingData: {
       title: 'Vintage Lens Camera',
@@ -437,6 +438,32 @@ function listingPayment(overrides = {}) {
 }
 
 const webhook = (body) => request(app).post('/api/payments/webhook').send({ challenge: TEST_WEBHOOK_CHALLENGE, ...body });
+
+// ─── Webhook: server-side amount validation ─────────────────────────────────
+describe('Webhook amount validation', () => {
+  it('rejects a COMPLETE whose stored amount does not match the price table (400) and creates nothing', async () => {
+    h.payments.push(makeDoc(listingPayment({ amount: 999, invoiceId: 'INV-AMT-1' })));
+    const res = await webhook({ invoice_id: 'INV-AMT-1', state: 'COMPLETE' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ success: false, error: 'Payment amount validation failed' });
+    expect(h.listings).toHaveLength(0);
+
+    await new Promise((r) => setImmediate(r));
+    const ev = auditEvents.find(e => e.action === 'payment.amount_mismatch');
+    expect(ev).toBeTruthy();
+    expect(ev.result).toBe('failure');
+    expect(ev.resource).toBe('payment');
+  });
+
+  it('accepts a COMPLETE whose stored amount matches the price table (200)', async () => {
+    h.payments.push(makeDoc(listingPayment({ amount: 50, invoiceId: 'INV-AMT-2' })));
+    const res = await webhook({ invoice_id: 'INV-AMT-2', state: 'COMPLETE' });
+
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+  });
+});
 
 // ─── Webhook: required-field validation ─────────────────────────────────────
 describe('Webhook COMPLETE — missing invoice_id fails closed', () => {
@@ -553,7 +580,7 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
 describe('Webhook COMPLETE (boost) → listing mutation', () => {
   it('featured boost sets featured + featuredUntil (+24h)', async () => {
     h.listings.push(makeDoc({ _id: 'lst-boost-1', featured: false, boostType: null, featuredUntil: null }));
-    h.payments.push(makeDoc({ type: 'boost', status: 'pending', invoiceId: 'INV-BOOST-1', listingId: 'lst-boost-1', boostType: 'featured' }));
+    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 50, invoiceId: 'INV-BOOST-1', listingId: 'lst-boost-1', boostType: 'featured' }));
 
     const res = await webhook({ invoice_id: 'INV-BOOST-1', state: 'COMPLETE' });
     expect(res.status).toBe(200);
@@ -564,7 +591,7 @@ describe('Webhook COMPLETE (boost) → listing mutation', () => {
 
   it('priority_broadcast boost marks priorityBroadcast AND re-broadcasts the listing (Fix 1)', async () => {
     h.listings.push(makeDoc({ _id: 'lst-boost-2', priorityBroadcast: false }));
-    h.payments.push(makeDoc({ type: 'boost', status: 'pending', invoiceId: 'INV-BOOST-2', listingId: 'lst-boost-2', boostType: 'priority_broadcast' }));
+    h.payments.push(makeDoc({ type: 'boost', status: 'pending', amount: 30, invoiceId: 'INV-BOOST-2', listingId: 'lst-boost-2', boostType: 'priority_broadcast' }));
 
     const res = await webhook({ invoice_id: 'INV-BOOST-2', state: 'COMPLETE' });
     expect(res.status).toBe(200);
@@ -592,7 +619,7 @@ describe('GET /api/listings — priorityBroadcast ranks above non-priority (Fix 
 describe('Webhook COMPLETE (store) → Store created', () => {
   it('creates the store from payment.storeData with plan pricing', async () => {
     h.payments.push(makeDoc({
-      type: 'store', status: 'pending', invoiceId: 'INV-STORE-1', storePlan: 'starter_weekly',
+      type: 'store', status: 'pending', amount: 150, invoiceId: 'INV-STORE-1', storePlan: 'starter_weekly',
       storeData: { name: 'Test Shop', slug: 'test-shop', category: 'Books', phone: '07', whatsapp: '07', email: '', location: 'Egerton' },
       ownerTokenHash: 'b'.repeat(64),
     }));
@@ -1226,6 +1253,7 @@ describe('Webhook idempotency — side effect via paymentId (Item 4)', () => {
       type: 'store',
       status: 'pending',
       storePlan: 'standard_monthly',
+      amount: 200,
       invoiceId: 'INV-STORE-1',
       ownerTokenHash: 'b'.repeat(64),
       storeData: {

@@ -419,6 +419,33 @@ exports.handleWebhook = async (req, res, next) => {
         return res.status(200).json({ success: true, message: 'Payment already processed' });
       }
 
+      // Server-side amount validation. The amount was derived from the price
+      // table at initiation time; if the stored amount no longer matches the
+      // canonical price for this package/plan/boost, the record was tampered
+      // with (or the table changed after initiation) and the resource must not
+      // be provisioned. Reject before any creation side effect.
+      let expectedAmount;
+      if (payment.type === 'listing') {
+        expectedAmount = LISTING_PRICES[payment.package]?.amount;
+      } else if (payment.type === 'store') {
+        expectedAmount = STORE_PLANS[payment.storePlan]?.amount;
+      } else if (payment.type === 'boost') {
+        expectedAmount = BOOST_PRICES[payment.boostType];
+      }
+
+      if (payment.amount !== expectedAmount) {
+        logger.error(`Payment amount mismatch: expected ${expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
+        emit({
+          actor: SYSTEM_ACTOR,
+          action: 'payment.amount_mismatch',
+          resource: 'payment',
+          resourceId: String(payment._id),
+          result: 'failure',
+          metadata: { type: payment.type, expectedAmount: expectedAmount ?? null, storedAmount: payment.amount ?? null },
+        });
+        return res.status(400).json({ success: false, error: 'Payment amount validation failed' });
+      }
+
       if (payment.type === 'listing') {
         // Content moderation gate: flagged listings are created (payment already
         // completed) but hidden from public views and NOT broadcast.
