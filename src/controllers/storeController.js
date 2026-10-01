@@ -6,6 +6,7 @@ const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isHttpUrl } = require('../utils/safeUrl');
 const mongoose = require('mongoose');
+const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time comparison (same pattern as listingController.js)
 function safeEqual(a, b) {
@@ -46,11 +47,31 @@ async function deleteCloudinaryImage(imageUrl) {
 exports.getStore = async (req, res, next) => {
   try {
     const { slug } = req.params;
-    const store = await Store.findOne({ slug, status: { $ne: 'suspended' } });
+    const store = await Store.findOne({ slug, status: { $ne: 'suspended' } }).select('+ownerTokenHash');
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
 
+    // Contact fields are PII: only the owner (valid X-Store-Owner-Token) or an
+    // authenticated admin may see them on this public route.
+    const token = req.get('X-Store-Owner-Token');
+    let authorized = false;
+    if (token && store.ownerTokenHash) {
+      const providedHash = crypto.createHash('sha256').update(token).digest('hex');
+      if (safeEqual(providedHash, store.ownerTokenHash)) authorized = true;
+    }
+    if (!authorized) {
+      const admin = await authenticateAdmin(req);
+      if (admin.payload) authorized = true;
+    }
+
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
-    res.json({ success: true, store, listingCount });
+    const payload = typeof store.toObject === 'function' ? store.toObject() : { ...store };
+    delete payload.ownerTokenHash;
+    if (!authorized) {
+      delete payload.phone;
+      delete payload.whatsapp;
+      delete payload.email;
+    }
+    res.json({ success: true, store: payload, listingCount });
   } catch (err) {
     return next(err);
   }

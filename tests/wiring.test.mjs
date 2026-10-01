@@ -122,6 +122,17 @@ const fakeListingModel = {
     return null;
   },
   findById: (id) => selectableDoc(h.listings.find(l => String(l._id) === String(id)) || null),
+  findOneAndUpdate: (filter, update) => {
+    const doc = h.listings.find((l) => matchesFilter(l, filter)) || null;
+    if (doc && update && update.$inc) {
+      for (const [k, v] of Object.entries(update.$inc)) doc[k] = (doc[k] || 0) + v;
+    } else if (doc && update) {
+      Object.assign(doc, update);
+    }
+    // Thenable with .select() so the controller's findOneAndUpdate(...).select()
+    // chain works exactly as it does against a real Mongoose query.
+    return selectableDoc(doc);
+  },
   find: (filter = {}) => {
     const state = { filter };
     const builder = {
@@ -184,21 +195,34 @@ const fakeStoreModel = {
   },
   // .select('+ownerTokenHash') → same doc incl. hash (fakes don't project)
   findById: (id) => selectableDoc(h.stores.get(String(id)) || null),
-  findOne: async (filter = {}) => {
-    if (filter.paymentId != null) {
-      for (const s of h.stores.values()) {
-        if (String(s.paymentId) === String(filter.paymentId)) {
-          const view = { ...s }; delete view.ownerTokenHash; return view;
+  findOne: (filter = {}) => {
+    // Emulates select:false on ownerTokenHash: the hash is present only when the
+    // caller opts in with .select('+ownerTokenHash'). Returns a thenable so both
+    // `await Store.findOne(...)` and `Store.findOne(...).select('+ownerTokenHash')`
+    // work as they do against a real Mongoose query.
+    let includeHash = false;
+    const compute = () => {
+      if (filter.paymentId != null) {
+        for (const s of h.stores.values()) {
+          if (String(s.paymentId) === String(filter.paymentId)) {
+            const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view;
+          }
         }
+        return null;
+      }
+      for (const s of h.stores.values()) {
+        const slugOk = filter.slug === undefined || s.slug === filter.slug;
+        const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
+        if (slugOk && statusOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
       }
       return null;
-    }
-    for (const s of h.stores.values()) {
-      const slugOk = filter.slug === undefined || s.slug === filter.slug;
-      const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
-      if (slugOk && statusOk) { const view = { ...s }; delete view.ownerTokenHash; return view; }
-    }
-    return null;
+    };
+    const thenable = {
+      select: (proj) => { if (String(proj).includes('+ownerTokenHash')) includeHash = true; return thenable; },
+      then: (res, rej) => Promise.resolve(compute()).then(res, rej),
+      catch: (rej) => Promise.resolve(compute()).catch(rej),
+    };
+    return thenable;
   },
   find: async (filter = {}) => {
     const out = [...h.stores.values()].filter(s => !filter.ownerTokenHash || s.ownerTokenHash === filter.ownerTokenHash);
@@ -382,7 +406,7 @@ describe('Request-ID middleware (X-Request-ID)', () => {
 
   it('includes X-Request-ID on 4xx responses', async () => {
     const res = await request(app).get('/api/listings/nonexistent-xyz');
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(404);
     expect(res.headers['x-request-id']).toBeTruthy();
   });
 
@@ -777,6 +801,62 @@ describe('Store routes — auth, secret hygiene, CRUD', () => {
 });
 
 // ─── Input validation: condition allowlist + media URL scheme ───────────────
+// ─── Contact privacy on public read routes ──────────────────────────────
+describe('Contact privacy on public read routes', () => {
+  const OWNER_TOKEN = 'raw-owner-token';
+
+  function seedListingWithContact() {
+    h.listings.push(makeDoc({
+      _id: 'lst-pii', title: 'Widget', status: 'active', moderationStatus: 'approved',
+      sellerWhatsapp: '0712345678', ownerTokenHash: sha256hex(OWNER_TOKEN),
+    }));
+  }
+  function seedStoreWithContact() {
+    return fakeStoreModel.create({
+      name: 'PII Shop', slug: 'pii-shop', category: 'Books',
+      phone: '0700000000', whatsapp: '0711111111', email: 'shop@example.com',
+      ownerTokenHash: sha256hex(OWNER_TOKEN),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+  }
+
+  it('GET /api/listings/:id without an owner token hides sellerWhatsapp', async () => {
+    seedListingWithContact();
+    const res = await request(app).get('/api/listings/lst-pii');
+    expect(res.status).toBe(200);
+    expect(res.body.listing.title).toBe('Widget');
+    expect(res.body.listing.sellerWhatsapp).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain('0712345678');
+  });
+
+  it('GET /api/listings/:id with a valid owner token returns sellerWhatsapp', async () => {
+    seedListingWithContact();
+    const res = await request(app).get('/api/listings/lst-pii').set('X-Owner-Token', OWNER_TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body.listing.sellerWhatsapp).toBe('0712345678');
+  });
+
+  it('GET /api/stores/slug/:slug without an owner token hides phone/whatsapp/email', async () => {
+    await seedStoreWithContact();
+    const res = await request(app).get('/api/stores/slug/pii-shop');
+    expect(res.status).toBe(200);
+    expect(res.body.store.slug).toBe('pii-shop');
+    expect(res.body.store.phone).toBeUndefined();
+    expect(res.body.store.whatsapp).toBeUndefined();
+    expect(res.body.store.email).toBeUndefined();
+  });
+
+  it('GET /api/stores/slug/:slug with a valid owner token returns phone/whatsapp/email', async () => {
+    await seedStoreWithContact();
+    const res = await request(app).get('/api/stores/slug/pii-shop').set('X-Store-Owner-Token', OWNER_TOKEN);
+    expect(res.status).toBe(200);
+    expect(res.body.store.phone).toBe('0700000000');
+    expect(res.body.store.whatsapp).toBe('0711111111');
+    expect(res.body.store.email).toBe('shop@example.com');
+  });
+});
+
 describe('Owner update validation — condition allowlist and media URL schemes', () => {
   const OWNER_TOKEN = 'raw-owner-token';
   function seedOwnedListing() {

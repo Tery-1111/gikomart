@@ -121,9 +121,17 @@ exports.getListing = async (req, res, next) => {
       { _id: req.params.id, status: 'active', moderationStatus: 'approved' },
       { $inc: { views: 1 } },
       { returnDocument: 'after' }
-    );
+    ).select('+ownerTokenHash');
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
-    res.json({ success: true, listing });
+
+    // Contact PII (sellerWhatsapp) is only returned to the listing owner
+    // (valid X-Owner-Token) or an authenticated admin; the public sees the
+    // listing without it. The owner hash is never serialized either way.
+    const authz = await isOwnerOrAdmin(req, listing);
+    const payload = typeof listing.toObject === 'function' ? listing.toObject() : { ...listing };
+    delete payload.ownerTokenHash;
+    if (!authz.authorized) delete payload.sellerWhatsapp;
+    res.json({ success: true, listing: payload });
   } catch (err) {
     return next(err);
   }
