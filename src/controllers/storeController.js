@@ -47,7 +47,7 @@ async function deleteCloudinaryImage(imageUrl) {
 exports.getStore = async (req, res, next) => {
   try {
     const { slug } = req.params;
-    const store = await Store.findOne({ slug, status: { $ne: 'suspended' } }).select('+ownerTokenHash');
+    const store = await Store.findOne({ slug, status: { $ne: 'suspended' }, moderationStatus: { $ne: 'removed' } }).select('+ownerTokenHash');
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
 
     // Contact fields are PII: only the owner (valid X-Store-Owner-Token) or an
@@ -342,6 +342,65 @@ exports.detachListing = async (req, res, next) => {
     await listing.save();
 
     res.json({ success: true, message: 'Listing removed from store' });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ─── Admin: Moderate store (approve / flag / remove) ────────────────────────
+// 'removed' also suspends the store (drops it from public reads and blocks its
+// owner); 'approved' clears a suspension. Gated by adminAuth on the route.
+exports.moderateStore = async (req, res, next) => {
+  try {
+    const { action } = req.body;
+    const VALID_ACTIONS = ['approved', 'flagged', 'removed'];
+    if (!VALID_ACTIONS.includes(action)) {
+      return res.status(400).json({ success: false, error: 'Action must be approved, flagged, or removed' });
+    }
+
+    const store = await Store.findById(req.params.id);
+    if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
+
+    const update = { moderationStatus: action };
+    if (action === 'removed') {
+      update.status = 'suspended';
+    } else if (action === 'approved' && store.status === 'suspended') {
+      update.status = 'active';
+    }
+
+    const updated = await Store.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
+    emit({
+      actor: adminActor(req),
+      action: 'store.moderate',
+      resource: 'store',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: { moderationStatus: action },
+    });
+    const payload = typeof updated.toObject === 'function' ? updated.toObject() : { ...updated };
+    delete payload.ownerTokenHash;
+    res.json({ success: true, store: payload });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ─── Admin: Suspend store ────────────────────────────────────────────────────
+exports.suspendStore = async (req, res, next) => {
+  try {
+    const store = await Store.findByIdAndUpdate(req.params.id, { status: 'suspended' }, { returnDocument: 'after' });
+    if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
+
+    emit({
+      actor: adminActor(req),
+      action: 'store.suspended',
+      resource: 'store',
+      resourceId: String(req.params.id),
+      result: 'success',
+    });
+    const payload = typeof store.toObject === 'function' ? store.toObject() : { ...store };
+    delete payload.ownerTokenHash;
+    res.json({ success: true, store: payload });
   } catch (err) {
     return next(err);
   }

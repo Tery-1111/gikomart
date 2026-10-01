@@ -32,6 +32,9 @@ const storeSchema = new mongoose.Schema({
 
   // Trust
   verification_status: { type: String, enum: ['unverified', 'pending', 'verified'], default: 'unverified' },
+  // Admin moderation, mirroring Listing.moderationStatus. 'removed' also flips
+  // status to 'suspended' so the store drops out of public reads.
+  moderationStatus: { type: String, enum: ['approved', 'flagged', 'removed'], default: 'approved' },
 
   // Ownership — same pattern as Listing
   ownerTokenHash: { type: String, select: false },

@@ -60,6 +60,13 @@ function storeAuth(options = {}) {
         return res.status(403).json({ success: false, error: 'Not authorized' });
       }
 
+      // A suspended store is frozen for its owner: the credential is valid but
+      // the resource is unusable. Admins (allowAdmin routes) retain access so a
+      // suspended store can still be cleaned up.
+      if (credentialType === 'owner' && store.status === 'suspended') {
+        return res.status(403).json({ success: false, error: 'Resource is suspended or removed' });
+      }
+
       // Optional: reject expired/suspended stores for mutation operations
       if (options.requireActive) {
         if (store.status !== 'active') {

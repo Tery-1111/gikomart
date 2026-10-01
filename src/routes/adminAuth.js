@@ -8,6 +8,8 @@ const {
   login,
   replayPayment,
 } = require('../controllers/adminAuthController');
+const adminAuth = require('../middleware/adminAuth');
+const { moderateStore, suspendStore } = require('../controllers/storeController');
 
 // FIX A4 — dedicated stricter limiter for admin endpoints (additive to the
 // global limiter, which still applies at app level).
@@ -34,5 +36,10 @@ function requireAdminSession(req, res, next) {
 // Replay a payment whose webhook never completed, recreating the listing/store
 // it should have produced. Rate-limited by the router-level adminLimiter.
 router.post('/payments/:paymentReference/replay', requireAdminSession, replayPayment);
+
+// Admin resource moderation for stores — full admin auth (a session once 2FA is
+// enabled). Mirrors the listing moderation endpoint.
+router.put('/stores/:id/moderate', adminAuth, moderateStore);
+router.put('/stores/:id/suspend', adminAuth, suspendStore);
 
 module.exports = router;

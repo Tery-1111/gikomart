@@ -213,7 +213,8 @@ const fakeStoreModel = {
       for (const s of h.stores.values()) {
         const slugOk = filter.slug === undefined || s.slug === filter.slug;
         const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
-        if (slugOk && statusOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
+        const modOk = !(filter.moderationStatus && filter.moderationStatus.$ne) || s.moderationStatus !== filter.moderationStatus.$ne;
+        if (slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
       }
       return null;
     };
@@ -355,6 +356,7 @@ injectModule('../src/middleware/rateLimiter.js', {
   uploadLimiter: (req, _res, next) => next(),
   paymentLimiter: (req, _res, next) => next(),
   listingCreateLimiter: (req, _res, next) => next(),
+  adminLimiter: (req, _res, next) => next(),
 });
 
 let app;
@@ -1541,6 +1543,65 @@ describe('POST /api/admin/payments/:ref/replay', () => {
     expect([401, 403]).toContain(res.status);
     expect(h.listings).toHaveLength(0);
     expect(h.payments[0].status).toBe('pending');
+  });
+});
+
+// ─── Admin store moderation / suspension (Priority 2, Domain 2) ─────────────
+describe('Admin store moderation and suspension', () => {
+  const OWNER = 'raw-owner-token';
+  function seedStore(overrides = {}) {
+    return fakeStoreModel.create({
+      name: 'Mod Shop', slug: 'mod-shop', category: 'Books',
+      ownerTokenHash: sha256hex(OWNER),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+      moderationStatus: 'approved',
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  it('PUT /api/admin/stores/:id/moderate removed → suspends the store, audits, hides the hash', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/admin/stores/sto-1/moderate')
+      .set('X-Admin-Key', TEST_ADMIN_KEY).send({ action: 'removed' });
+    expect(res.status).toBe(200);
+    expect(res.body.store.moderationStatus).toBe('removed');
+    expect(h.stores.get('sto-1').status).toBe('suspended');
+    expect(res.body.store.ownerTokenHash).toBeUndefined();
+    await new Promise((r) => setImmediate(r));
+    expect(auditEvents.some(e => e.action === 'store.moderate')).toBe(true);
+  });
+
+  it('PUT /api/admin/stores/:id/moderate requires admin auth (403) and mutates nothing', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/admin/stores/sto-1/moderate').send({ action: 'removed' });
+    expect(res.status).toBe(403);
+    expect(h.stores.get('sto-1').status).toBe('active');
+  });
+
+  it('PUT /api/admin/stores/:id/suspend → status suspended and audits store.suspended', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/admin/stores/sto-1/suspend').set('X-Admin-Key', TEST_ADMIN_KEY);
+    expect(res.status).toBe(200);
+    expect(h.stores.get('sto-1').status).toBe('suspended');
+    await new Promise((r) => setImmediate(r));
+    expect(auditEvents.some(e => e.action === 'store.suspended')).toBe(true);
+  });
+
+  it('owner mutation on a suspended store → 403 with the suspension message', async () => {
+    await seedStore({ status: 'suspended' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER).send({ description: 'x' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Resource is suspended or removed');
+  });
+
+  it('public slug read of a suspended store → 404', async () => {
+    await seedStore({ status: 'suspended' });
+    const res = await request(app).get('/api/stores/slug/mod-shop');
+    expect(res.status).toBe(404);
   });
 });
 
