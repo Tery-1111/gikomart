@@ -941,7 +941,7 @@ injectModule('../src/services/paymentService.js', {
 });
 
 describe('Payment error UX (Task 2)', () => {
-  const FIXED_ERROR = 'Payment could not be started — please try again in a moment';
+  const FIXED_ERROR = 'Payment could not be started — check your M-Pesa balance and phone number, then try again.';
 
   // Valid acceptance payloads — the controller validates terms acceptance
   // before it ever reaches the payment call.

@@ -37,7 +37,7 @@ exports.initiateBoost = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
@@ -119,7 +119,7 @@ exports.initiateListing = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
@@ -226,7 +226,7 @@ exports.initiateStorePlan = async (req, res, next) => {
       // IntaSend SDK rejects with a raw unparsed Buffer/string on HTTP errors
       // — no stable type/code field — so it is not classified or logged here.
       return res.status(503).json({
-        error: 'Payment could not be started — please try again in a moment',
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
         requestId: req.id,
       });
     }
