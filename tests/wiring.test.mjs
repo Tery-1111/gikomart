@@ -1036,6 +1036,47 @@ describe('STORE_PLANS — unsellable plan removed (Fix 6)', () => {
 });
 
 // ─── CSP: analytics origins ─────────────────────────────────────────────────
+// ─── Item 2: logger meta redaction ───────────────────────────────────────────
+// The app under test uses the injected bare mock logger (fakeLogger, above), so
+// the real transport pipeline never runs for the routes exercised in this file.
+// For this test we load the REAL logger module directly, spy on its real File
+// transport, then restore the injected mock so the app keeps using the fake.
+// That proves redaction on the real format + real transport, not on a mock.
+describe('Logger meta redaction (Item 2)', () => {
+  it('redacts sensitive meta before the real transport receives it', async () => {
+    const loggerPath = require.resolve('../src/config/logger.js');
+    const injectedLogger = require.cache[loggerPath];
+    delete require.cache[loggerPath];
+    const realLogger = require('../src/config/logger.js');
+    require.cache[loggerPath] = injectedLogger;
+
+    const fileTransport = realLogger.transports.find((t) => t.name === 'file');
+    expect(fileTransport).toBeTruthy();
+
+    const spy = vi.spyOn(fileTransport, 'log');
+    const rawToken = 'raw-secret-token-abc';
+    const rawPhone = '0712345678';
+
+    realLogger.error('redaction-integration', {
+      token: rawToken,
+      phoneNumber: rawPhone,
+      nested: { email: 'user@example.com' },
+      safe: 'visible',
+    });
+    await new Promise((r) => setImmediate(r));
+
+    expect(spy).toHaveBeenCalled();
+    const info = spy.mock.calls[spy.mock.calls.length - 1][0];
+    expect(info.token).toBe('[REDACTED]');
+    expect(info.phoneNumber).toBe('[REDACTED]');
+    expect(info.nested.email).toBe('[REDACTED]');
+    expect(info.safe).toBe('visible');
+    expect(JSON.stringify(info)).not.toContain(rawToken);
+    expect(JSON.stringify(info)).not.toContain(rawPhone);
+    spy.mockRestore();
+  });
+});
+
 describe('CSP analytics origins', () => {
   function directive(header, name) {
     const found = header.split(';').map(d => d.trim()).find(d => d.startsWith(name + ' '));
