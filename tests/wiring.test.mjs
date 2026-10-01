@@ -502,6 +502,23 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
     expect(h.stores.size).toBe(0);
   });
 
+  it('fails closed with 401 when INTASEND_WEBHOOK_CHALLENGE is unset (no forged completion)', async () => {
+    const saved = process.env.INTASEND_WEBHOOK_CHALLENGE;
+    delete process.env.INTASEND_WEBHOOK_CHALLENGE;
+    try {
+      // The exact forgery the old `undefined !== undefined` check accepted: a
+      // body with no `challenge` field at all.
+      h.payments.push(makeDoc(listingPayment()));
+      const res = await request(app).post('/api/payments/webhook').send({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+      expect(res.status).toBe(401);
+      expect(h.payments[0].status).toBe('pending');
+      expect(h.listings).toHaveLength(0);
+      expect(h.stores.size).toBe(0);
+    } finally {
+      process.env.INTASEND_WEBHOOK_CHALLENGE = saved;
+    }
+  });
+
   it('challenge-mismatch log is whitelisted: no challenge or phone_number is logged', async () => {
     const errorSpy = vi.spyOn(fakeLogger, 'error');
     h.payments.push(makeDoc(listingPayment()));

@@ -359,7 +359,12 @@ exports.createResourceForPayment = createResourceForPayment;
 exports.handleWebhook = async (req, res, next) => {
   try {
     const receivedChallenge = req.body.challenge;
-    if (receivedChallenge !== process.env.INTASEND_WEBHOOK_CHALLENGE) {
+    const expectedChallenge = process.env.INTASEND_WEBHOOK_CHALLENGE;
+    // Fail closed when the expected challenge is unset: an absent body `challenge`
+    // would otherwise compare equal to an absent env value (`undefined !==
+    // undefined` is false) and accept a forged webhook. Read at call time so the
+    // check reflects the current deployment environment rather than module load.
+    if (!expectedChallenge || receivedChallenge !== expectedChallenge) {
       // Whitelist only debug-useful fields — the raw body contains the webhook
       // challenge secret and payer phone numbers (audit §4.3).
       logger.error('Webhook challenge mismatch', {
