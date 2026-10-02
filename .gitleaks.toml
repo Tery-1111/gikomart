@@ -1,0 +1,24 @@
+# gitleaks configuration.
+#
+# This file EXTENDS the default rule set (useDefault = true) — it does not
+# replace it — so every built-in rule and the default global allowlist stay
+# active everywhere in the repo.
+#
+# The configuration-guard tests use low-value, sequential dummy values for
+# ADMIN_KEY / LOCK_HASH_SECRET / SECRET_20 so they can assert length and format
+# validation. gitleaks' generic-api-key rule flags those literals, but they are
+# test fixtures, not credentials.
+#
+# The patterns are anchored (^...$) so they match only a secret that is exactly
+# one of these values — an unrelated real key that merely contains the same
+# substring is still reported.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Sequential dummy secrets used only by configuration-guard tests"
+regexes = [
+    '''^0123456789abcdef$''',
+    '''^0123456789abcdefghij$''',
+    '''^9876543210zyxwvutsrq$''',
+]
