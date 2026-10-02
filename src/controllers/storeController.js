@@ -6,6 +6,7 @@ const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isHttpUrl } = require('../utils/safeUrl');
 const mongoose = require('mongoose');
+const inputLimits = require('../config/inputLimits');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -136,6 +137,26 @@ exports.updateStore = async (req, res, next) => {
     for (const field of STORE_UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
+      }
+    }
+
+    // Reject oversized free-text and oversized arrays before any write.
+    const storeCaps = inputLimits.store;
+    for (const [field, cap] of Object.entries(storeCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = updates[field];
+      if (typeof value === 'string' && value.trim().length > cap) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum length of ${cap} characters` });
+      }
+    }
+    for (const [field, cfg] of [['subcategories', storeCaps.subcategories], ['payment_methods', storeCaps.payment_methods]]) {
+      const value = updates[field];
+      if (!Array.isArray(value)) continue;
+      if (value.length > cfg.maxItems) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum of ${cfg.maxItems} items` });
+      }
+      if (value.some((item) => typeof item === 'string' && item.trim().length > cfg.item)) {
+        return res.status(400).json({ success: false, error: `${field} items exceed the maximum length of ${cfg.item} characters` });
       }
     }
 

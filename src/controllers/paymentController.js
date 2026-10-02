@@ -7,6 +7,7 @@ const { broadcastListing } = require('../services/whatsappService');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing } = require('../services/moderationService');
+const inputLimits = require('../config/inputLimits');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
 const {
@@ -101,6 +102,17 @@ exports.initiateListing = async (req, res, next) => {
     if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
     if (typeof listingData.sellerName !== 'string' || !listingData.sellerName.trim()) errors.push('sellerName');
     if (typeof listingData.sellerWhatsapp !== 'string' || !listingData.sellerWhatsapp.trim()) errors.push('sellerWhatsapp');
+    // Length caps: reject oversized free-text (and too many images) before the
+    // STK push, since the webhook persists this payload verbatim.
+    const listingCaps = inputLimits.listing;
+    for (const [field, cap] of Object.entries(listingCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = listingData[field];
+      if (typeof value === 'string' && value.trim().length > cap) errors.push(field);
+    }
+    if (Array.isArray(listingData.images) && listingData.images.length > listingCaps.images.maxItems) {
+      errors.push('images');
+    }
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing listing details: ${errors.join(', ')}` });
     }
@@ -204,6 +216,26 @@ exports.initiateStorePlan = async (req, res, next) => {
     if (typeof storeData.category !== 'string' || !storeData.category.trim()) errors.push('category');
     if (typeof storeData.phone !== 'string' || !storeData.phone.trim()) errors.push('phone');
     if (typeof storeData.whatsapp !== 'string' || !storeData.whatsapp.trim()) errors.push('whatsapp');
+    // Length caps: reject oversized free-text and oversized arrays before the
+    // STK push, since the webhook persists this payload verbatim.
+    const storeCaps = inputLimits.store;
+    for (const [field, cap] of Object.entries(storeCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = storeData[field];
+      if (typeof value === 'string' && value.trim().length > cap) errors.push(field);
+    }
+    if (Array.isArray(storeData.subcategories)) {
+      if (storeData.subcategories.length > storeCaps.subcategories.maxItems
+        || storeData.subcategories.some((item) => typeof item === 'string' && item.trim().length > storeCaps.subcategories.item)) {
+        errors.push('subcategories');
+      }
+    }
+    if (Array.isArray(storeData.payment_methods)) {
+      if (storeData.payment_methods.length > storeCaps.payment_methods.maxItems
+        || storeData.payment_methods.some((item) => typeof item === 'string' && item.trim().length > storeCaps.payment_methods.item)) {
+        errors.push('payment_methods');
+      }
+    }
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing store details: ${errors.join(', ')}` });
     }

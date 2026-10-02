@@ -6,6 +6,7 @@ const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
+const inputLimits = require('../config/inputLimits');
 
 // Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
 // digest first, so crypto.timingSafeEqual never throws on length mismatch and
@@ -169,6 +170,18 @@ exports.updateListing = async (req, res, next) => {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+    // Reject oversized free-text and image arrays before any write.
+    const listingCaps = inputLimits.listing;
+    for (const [field, cap] of Object.entries(listingCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = updates[field];
+      if (typeof value === 'string' && value.trim().length > cap) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum length of ${cap} characters` });
+      }
+    }
+    if (Array.isArray(updates.images) && updates.images.length > listingCaps.images.maxItems) {
+      return res.status(400).json({ success: false, error: `images exceeds the maximum of ${listingCaps.images.maxItems} items` });
     }
     // Bound the two fields the UI renders into HTML elements. `condition` is a
     // finite vocabulary; image entries are media URLs the frontend feeds to

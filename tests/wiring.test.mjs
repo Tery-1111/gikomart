@@ -1779,3 +1779,86 @@ describe('Client IP — bounded trust proxy', () => {
     }
   });
 });
+
+// ─── Input length caps (Step 3) ─────────────────────────────────────────────
+describe('Input length caps — server-side enforcement', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const listingAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+  });
+  const listingBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    acceptance: listingAcceptance(),
+    website: '',
+    listingData: {
+      title: 'Test Book',
+      category: 'Books',
+      condition: 'Good',
+      price: 500,
+      description: 'Used calc textbook',
+      sellerName: 'Jane',
+      sellerWhatsapp: '0711111111',
+      location: 'Egerton',
+      images: [],
+      ...overrides,
+    },
+  });
+
+  it('initiate-listing with a 5000-character title returns 400 naming title', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ title: 'x'.repeat(5000) }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/);
+  });
+
+  it('initiate-listing with a title of exactly 120 characters is not rejected for length', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ title: 'x'.repeat(120) }));
+    expect(res.status).not.toBe(400);
+    expect(res.body.error || '').not.toMatch(/title/);
+  });
+
+  it('initiate-listing with 7 images returns 400 naming images', async () => {
+    const images = Array.from({ length: 7 }, (_, i) => `https://res.cloudinary.com/demo/image/upload/v1/gikomart/${i}.jpg`);
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ images }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/images/);
+  });
+
+  it('PUT /api/listings/:id with an over-cap description (valid owner token) returns 400', async () => {
+    const OWNER_TOKEN = 'limit-owner-token';
+    h.listings.push(makeDoc({
+      _id: 'lst-limit', title: 'Widget', condition: 'Good', images: [],
+      ownerTokenHash: sha256hex(OWNER_TOKEN), status: 'active', moderationStatus: 'approved',
+    }));
+    const res = await request(app)
+      .put('/api/listings/lst-limit')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ description: 'x'.repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/description/);
+  });
+
+  it('PUT /api/stores/:id with an over-cap name (valid store token) returns 400', async () => {
+    const OWNER_TOKEN = 'limit-store-token';
+    const store = await fakeStoreModel.create({
+      name: 'Limit Shop', slug: 'limit-shop', category: 'Books',
+      ownerTokenHash: sha256hex(OWNER_TOKEN),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+    const res = await request(app)
+      .put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ name: 'n'.repeat(101) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/name/);
+  });
+});
