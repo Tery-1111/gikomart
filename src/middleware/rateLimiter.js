@@ -64,4 +64,16 @@ const adminLimiter = rateLimit({
   message: { success: false, error: 'Too many admin requests — please try again later' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter };
+// Payment status polling: the frontend polls while an STK push is pending, so
+// the default is generous (60 per minute per IP) and tunable via the
+// STATUS_RATE_LIMIT env var for ops. A missing or non-positive value uses 60.
+const configuredStatusMax = Number.parseInt(process.env.STATUS_RATE_LIMIT, 10);
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number.isInteger(configuredStatusMax) && configuredStatusMax > 0 ? configuredStatusMax : 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many status checks — please try again shortly' },
+});
+
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter };
