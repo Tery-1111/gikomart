@@ -2283,3 +2283,94 @@ describe('Store moderation on creation and public reads (Phase 4, Step 3)', () =
     expect(mine.body.stores.map((s) => s.slug)).toContain('owner-flag');
   });
 });
+
+// ─── Phase 4, Step 4: store edits + attach guard ────────────────────────────
+describe('Store edits and attach guard (Phase 4, Step 4)', () => {
+  const OWNER = 'raw-owner-token';
+  const seedStore = (overrides = {}) => fakeStoreModel.create({
+    name: 'My Shop', slug: 'my-shop', category: 'Books',
+    ownerTokenHash: sha256hex(OWNER),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    ...overrides,
+  });
+
+  it('flags a store when the owner adds prohibited text, and hides it publicly', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens available' });
+    expect(res.status).toBe(200);
+    expect(h.stores.get('sto-1').moderationStatus).toBe('flagged');
+
+    const pub = await request(app).get('/api/stores/slug/my-shop');
+    expect(pub.status).toBe(404);
+  });
+
+  it('leaves a flagged store flagged on a clean edit', async () => {
+    await seedStore({ moderationStatus: 'flagged' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'A perfectly clean description' });
+    expect(res.status).toBe(200);
+    expect(h.stores.get('sto-1').moderationStatus).toBe('flagged');
+  });
+
+  it('still rejects a suspended store PUT via storeAuth with 403 (regression)', async () => {
+    await seedStore({ status: 'suspended' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Anything' });
+    expect(res.status).toBe(403);
+  });
+
+  it('409 when the owner edits a removed (but active) store, and nothing changes', async () => {
+    await seedStore({ moderationStatus: 'removed', name: 'Original Name' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ name: 'New Name' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Store has been removed and can no longer be edited' });
+    expect(h.stores.get('sto-1').name).toBe('Original Name');
+  });
+
+  it('attach-listing rejects a removed listing with 409 and leaves store_id unchanged', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-removed', store_id: null, moderationStatus: 'removed',
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000),
+    }));
+    const res = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-removed' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('Removed listings cannot be attached to a store');
+    expect(h.listings[0].store_id).toBeNull();
+  });
+
+  it('attach-listing still succeeds for an active listing with no moderationStatus field', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-ok', store_id: null,
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000),
+    }));
+    const res = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-ok' });
+    expect(res.status).toBe(200);
+    expect(String(h.listings[0].store_id)).toBe('sto-1');
+  });
+
+  it('detach-listing still succeeds for a removed listing', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-det-removed', store_id: 'sto-1', moderationStatus: 'removed',
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000), status: 'active',
+    }));
+    const res = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-det-removed' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+});

@@ -5,6 +5,7 @@ const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isHttpUrl } = require('../utils/safeUrl');
+const { checkStore } = require('../services/moderationService');
 const mongoose = require('mongoose');
 const inputLimits = require('../config/inputLimits');
 const { storeView } = require('../utils/publicView');
@@ -154,6 +155,13 @@ exports.updateStore = async (req, res, next) => {
       }
     }
 
+    // A removed store is terminal: its owner may not edit it. (A removed store
+    // is normally also suspended, which storeAuth rejects earlier with 403; this
+    // covers a removed-but-still-active row.)
+    if (req.store.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Store has been removed and can no longer be edited' });
+    }
+
     // If name changed, derive the new slug and REFUSE if another store
     // already owns it (409 — actionable) instead of silently assigning a
     // suffixed slug the user never asked for.
@@ -173,6 +181,15 @@ exports.updateStore = async (req, res, next) => {
       if (value !== undefined && value !== null && value !== '' && !isHttpUrl(value)) {
         return res.status(400).json({ success: false, error: `${field} must be an http(s) URL` });
       }
+    }
+
+    // Re-screen the effective document (stored fields + this edit) so an edit
+    // cannot smuggle prohibited content past the create-time check. A clean edit
+    // never sets 'approved' — a flagged store stays flagged until an admin acts.
+    const effective = typeof req.store.toObject === 'function' ? req.store.toObject() : { ...req.store };
+    Object.assign(effective, updates);
+    if (!checkStore(effective).approved) {
+      updates.moderationStatus = 'flagged';
     }
 
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
@@ -310,6 +327,11 @@ exports.attachListing = async (req, res, next) => {
         success: false,
         error: `Store listing limit reached (${store.listing_limit}). Upgrade your plan or remove existing listings.`,
       });
+    }
+
+    // A removed listing is terminal: it can never be attached to a store.
+    if (listing.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Removed listings cannot be attached to a store' });
     }
 
     // Attach
