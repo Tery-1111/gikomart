@@ -326,6 +326,19 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** None.
 - **Existing tests changed:** None.
 
+### Step 3 — Prohibited items page and data requests page
+- **Behavior:** Documentation only; no runtime behavior changed. Adds a public
+  prohibited-items page (the prohibited categories, what happens to listings that
+  break the rules, and how to report a listing or store) and a public
+  data-requests page (who may ask, what they may ask for, how to ask, what we
+  need, what happens next, and what cannot be erased), and appends their source
+  rows to `docs/LEGAL_FACTS.md`.
+- **Files changed:** `docs/LEGAL_FACTS.md` (rows),
+  `public/legal/prohibited-items.html` (new),
+  `public/legal/data-requests.html` (new).
+- **Tests added:** None.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

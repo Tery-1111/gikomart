@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Requests - GikoMart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+  .legal-page { max-width: 820px; margin: 0 auto; padding: 64px 24px 96px; }
+  .legal-page h1 { font-family: var(--font-display); font-size: 36px; margin: 0 0 8px; }
+  .legal-page .version-tag { display:inline-block; background: var(--marigold-light); color: var(--marigold-strong); padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 28px; }
+  .legal-page h2 { font-family: var(--font-display); font-size: 22px; margin: 32px 0 12px; }
+  .legal-page p, .legal-page li { color: var(--ink-soft); line-height: 1.75; margin-bottom: 12px; font-size: 15px; }
+  .legal-page ul, .legal-page ol { padding-left: 22px; margin-bottom: 16px; }
+  .legal-page .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--teal); font-weight: 600; text-decoration: none; margin-bottom: 28px; }
+  .legal-page .back-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="/" class="logo"><span class="logo-mark">G</span><span class="logo-text">Giko<span class="logo-accent">Mart</span></span></a>
+    <div class="topbar-cta"><span class="campus-tag">📍 Egerton University</span></div>
+  </div>
+</header>
+<main class="legal-page">
+  <a href="/" class="back-link">← Back to GikoMart</a>
+  <h1>Data Requests</h1>
+  <span class="version-tag">Effective [EFFECTIVE_DATE]</span>
+
+  <h2>1. Who can make a request</h2>
+  <p>Anyone whose personal data we hold can make a request. GikoMart has no user accounts — you do not register to browse. Sellers and store owners receive a one-time ownership token at payment time, and that token is the credential for the listing or store. That means requests are matched to a phone number, a listing, or a store, not to an account.</p>
+
+  <h2>2. What you can ask for</h2>
+  <p>Under the Data Protection Act, 2019 (Kenya) you can ask us to:</p>
+  <ul>
+    <li>tell you what data we hold about you;</li>
+    <li>give you a copy of it;</li>
+    <li>correct data that is wrong; and</li>
+    <li>delete data we no longer need.</li>
+  </ul>
+  <p>Some data is already erased automatically, so there may be nothing left to delete. Payer phone numbers are erased 90 days after a completed or failed payment. Acceptance-record IP addresses, user-agent strings and phone hashes are erased after 30 days, and the WhatsApp hashes on those records after 30 days too. Report IP addresses are erased after 30 days. Audit events are deleted after 365 days by default.</p>
+
+  <h2>3. How to make a request</h2>
+  <p>Send your request to [SUPPORT_EMAIL] or on WhatsApp at [SUPPORT_WHATSAPP]. Tell us what you want us to do (for example: show me my data, correct it, or delete it).</p>
+
+  <h2>4. What we need from you</h2>
+  <p>To find your records we need:</p>
+  <ul>
+    <li>the phone number you used on GikoMart; and</li>
+    <li>the title of the listing or the name of the store concerned.</li>
+  </ul>
+  <p>We may ask you to prove that you own the listing or store (for example by showing that you hold its ownership token) before we act.</p>
+
+  <h2>5. What happens next</h2>
+  <p>We will respond within 14 days.</p>
+
+  <h2>6. What we cannot erase and why</h2>
+  <ul>
+    <li>Terms acceptance records are kept as evidence of the consent you gave. The terms versions, the action, the time, the identifier hashes and the listing or store identifiers stay after the 30-day PII erasure.</li>
+    <li>Audit events are kept for their retention window as an operational record of privileged actions, including failed ones. They are deleted after 365 days by default.</li>
+    <li>The blocked-contact list keeps a keyed hash of a phone number so that a banned number cannot start a payment. Removing an entry would let that number pay again.</li>
+    <li>Payment amounts are kept for the dispute window even after the contact PII inside a payment is erased at 90 days.</li>
+  </ul>
+</main>
+</body>
+</html>
