@@ -35,6 +35,10 @@ const caps = {
     subcategories: { maxItems: 12, item: 60 },
     payment_methods: { maxItems: 10, item: 40 },
   },
+  report: {
+    details: 500,
+    note: 200,
+  },
 };
 
 // Freeze recursively so callers cannot widen a cap at runtime.

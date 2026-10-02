@@ -153,3 +153,19 @@ new numbers; existing entries are never edited.
   hash, so a plain digest gives only weak pseudonymity; a keyed MAC makes the
   stored hashes useless to anyone who does not hold the secret.
 - **Alternative rejected:** Plain SHA-256 of the normalized number.
+
+## 13. Reports are deduplicated per IP and window; resolving records, it does not moderate
+
+- **Decision:** A report is deduplicated per reporter IP, target and a rolling
+  24-hour window while it is still open; the reporter IP is kept only for that
+  deduplication and is erased after 30 days. Resolving a report records the
+  moderation action the admin took but does not perform it; the admin applies
+  moderation through the moderation endpoints first.
+- **Reason:** Deduplication stops one client from flooding the queue with repeats
+  of the same complaint, and erasing the IP keeps the report from becoming a
+  lasting record of who reported what. Recording the action instead of applying it
+  keeps a single, authorized place (the moderation endpoints) that changes a
+  listing or store, so a report cannot silently alter content.
+- **Alternative rejected:** Having resolve apply the moderation itself, which
+  would duplicate the moderation authority and let the report path mutate
+  content.

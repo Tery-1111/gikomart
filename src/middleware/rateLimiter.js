@@ -89,4 +89,15 @@ const statusLimiter = rateLimit({
   message: { success: false, error: 'Too many status checks — please try again shortly' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter };
+// Public report submission: 10 per hour per IP, tunable via REPORT_RATE_LIMIT
+// for ops. A missing or non-positive value uses 10.
+const configuredReportMax = Number.parseInt(process.env.REPORT_RATE_LIMIT, 10);
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number.isInteger(configuredReportMax) && configuredReportMax > 0 ? configuredReportMax : 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many reports — please try again later' },
+});
+
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };

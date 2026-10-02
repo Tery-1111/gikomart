@@ -11,6 +11,7 @@ ADMIN_KEY=…            # the ADMIN_KEY value from the server env
 ADMIN_SESSION=…        # a session token from /api/admin/login (only once 2FA is on)
 LISTING_ID=…           # the _id of the listing to act on
 STORE_ID=…             # the _id of the store to act on
+REPORT_ID=…            # the _id of the report to resolve
 ```
 
 Admin routes live under `/api/admin` (mounted in `server.js` from
@@ -164,3 +165,44 @@ curl -sS "$BASE_URL/api/admin/blocks?limit=50" \
 curl -sS -X DELETE "$BASE_URL/api/admin/blocks/$BLOCK_ID" \
   -H "X-Admin-Session: $ADMIN_SESSION"
 ```
+
+## 12. List open reports
+
+`GET /api/admin/reports`, header `X-Admin-Session`. Returns open reports newest
+first. Optional query: `status` is `open` (default), `actioned`, `dismissed` or
+`all`; `targetType` is `listing` or `store`; `limit` is capped at 50. Each entry
+carries id, targetType, targetId, reason, details, status, moderationAction,
+resolvedAt, resolvedBy, note and createdAt — never the reporter IP.
+
+```bash
+curl -sS "$BASE_URL/api/admin/reports?status=open" \
+  -H "X-Admin-Session: $ADMIN_SESSION"
+```
+
+## 13. Resolve a report after moderating
+
+Resolving a report records the moderation action that was taken; it does not
+change the listing or store. Moderate first, then resolve.
+
+Step 1 — apply the moderation action (here, remove the listing):
+
+```bash
+curl -sS -X PUT "$BASE_URL/api/listings/$LISTING_ID/moderate" \
+  -H "X-Admin-Session: $ADMIN_SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"removed"}'
+```
+
+Step 2 — close the report, recording that action:
+
+```bash
+curl -sS -X PUT "$BASE_URL/api/admin/reports/$REPORT_ID/resolve" \
+  -H "X-Admin-Session: $ADMIN_SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"resolution":"actioned","moderationAction":"removed"}'
+```
+
+`resolution` is `actioned` or `dismissed`. For `actioned`, `moderationAction` is
+required and is one of `none`, `approved`, `flagged`, `removed`, `suspended`
+(`suspended` is valid only for a store report). For `dismissed`, omit
+`moderationAction` or send `none`. The optional `note` is at most 200 characters.

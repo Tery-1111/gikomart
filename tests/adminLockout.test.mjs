@@ -54,6 +54,7 @@ const fakeRateLimiterModule = {
   adminLimiter: pass(),
   statusLimiter: pass(),
   contactReleaseLimiter: pass(),
+  reportLimiter: pass(),
 };
 
 function injectModule(relPath, exportsObj) {

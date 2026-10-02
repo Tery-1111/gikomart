@@ -31,6 +31,8 @@ route-specific limiter.
 | POST | `/api/admin/blocks` | `X-Admin-Session` | globalLimiter + adminLimiter | Block the contacts behind a listing, store or number |
 | GET | `/api/admin/blocks` | `X-Admin-Session` | globalLimiter + adminLimiter | List blocked contacts (hash/number never returned) |
 | DELETE | `/api/admin/blocks/:id` | `X-Admin-Session` | globalLimiter + adminLimiter | Remove a blocked contact |
+| GET | `/api/admin/reports` | `X-Admin-Session` | globalLimiter + adminLimiter | List reports (open by default; reporter IP never returned) |
+| PUT | `/api/admin/reports/:id/resolve` | `X-Admin-Session` | globalLimiter + adminLimiter | Resolve an open report (records the action; does not moderate) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -40,6 +42,7 @@ route-specific limiter.
 | PUT | `/api/stores/:id/detach-listing` | `X-Store-Owner-Token` (active) + `X-Owner-Token` | globalLimiter | Detach a listing from a store |
 | GET | `/api/terms/versions` | None (public) | globalLimiter | Current terms versions |
 | POST | `/api/terms/contact-acceptance` | None (public; acceptance token required) | globalLimiter + contactLimiter + contactReleaseLimiter | Record buyer acceptance and release seller contact |
+| POST | `/api/reports` | None (public) | globalLimiter + reportLimiter (+ honeypot) | Submit a user report against a listing or store |
 | GET | `/health` | None (public) | globalLimiter | Health check (200/503 on MongoDB) |
 
 ## b) Environment variables
@@ -60,6 +63,7 @@ route-specific limiter.
 | `BLOCK_HASH_SECRET` | HMAC key for hashing blocked contact numbers | dev/test fallback constant (not used in production) | Yes | 16 |
 | `STATUS_RATE_LIMIT` | Payment-status polls per minute per IP | 60 | No | — |
 | `CONTACT_RELEASE_LIMIT` | Contact releases per hour per IP | 40 | No | — |
+| `REPORT_RATE_LIMIT` | Public report submissions per hour per IP | 10 | No | — |
 | `WHAPI_TOKEN` | Whapi.Cloud bearer token for broadcasts | changeme | No | — |
 | `WHATSAPP_GROUPS` | Comma-separated broadcast group IDs | — | No | — |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account name | changeme | No | — |
@@ -79,6 +83,7 @@ route-specific limiter.
 | `adminLimiter` | 60 s | 10 | — |
 | `statusLimiter` | 60 s | 60 | `STATUS_RATE_LIMIT` |
 | `contactReleaseLimiter` | 3600 s (1 hour) | 40 | `CONTACT_RELEASE_LIMIT` |
+| `reportLimiter` | 3600 s (1 hour) | 10 | `REPORT_RATE_LIMIT` |
 
 The env-tunable limiters use `Number.parseInt` and fall back to their default
 when the value is missing or not a positive integer.

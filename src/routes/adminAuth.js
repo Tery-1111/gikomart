@@ -12,6 +12,7 @@ const adminAuth = require('../middleware/adminAuth');
 const { moderateStore, suspendStore } = require('../controllers/storeController');
 const { getAuditLogs, listPayments } = require('../controllers/adminController');
 const { addBlock, listBlocks, removeBlock } = require('../controllers/blockController');
+const { listReports, resolveReport } = require('../controllers/reportController');
 
 // FIX A4 — dedicated stricter limiter for admin endpoints (additive to the
 // global limiter, which still applies at app level).
@@ -53,5 +54,10 @@ router.get('/payments', requireAdminSession, listPayments);
 router.post('/blocks', requireAdminSession, addBlock);
 router.get('/blocks', requireAdminSession, listBlocks);
 router.delete('/blocks/:id', requireAdminSession, removeBlock);
+
+// User reports — the public submission is on /api/reports; the admin queue and
+// resolution are session-only, matching the other admin views.
+router.get('/reports', requireAdminSession, listReports);
+router.put('/reports/:id/resolve', requireAdminSession, resolveReport);
 
 module.exports = router;

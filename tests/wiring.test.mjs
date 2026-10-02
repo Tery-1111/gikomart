@@ -30,6 +30,7 @@ const h = {
   listings: [],
   admins: new Map(),
   blocks: [],
+  reports: [],
 };
 
 function makeDoc(obj) {
@@ -72,6 +73,7 @@ function matchesFilter(doc, filter = {}) {
       if (v.$ne !== undefined && doc[k] === v.$ne) return false;
       if (v.$lte !== undefined && !(doc[k] && new Date(doc[k]) <= new Date(v.$lte))) return false;
       if (v.$lt !== undefined && !(doc[k] && new Date(doc[k]) < new Date(v.$lt))) return false;
+      if (v.$gte !== undefined && !(doc[k] && new Date(doc[k]) >= new Date(v.$gte))) return false;
       if (v.$regex !== undefined && !new RegExp(v.$regex, v.$options || '').test(String(doc[k] ?? ''))) return false;
     } else if (String(doc[k] ?? '') !== String(v ?? '')) {
       return false;
@@ -441,6 +443,56 @@ const fakeBlockedContactModel = {
   },
 };
 
+// ── Reports (Phase 5B) — create / findOne / find / findById / findByIdAndUpdate ──
+// Matches on plain equality plus $gte/$lte on createdAt (the 24h dedupe window).
+const fakeReportModel = {
+  create: async (data) => {
+    const doc = makeDoc({
+      _id: `6500000000000000000000${String(h.reports.length + 1).padStart(2, '0')}`,
+      details: '',
+      reporterIp: null,
+      status: 'open',
+      moderationAction: null,
+      resolvedAt: null,
+      resolvedBy: null,
+      note: '',
+      createdAt: new Date(),
+      ...data,
+    });
+    h.reports.push(doc);
+    return doc;
+  },
+  findOne: async (filter = {}) => {
+    const match = h.reports.find((r) => matchesFilter(r, filter));
+    return match ? { ...match } : null;
+  },
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = h.reports.filter((r) => matchesFilter(r, filter));
+        if (state.sort && state.sort.createdAt === -1) {
+          out = [...out].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map((r) => ({ ...r }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
+  findById: (id) => selectableDoc(h.reports.find((r) => String(r._id) === String(id)) || null),
+  findByIdAndUpdate: async (id, update) => {
+    const doc = h.reports.find((r) => String(r._id) === String(id));
+    if (!doc) return null;
+    Object.assign(doc, update);
+    return doc;
+  },
+};
+
 // ── require.cache injection (must precede importing server.js) ──
 function injectModule(relPath, exportsObj) {
   const resolved = resolveFromTests(relPath);
@@ -457,6 +509,7 @@ injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
 injectModule('../src/models/AuditEvent.js', fakeAuditEvent);
 injectModule('../src/models/BlockedContact.js', fakeBlockedContactModel);
+injectModule('../src/models/Report.js', fakeReportModel);
 
 // ── Transparent sharp wrapper for the decode-concurrency test. While tracking
 // is off it is the real sharp, so every other test is unaffected.
@@ -493,6 +546,7 @@ injectModule('../src/middleware/rateLimiter.js', {
   uploadLimiter: (req, _res, next) => next(),
   paymentLimiter: (req, _res, next) => next(),
   listingCreateLimiter: (req, _res, next) => next(),
+  reportLimiter: (req, _res, next) => next(),
   adminLimiter: (req, _res, next) => next(),
 });
 
@@ -508,6 +562,7 @@ beforeEach(() => {
   h.listings.length = 0;
   h.admins.clear();
   h.blocks.length = 0;
+  h.reports.length = 0;
   broadcastListing.mockClear();
   cloudinaryUpload.mockClear();
   cloudinaryDestroy.mockClear();
@@ -2733,5 +2788,172 @@ describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () =>
     expect(ev).toBeTruthy();
     expect(ev.metadata).toEqual({ route: 'initiate-listing' });
     expect(JSON.stringify(ev.metadata)).not.toMatch(/712222222|0700000000/);
+  });
+});
+
+// ─── Phase 5B, Step 2: user reports + admin queue ───────────────────────────
+describe('User reports and admin queue (Phase 5B, Step 2)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const auth = (r) => r.set('X-Admin-Session', session());
+
+  const LISTING_ID = '6500000000000000000000aa';
+  const OTHER_ID = '6500000000000000000000ab';
+  const STORE_ID = '6500000000000000000000ac';
+  const REMOVED_ID = '6500000000000000000000ad';
+
+  const seedListing = (id, overrides = {}) => h.listings.push(makeDoc({
+    _id: id, title: 'T', category: 'Books', condition: 'Good', price: 10,
+    description: 'd', sellerName: 's', sellerWhatsapp: '0700000000',
+    moderationStatus: 'approved', ...overrides,
+  }));
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  const postReport = (body) => request(app).post('/api/reports').send(body);
+  const validReport = (overrides = {}) => ({
+    targetType: 'listing', targetId: LISTING_ID, reason: 'scam', details: 'looks fake', ...overrides,
+  });
+
+  it('accepts a listing report: 201, one Report, no id or IP in the body', async () => {
+    seedListing(LISTING_ID);
+    const res = await postReport(validReport());
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports).toHaveLength(1);
+    expect(JSON.stringify(res.body)).not.toMatch(/[0-9a-f]{24}/);
+  });
+
+  it('deduplicates a second report from the same IP on the same open target within 24h', async () => {
+    seedListing(LISTING_ID);
+    await postReport(validReport());
+    const res = await postReport(validReport());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports).toHaveLength(1);
+  });
+
+  it('allows a new report when the existing one is older than 24 hours', async () => {
+    seedListing(LISTING_ID);
+    await postReport(validReport());
+    h.reports[0].createdAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    const res = await postReport(validReport());
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(2);
+  });
+
+  it('creates a new report for a different target from the same IP', async () => {
+    seedListing(LISTING_ID);
+    seedListing(OTHER_ID);
+    await postReport(validReport());
+    const res = await postReport(validReport({ targetId: OTHER_ID }));
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(2);
+  });
+
+  it('accepts a store report', async () => {
+    await fakeStoreModel.create({
+      _id: STORE_ID, name: 'S', slug: 's', category: 'Books', moderationStatus: 'approved',
+    });
+    const res = await postReport(validReport({ targetType: 'store', targetId: STORE_ID }));
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(1);
+  });
+
+  it('404 for an unknown valid ObjectId, a malformed id, and a removed target', async () => {
+    seedListing(REMOVED_ID, { moderationStatus: 'removed' });
+    expect((await postReport(validReport({ targetId: '6500000000000000000000ef' }))).status).toBe(404);
+    expect((await postReport(validReport({ targetId: 'not-an-id' }))).status).toBe(404);
+    expect((await postReport(validReport({ targetId: REMOVED_ID }))).status).toBe(404);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('400 for an invalid reason, an invalid targetType and details over 500 characters', async () => {
+    seedListing(LISTING_ID);
+    expect((await postReport(validReport({ reason: 'bogus' }))).status).toBe(400);
+    expect((await postReport(validReport({ targetType: 'user' }))).status).toBe(400);
+    expect((await postReport(validReport({ details: 'x'.repeat(501) }))).status).toBe(400);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('the honeypot drops a filled website field: 200 and no Report', async () => {
+    seedListing(LISTING_ID);
+    const res = await postReport(validReport({ website: 'http://spam.example' }));
+    expect(res.status).toBe(200);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('GET /api/admin/reports without a session is rejected as GET /audit-logs is', async () => {
+    expect((await request(app).get('/api/admin/reports')).status).toBe(401);
+    expect((await request(app).get('/api/admin/audit-logs')).status).toBe(401);
+  });
+
+  it('GET /api/admin/reports returns open reports, never reporterIp, and honors status/targetType', async () => {
+    const ip = '198.51.100.7';
+    h.reports.push(makeDoc({
+      _id: '6500000000000000000000c1', targetType: 'listing', targetId: LISTING_ID, reason: 'scam',
+      details: 'd', reporterIp: ip, status: 'open', moderationAction: null, resolvedAt: null,
+      resolvedBy: null, note: '', createdAt: new Date(),
+    }));
+    h.reports.push(makeDoc({
+      _id: '6500000000000000000000c2', targetType: 'store', targetId: STORE_ID, reason: 'other',
+      details: '', reporterIp: ip, status: 'actioned', moderationAction: 'removed', resolvedAt: new Date(),
+      resolvedBy: 'admin:owner', note: '', createdAt: new Date(),
+    }));
+
+    const open = await auth(request(app).get('/api/admin/reports'));
+    expect(open.status).toBe(200);
+    expect(open.body.count).toBe(1);
+    expect(JSON.stringify(open.body)).not.toContain(ip);
+
+    const all = await auth(request(app).get('/api/admin/reports?status=all'));
+    expect(all.body.count).toBe(2);
+
+    const stores = await auth(request(app).get('/api/admin/reports?status=all&targetType=store'));
+    expect(stores.body.count).toBe(1);
+
+    const bogus = await auth(request(app).get('/api/admin/reports?status=bogus'));
+    expect(bogus.status).toBe(400);
+  });
+
+  const seedReport = (overrides = {}) => h.reports.push(makeDoc({
+    _id: '6500000000000000000000d1', targetType: 'listing', targetId: LISTING_ID,
+    reason: 'scam', details: '', reporterIp: '198.51.100.9', status: 'open',
+    moderationAction: null, resolvedAt: null, resolvedBy: null, note: '',
+    createdAt: new Date(), ...overrides,
+  }));
+
+  const resolve = (body, id = '6500000000000000000000d1') => auth(request(app).put(`/api/admin/reports/${id}/resolve`)).send(body);
+
+  it('PUT resolve actioned updates the report and emits admin.report_resolved with ids and no IP', async () => {
+    seedReport();
+    const res = await resolve({ resolution: 'actioned', moderationAction: 'removed' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports[0].status).toBe('actioned');
+    expect(h.reports[0].moderationAction).toBe('removed');
+    expect(h.reports[0].resolvedBy).toBe('admin:owner');
+
+    await new Promise((r) => setTimeout(r, 10));
+    const ev = auditEvents.find((e) => e.action === 'admin.report_resolved');
+    expect(ev).toBeTruthy();
+    expect(ev.metadata).toMatchObject({
+      targetType: 'listing', targetId: LISTING_ID, resolution: 'actioned', moderationAction: 'removed',
+    });
+    expect(JSON.stringify(ev.metadata)).not.toContain('198.51.100.9');
+  });
+
+  it('PUT resolve on an already resolved report returns 409; unknown id returns 404', async () => {
+    seedReport({ status: 'dismissed' });
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'none' })).status).toBe(409);
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'none' }, '6500000000000000000000ef')).status).toBe(404);
+  });
+
+  it('rejects invalid resolutions', async () => {
+    seedReport();
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'suspended' })).status).toBe(400);
+    expect((await resolve({ resolution: 'actioned' })).status).toBe(400);
+    expect((await resolve({ resolution: 'dismissed', moderationAction: 'removed' })).status).toBe(400);
+    expect((await resolve({ resolution: 'dismissed', note: 'x'.repeat(201) })).status).toBe(400);
   });
 });

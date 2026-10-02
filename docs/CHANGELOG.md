@@ -253,6 +253,28 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   assertion, status or test name changed). `tests/envGuard.test.mjs` — additions
   only, no existing line changed.
 
+### Step 2 — Public reports, admin queue and resolution
+- **Behavior:** Before, there was no way for a user to report a listing or store.
+  After, `POST /api/reports` accepts a report (limited per IP per hour behind the
+  honeypot), deduplicated per IP, target and 24-hour window while open; the
+  reporter IP is stored only for deduplication and never returned. A
+  session-gated admin queue (`GET /api/admin/reports`, open by default) and
+  resolution (`PUT /api/admin/reports/:id/resolve`) let an admin close a report,
+  recording the moderation action taken (`admin.report_resolved`) without
+  applying any moderation itself.
+- **Files changed:** `.env.example`, `server.js`, `src/config/inputLimits.js`,
+  `src/controllers/reportController.js`, `src/middleware/rateLimiter.js`,
+  `src/models/Report.js`, `src/routes/adminAuth.js`, `src/routes/reports.js`.
+- **Tests added:** `tests/reportLimiter.test.mjs` (new); `tests/wiring.test.mjs`
+  — user-report and admin-queue tests.
+- **Existing tests changed:** `tests/adminLockout.test.mjs` — one line
+  `reportLimiter: pass(),` added to the fake rate-limiter module.
+  `tests/wiring.test.mjs` — the model injection block gained a fake `Report`
+  model (create / findOne / find / findById / findByIdAndUpdate) and its
+  injection line, the shared `h` state gained `reports` (cleared in the global
+  `beforeEach`), the generic `matchesFilter` helper gained `$gte`, and the fake
+  rate-limiter module gained a `reportLimiter` passthrough.
+
 ## Phase 5 and later
 
 Not documented here until built.
