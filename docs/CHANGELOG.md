@@ -301,6 +301,20 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/retentionReportsPayments.test.mjs` (new).
 - **Existing tests changed:** None.
 
+## Phase 6 — Retention gaps and legal pages
+
+### Step 1 — Strip old acceptance contact hashes and prune audit events
+- **Behavior:** Before, `TermsAcceptance` records kept `actor.whatsappHash` and
+  `sellerContactTarget.sellerWhatsappHash` forever, and audit events were kept
+  forever. After, a 30-day job nulls both contact hashes (keeping
+  `ownerTokenHash`, the listing/store ids, `listingTitle` and metadata), and a
+  scheduled job deletes audit events older than `AUDIT_RETENTION_DAYS` (default
+  365; a non-numeric or non-positive value falls back to 365). No existing strip
+  function changed, and no model gained an index or TTL option.
+- **Files changed:** `.env.example`, `src/services/cleanupService.js`.
+- **Tests added:** `tests/retentionAcceptanceAudit.test.mjs` (new).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

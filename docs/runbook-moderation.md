@@ -206,3 +206,41 @@ curl -sS -X PUT "$BASE_URL/api/admin/reports/$REPORT_ID/resolve" \
 required and is one of `none`, `approved`, `flagged`, `removed`, `suspended`
 (`suspended` is valid only for a store report). For `dismissed`, omit
 `moderationAction` or send `none`. The optional `note` is at most 200 characters.
+
+## 14. Rotating BLOCK_HASH_SECRET
+
+Rotating `BLOCK_HASH_SECRET` invalidates every existing block. The block list is
+keyed only by the HMAC hash of the number, so a new secret produces different
+hashes and the old entries no longer match any incoming number. No rotation tool
+is built.
+
+1. Set the new value for `BLOCK_HASH_SECRET` in the deployment environment (at
+   least 16 characters).
+2. Restart the server so the new secret is in effect.
+3. List the existing blocks to see what must be recreated:
+
+```bash
+curl -sS "$BASE_URL/api/admin/blocks?limit=50" \
+  -H "X-Admin-Session: $ADMIN_SESSION"
+```
+
+4. Recreate each block. When `sourceType` is `listing` or `store`, use its stored
+   `sourceId`:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/admin/blocks" \
+  -H "X-Admin-Session: $ADMIN_SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"sourceType":"listing","sourceId":"SOURCE_ID","reason":"Recreated after secret rotation"}'
+```
+
+   A block created from a raw number (`sourceType: "phone"`, `sourceId: null`)
+   has no stored number, so recreate it from the number you kept in a private
+   record:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/admin/blocks" \
+  -H "X-Admin-Session: $ADMIN_SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"sourceType":"phone","phone":"PHONE_HERE","reason":"Recreated after secret rotation"}'
+```

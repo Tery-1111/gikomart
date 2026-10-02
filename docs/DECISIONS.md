@@ -193,3 +193,36 @@ new numbers; existing entries are never edited.
   plausible, but keeping it forever means a permanent contact store; pending
   payments are excluded because the payload is still needed to complete them.
 - **Alternative rejected:** Keeping payment data indefinitely.
+
+## 16. Acceptance records lose the WhatsApp hashes after 30 days, like phoneHash
+
+- **Decision:** After 30 days, `stripOldAcceptanceHashes` nulls
+  `actor.whatsappHash` and `sellerContactTarget.sellerWhatsappHash` on
+  `TermsAcceptance` records, just as `phoneHash` is nulled. `ownerTokenHash`,
+  listing and store ids and metadata are kept as evidence.
+- **Reason:** These are unkeyed hashes of phone numbers and can be brute-forced
+  over the Kenyan number space. The token hash derives from a long random value
+  and cannot be reversed into a person, so it can stay.
+- **Alternative rejected:** Keeping all hashes indefinitely.
+
+## 17. Audit events are pruned after 365 days by a scheduled job
+
+- **Decision:** Audit events are deleted after 365 days by a scheduled job,
+  configurable with `AUDIT_RETENTION_DAYS` (a TTL index was rejected because the
+  `timestamp` field already has a non-TTL index, which would conflict).
+- **Reason:** The audit trail is an operational record, not a permanent archive;
+  a bounded window keeps the collection small while still covering the period
+  during which a dispute is likely.
+- **Alternative rejected:** Keeping audit events forever.
+
+## 18. Rotating BLOCK_HASH_SECRET invalidates every existing block
+
+- **Decision:** Rotating `BLOCK_HASH_SECRET` invalidates every existing block.
+  No rotation tool is built. Blocks created from a listing or store can be
+  recreated from their stored `sourceId`; blocks created from a raw number need
+  that number again, so keep a private record of blocked numbers.
+- **Reason:** The blocked-contact list is keyed only by the HMAC hash, so a new
+  secret produces different hashes and the old entries no longer match any
+  incoming number. A dual-secret rotation window was judged not worth the added
+  verification path for a single-operator deployment.
+- **Alternative rejected:** A dual-secret rotation window.

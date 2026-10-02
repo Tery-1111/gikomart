@@ -64,6 +64,7 @@ route-specific limiter.
 | `STATUS_RATE_LIMIT` | Payment-status polls per minute per IP | 60 | No | — |
 | `CONTACT_RELEASE_LIMIT` | Contact releases per hour per IP | 40 | No | — |
 | `REPORT_RATE_LIMIT` | Public report submissions per hour per IP | 10 | No | — |
+| `AUDIT_RETENTION_DAYS` | Days to keep audit events before pruning | 365 | No | — |
 | `WHAPI_TOKEN` | Whapi.Cloud bearer token for broadcasts | changeme | No | — |
 | `WHATSAPP_GROUPS` | Comma-separated broadcast group IDs | — | No | — |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account name | changeme | No | — |
@@ -151,3 +152,5 @@ by these jobs — only the named fields are cleared.
 | `stripOldAcceptancePII` | 30 days after `timestamp` | `TermsAcceptance.actor.ip`, `actor.phoneHash`, `actor.userAgent` |
 | `stripOldReportPII` | 30 days after `createdAt` | `Report.reporterIp` |
 | `stripOldPaymentPII` | 90 days after `createdAt` (completed/failed only) | `Payment.phoneNumber` (set to `redacted`) and unsets `listingData.sellerWhatsapp`, `storeData.phone`, `storeData.whatsapp`, `storeData.email` |
+| `stripOldAcceptanceHashes` | 30 days after `timestamp` | `TermsAcceptance.actor.whatsappHash`, `sellerContactTarget.sellerWhatsappHash` |
+| `pruneOldAuditEvents` | `AUDIT_RETENTION_DAYS` days after `timestamp` (default 365) | deletes the audit event (via `deleteMany`) |
