@@ -1862,3 +1862,61 @@ describe('Input length caps — server-side enforcement', () => {
     expect(res.body.error).toMatch(/name/);
   });
 });
+
+// ─── Phase 2, Step 1: reject store_id at listing creation ────────────────────
+describe('initiate-listing rejects store_id (attach after publish)', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const listingBody = (listingData) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    website: '',
+    acceptance: {
+      accepted: true,
+      gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+      sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+    },
+    listingData: {
+      title: 'Test Book',
+      category: 'Books',
+      condition: 'Good',
+      price: 500,
+      description: 'Used calc textbook',
+      sellerName: 'Jane',
+      sellerWhatsapp: '0711111111',
+      location: 'Egerton',
+      images: [],
+      ...listingData,
+    },
+  });
+
+  it('rejects a valid-looking ObjectId store_id with 400 naming store_id and creates no Payment', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: '650000000000000000000042' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/store_id/);
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('rejects a numeric store_id with 400', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: 42 }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/store_id/);
+  });
+
+  it('accepts a listing with no store_id (proceeds past validation)', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({}));
+    expect(res.status).not.toBe(400);
+  });
+
+  it('accepts store_id "" (treated as standalone)', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: '' }));
+    expect(res.status).not.toBe(400);
+  });
+});

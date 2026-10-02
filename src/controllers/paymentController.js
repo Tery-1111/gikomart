@@ -116,6 +116,16 @@ exports.initiateListing = async (req, res, next) => {
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing listing details: ${errors.join(', ')}` });
     }
+    // store_id is not accepted at creation: a listing is always published
+    // standalone and attached to a store afterwards via the owner endpoint.
+    // Rejecting here (before any IntaSend call or Payment.create) means a caller
+    // cannot link a listing to an unverified store at payment time.
+    if (listingData.store_id !== undefined && listingData.store_id !== null && listingData.store_id !== '') {
+      return res.status(400).json({
+        success: false,
+        error: 'store_id is not accepted here; attach the listing to a store after it is published',
+      });
+    }
     // Normalize price to a proper number so it round-trips through the Mixed-type
     // payment record into Listing.create() cleanly.
     listingData.price = price;
