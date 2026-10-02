@@ -339,6 +339,18 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** None.
 - **Existing tests changed:** None.
 
+### Step 4 — Footer links, placeholder register and page tests
+- **Behavior:** Before, the three new legal pages were unreachable from the site.
+  After, the footer links them, `docs/LEGAL_PLACEHOLDERS.md` registers the five
+  placeholders that must be filled before launch, and `tests/legalPages.test.mjs`
+  checks the pages are served, well-formed and free of scripts, inline handlers,
+  64-hex strings and phone-like digit runs, and that the four versioned legal
+  pages are unchanged.
+- **Files changed:** `docs/LEGAL_PLACEHOLDERS.md` (new), `public/index.html`,
+  `tests/legalPages.test.mjs` (new).
+- **Tests added:** `tests/legalPages.test.mjs` (new).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
