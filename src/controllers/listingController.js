@@ -7,6 +7,7 @@ const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const inputLimits = require('../config/inputLimits');
 const { listingView } = require('../utils/publicView');
+const { checkListing } = require('../services/moderationService');
 
 // Escape special regex characters in user input so it can be safely embedded
 // in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
@@ -111,6 +112,10 @@ exports.updateListing = async (req, res, next) => {
     if (!authz.authorized) {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
+    // A removed listing is terminal: neither its owner nor an admin may edit it.
+    if (target.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Listing has been removed and can no longer be edited' });
+    }
     const updates = {};
     for (const field of UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
@@ -139,6 +144,15 @@ exports.updateListing = async (req, res, next) => {
     if (updates.images !== undefined
       && (!Array.isArray(updates.images) || !updates.images.every(isHttpUrl))) {
       return res.status(400).json({ success: false, error: 'images must be an array of http(s) image URLs' });
+    }
+    // Re-screen the effective document (stored fields + this edit) so an edit
+    // cannot smuggle prohibited content past the creation-time check. A clean
+    // edit never sets 'approved' — a flagged listing stays flagged until an
+    // admin approves it.
+    const effective = typeof target.toObject === 'function' ? target.toObject() : { ...target };
+    Object.assign(effective, updates);
+    if (!checkListing(effective).approved) {
+      updates.moderationStatus = 'flagged';
     }
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     res.json({ success: true, listing });

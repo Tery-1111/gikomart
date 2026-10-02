@@ -2150,3 +2150,61 @@ describe('POST /api/terms/contact-acceptance — releases the stored seller cont
     expect(res.body.sellerWhatsapp).toBeUndefined();
   });
 });
+
+// ─── Phase 4, Step 2: moderation on listing edits ───────────────────────────
+describe('Content moderation on listing edits (Phase 4, Step 2)', () => {
+  const OWNER = 'edit-owner-token';
+  const seed = (overrides = {}) => {
+    h.listings.push(makeDoc({
+      _id: 'lst-edit', title: 'Widget', description: 'A plain widget',
+      sellerName: 'Ted', category: 'Electronics', location: 'Njoro',
+      status: 'active', moderationStatus: 'approved',
+      ownerTokenHash: sha256hex(OWNER),
+      ...overrides,
+    }));
+  };
+
+  it('flags a clean listing when the owner adds prohibited text, and hides it publicly', async () => {
+    seed();
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ description: 'Cheap casino tokens' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+    const pub = await request(app).get('/api/listings');
+    expect(pub.body.listings.find((l) => l._id === 'lst-edit')).toBeUndefined();
+  });
+
+  it('keeps moderationStatus approved for a clean edit of a clean listing', async () => {
+    seed();
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Better Widget' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('approved');
+  });
+
+  it('leaves a flagged listing flagged on a clean edit', async () => {
+    seed({ moderationStatus: 'flagged' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Cleaner Widget' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+  });
+
+  it('409 when an owner edits a removed listing, and nothing changes', async () => {
+    seed({ moderationStatus: 'removed', title: 'Original' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'New title' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Listing has been removed and can no longer be edited' });
+    expect(h.listings[0].title).toBe('Original');
+  });
+
+  it('403 (not 409) when a non-owner edits a removed listing', async () => {
+    seed({ moderationStatus: 'removed' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', 'wrong').send({ title: 'New' });
+    expect(res.status).toBe(403);
+  });
+
+  it('flags on a title-only edit when the stored description is prohibited', async () => {
+    seed({ description: 'Totally stolen goods' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Brand New' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+  });
+});
