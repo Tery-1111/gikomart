@@ -3,8 +3,14 @@ const Listing = require('../models/Listing');
 const Store = require('../models/Store');
 const TermsAcceptance = require('../models/TermsAcceptance');
 const Payment = require('../models/Payment');
+const Report = require('../models/Report');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
+
+// Retention windows (days). Report IPs are kept only for deduplication; payment
+// PII is kept for the dispute window and then redacted.
+const REPORT_IP_RETENTION_DAYS = 30;
+const PAYMENT_PII_RETENTION_DAYS = 90;
 
 // Extract the Cloudinary public_id from a stored secure_url
 // e.g. https://res.cloudinary.com/xxx/image/upload/v123/gikomart/abc.webp -> gikomart/abc
@@ -122,6 +128,54 @@ async function stripOldAcceptancePII() {
   }
 }
 
+// 30-day PII retention: null the reporter IP on reports older than 30 days. The
+// report body is kept; the IP existed only to deduplicate repeats.
+async function stripOldReportPII() {
+  try {
+    const cutoff = new Date(Date.now() - REPORT_IP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const old = await Report.find({ createdAt: { $lte: cutoff }, reporterIp: { $ne: null } });
+
+    if (!old.length) return;
+
+    for (const record of old) {
+      record.reporterIp = null;
+      await record.save();
+    }
+
+    logger.info('Retention: stripped report reporter IPs (>30d)', { count: old.length });
+  } catch (err) {
+    logger.error('Report IP retention job error', { error: err.message });
+  }
+}
+
+// 90-day PII retention: redact the payer number and the seller/store contact
+// copies inside a settled payment's payload. Only completed/failed payments are
+// touched — a pending payment may still be needed to complete — and
+// piiStrippedAt keeps the job idempotent.
+async function stripOldPaymentPII() {
+  try {
+    const cutoff = new Date(Date.now() - PAYMENT_PII_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const result = await Payment.updateMany(
+      { status: { $in: ['completed', 'failed'] }, createdAt: { $lte: cutoff }, piiStrippedAt: null },
+      {
+        $set: { phoneNumber: 'redacted', piiStrippedAt: new Date() },
+        $unset: {
+          'listingData.sellerWhatsapp': '',
+          'storeData.phone': '',
+          'storeData.whatsapp': '',
+          'storeData.email': '',
+        },
+      },
+    );
+
+    if (result.modifiedCount > 0) {
+      logger.info('Retention: stripped payment PII (>90d)', { count: result.modifiedCount });
+    }
+  } catch (err) {
+    logger.error('Payment PII retention job error', { error: err.message });
+  }
+}
+
 async function expireStores() {
   try {
     const expired = await Store.find({
@@ -150,8 +204,10 @@ function startCleanupScheduler() {
     await expireStores();
     await stripExpiredStoreContacts();
     await stripOldAcceptancePII();
+    await stripOldReportPII();
+    await stripOldPaymentPII();
   });
-  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + PII retention');
+  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + retention (store/acceptance contacts, report IPs, payment PII)');
 }
 
 module.exports = {
@@ -160,4 +216,6 @@ module.exports = {
   expireStores,
   stripExpiredStoreContacts,
   stripOldAcceptancePII,
+  stripOldReportPII,
+  stripOldPaymentPII,
 };

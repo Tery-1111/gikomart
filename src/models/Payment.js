@@ -22,6 +22,10 @@ const paymentSchema = new mongoose.Schema({
   // response. The raw token is NEVER stored server-side.
   ownerTokenHash: { type: String },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+  // Set by the retention job once the payer number and the payload's contact
+  // copies are redacted. Doubles as the idempotency guard so a payment is never
+  // stripped twice.
+  piiStrippedAt: { type: Date, default: null },
   termsAcceptanceId: { type: mongoose.Schema.Types.ObjectId, ref: 'TermsAcceptance' },
 }, { timestamps: true });
 

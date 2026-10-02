@@ -181,3 +181,15 @@ new numbers; existing entries are never edited.
   did it without turning the log into a contact-data store.
 - **Alternative rejected:** Logging the edited field values (or a diff), which
   would copy listing/store contact data and free text into the audit collection.
+
+## 15. Report IPs last 30 days; payment PII lasts 90 days and only for settled payments
+
+- **Decision:** Report IPs are erased after 30 days. Payment phone numbers and
+  the seller and store contact copies inside a payment payload are erased 90 days
+  after creation for completed and failed payments, which is the dispute window;
+  pending payments are never stripped.
+- **Reason:** The report IP exists only to deduplicate repeats, so it has no
+  value once the report is old. Payment contact data is needed while a dispute is
+  plausible, but keeping it forever means a permanent contact store; pending
+  payments are excluded because the payload is still needed to complete them.
+- **Alternative rejected:** Keeping payment data indefinitely.

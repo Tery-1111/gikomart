@@ -138,3 +138,16 @@ ids only — never values, contact data, hashes or reporter IPs.
 | `payment.amount_mismatch` | payment, Payment |
 | `webhook.missing_invoice_id` | payment |
 | `webhook.broadcast_skipped` | listing |
+
+## f) Data retention
+
+Every stripping job in `src/services/cleanupService.js` (run by the 30-minute
+scheduler), with its window and the fields it clears. Records are never deleted
+by these jobs — only the named fields are cleared.
+
+| Job | Window | Fields cleared |
+|---|---|---|
+| `stripExpiredStoreContacts` | 30 days after `expires_at` | `Store.phone`, `whatsapp`, `email`, `location`, `pickup_location` |
+| `stripOldAcceptancePII` | 30 days after `timestamp` | `TermsAcceptance.actor.ip`, `actor.phoneHash`, `actor.userAgent` |
+| `stripOldReportPII` | 30 days after `createdAt` | `Report.reporterIp` |
+| `stripOldPaymentPII` | 90 days after `createdAt` (completed/failed only) | `Payment.phoneNumber` (set to `redacted`) and unsets `listingData.sellerWhatsapp`, `storeData.phone`, `storeData.whatsapp`, `storeData.email` |

@@ -289,6 +289,18 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   auto-flags, attach/detach and payment views.
 - **Existing tests changed:** None.
 
+### Step 4 — Strip report IPs and old payment PII
+- **Behavior:** Before, report reporter IPs were kept indefinitely and a
+  completed payment's payer number and seller/store contact copies were kept
+  forever. After, the cleanup job nulls a report's `reporterIp` after 30 days and,
+  90 days after creation, redacts `phoneNumber` (to `redacted`) and unsets
+  `listingData.sellerWhatsapp`, `storeData.phone`, `storeData.whatsapp` and
+  `storeData.email` on completed and failed payments (pending payments are never
+  touched; `piiStrippedAt` makes it idempotent).
+- **Files changed:** `src/models/Payment.js`, `src/services/cleanupService.js`.
+- **Tests added:** `tests/retentionReportsPayments.test.mjs` (new).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
