@@ -226,3 +226,16 @@ new numbers; existing entries are never edited.
   incoming number. A dual-secret rotation window was judged not worth the added
   verification path for a single-operator deployment.
 - **Alternative rejected:** A dual-secret rotation window.
+
+## 19. The public /health endpoint returns only `{ status }`; details are admin-only
+
+- **Decision:** The public `/health` endpoint reports only whether MongoDB is up
+  and returns only `{ status: 'healthy' }` (200) or `{ status: 'unhealthy' }`
+  (503). Detailed health, including the Cloudinary check with a 5-second timeout,
+  is behind the admin session at `GET /api/admin/health`.
+- **Reason:** Uptime monitors only need a pass/fail signal, so keeping the public
+  body to a single field means dependency details (which providers are reachable)
+  are not exposed publicly, and a Cloudinary blip cannot flap the monitor. The
+  detailed view stays available to operators and needs no database query.
+- **Alternative rejected:** Locking `/health` behind admin auth, which would
+  break uptime monitors.

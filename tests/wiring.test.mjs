@@ -1210,6 +1210,15 @@ describe('Admin 2FA (real speakeasy) and moderation auth', () => {
   });
 });
 
+// ─── Admin health route ─────────────────────────────────────────────────────
+describe('Admin health route', () => {
+  it('GET /api/admin/health without a session → 401 Admin 2FA required', async () => {
+    const res = await request(app).get('/api/admin/health');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, error: 'Admin 2FA required' });
+  });
+});
+
 // ─── Upload validation ──────────────────────────────────────────────────────
 describe('POST /api/upload — magic-byte and processing validation', () => {
   it('400 when the bytes are not a real image (Content-Type lie rejected)', async () => {

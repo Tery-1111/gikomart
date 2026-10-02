@@ -1,5 +1,7 @@
+const mongoose = require('mongoose');
 const AuditEvent = require('../models/AuditEvent');
 const Payment = require('../models/Payment');
+const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { redact } = require('../utils/redact');
 const { emit, adminActor } = require('../services/auditService');
@@ -90,4 +92,39 @@ exports.listPayments = async (req, res) => {
     logger.error('Payment list error', { error: err.message });
     res.status(500).json({ success: false, error: 'Failed to list payments' });
   }
+};
+
+// GET /api/admin/health — session-gated. Reports the dependency details the
+// public /health endpoint deliberately omits. Always HTTP 200; the status field
+// carries health so a caller never has to interpret the status code.
+exports.getHealth = async (req, res) => {
+  const checks = {
+    mongodb: mongoose.connection.readyState === 1,
+    cloudinary: false,
+  };
+
+  let timer;
+  try {
+    await Promise.race([
+      cloudinary.api.ping(),
+      new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('timeout')), 5000);
+      }),
+    ]);
+    checks.cloudinary = true;
+  } catch (err) {
+    logger.warn('Admin health: cloudinary ping failed');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const status = !checks.mongodb ? 'unhealthy' : (checks.cloudinary ? 'healthy' : 'degraded');
+
+  res.status(200).json({
+    success: true,
+    status,
+    checks,
+    timestamp: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
+  });
 };

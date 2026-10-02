@@ -360,6 +360,25 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** None.
 - **Existing tests changed:** None.
 
+## Phase 7 — Admin health, metrics and portal
+
+### Step 1 — Minimal public health and detailed admin health
+- **Behavior:** Before, `GET /health` reported MongoDB and Cloudinary (a `checks`
+  object plus `timestamp`) and returned 503 only when MongoDB was down. After,
+  `GET /health` returns only `{ status: 'healthy' }` with HTTP 200 when MongoDB is
+  up, or `{ status: 'unhealthy' }` with HTTP 503 when it is not, so uptime
+  monitors keep working without dependency details being exposed. A new
+  session-gated `GET /api/admin/health` returns the detailed view — `success`,
+  `status` (`healthy`/`degraded`/`unhealthy`), `checks` (`mongodb`, `cloudinary`),
+  `timestamp` and `uptimeSec` — always with HTTP 200; the Cloudinary ping is
+  bounded by a 5-second timeout.
+- **Files changed:** `docs/API_AND_CONFIG.md`, `docs/DECISIONS.md`,
+  `src/controllers/adminController.js`, `src/routes/adminAuth.js`,
+  `src/routes/health.js`, `tests/health.test.mjs` (new), `tests/wiring.test.mjs`.
+- **Tests added:** `tests/health.test.mjs` (new, 6 tests);
+  `tests/wiring.test.mjs` (1 test).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
