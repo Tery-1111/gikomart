@@ -64,6 +64,19 @@ const adminLimiter = rateLimit({
   message: { success: false, error: 'Too many admin requests — please try again later' },
 });
 
+// Contact release: buyer contact-acceptance returns seller PII, so it gets its
+// own long-window budget on top of contactLimiter. The default is 40 per hour
+// per IP and tunable via CONTACT_RELEASE_LIMIT for ops. A missing or
+// non-positive value uses 40.
+const configuredContactReleaseMax = Number.parseInt(process.env.CONTACT_RELEASE_LIMIT, 10);
+const contactReleaseLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number.isInteger(configuredContactReleaseMax) && configuredContactReleaseMax > 0 ? configuredContactReleaseMax : 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many contact releases — please try again later' },
+});
+
 // Payment status polling: the frontend polls while an STK push is pending, so
 // the default is generous (60 per minute per IP) and tunable via the
 // STATUS_RATE_LIMIT env var for ops. A missing or non-positive value uses 60.
@@ -76,4 +89,4 @@ const statusLimiter = rateLimit({
   message: { success: false, error: 'Too many status checks — please try again shortly' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter };
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter };

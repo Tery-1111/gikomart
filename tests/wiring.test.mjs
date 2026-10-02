@@ -119,6 +119,25 @@ const fakeListingModel = {
     if (filter.paymentId != null) {
       return h.listings.find(l => String(l.paymentId) === String(filter.paymentId)) || null;
     }
+    // Visibility-filter lookup (no paymentId): match the seeded listing by _id,
+    // then apply every remaining key. Supports plain equality plus $in / $nin /
+    // $ne only — the real visibility filter uses plain equality for all keys.
+    if (filter._id !== undefined) {
+      const doc = h.listings.find(l => String(l._id) === String(filter._id));
+      if (!doc) return null;
+      for (const [key, expected] of Object.entries(filter)) {
+        if (key === '_id') continue;
+        const actual = doc[key];
+        if (expected !== null && typeof expected === 'object') {
+          if (expected.$in !== undefined && !expected.$in.includes(actual)) return null;
+          if (expected.$nin !== undefined && expected.$nin.includes(actual)) return null;
+          if (expected.$ne !== undefined && actual === expected.$ne) return null;
+        } else if (actual !== expected) {
+          return null;
+        }
+      }
+      return doc;
+    }
     return null;
   },
   findById: (id) => selectableDoc(h.listings.find(l => String(l._id) === String(id)) || null),
@@ -1813,6 +1832,15 @@ describe('Client IP — bounded trust proxy', () => {
 
   it('records the trusted client IP and ignores a spoofed leftmost X-Forwarded-For', async () => {
     const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+    // The contact-release path now looks the listing up by its visibility
+    // filter, so seed the listing whose id this request sends.
+    h.listings.push(makeDoc({
+      _id: '650000000000000000000042',
+      title: 'Vintage Calculator',
+      status: 'active',
+      moderationStatus: 'approved',
+      sellerWhatsapp: '0712222222',
+    }));
     const captured = [];
     const original = fakeTermsModel.create;
     fakeTermsModel.create = async (data) => {
@@ -2004,5 +2032,121 @@ describe('webhook creation forces store_id null', () => {
     expect(res.status).toBe(200);
     expect(h.listings).toHaveLength(1);
     expect(h.listings[0].store_id).toBeNull();
+  });
+});
+
+// ─── Phase 3, Step 2: contact release after a recorded acceptance ────────────
+describe('POST /api/terms/contact-acceptance — releases the stored seller contact', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const CONTACT_LISTING_ID = '650000000000000000000042';
+  const SELLER_WA = '0712222222';
+
+  const acceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    buyerTermsVersion: TERMS_VERSIONS.BUYER_TERMS,
+    action: 'CONTINUE_AND_CONTACT_SELLER',
+  });
+
+  const seedListing = (overrides = {}) => {
+    h.listings.push(makeDoc({
+      _id: CONTACT_LISTING_ID,
+      title: 'Vintage Calculator',
+      status: 'active',
+      moderationStatus: 'approved',
+      sellerWhatsapp: SELLER_WA,
+      ...overrides,
+    }));
+  };
+
+  // Capture every TermsAcceptance.create payload so the recorded target can be
+  // asserted without the fake projecting fields.
+  function captureAcceptance() {
+    const captured = [];
+    const original = fakeTermsModel.create;
+    fakeTermsModel.create = async (data) => {
+      captured.push(data);
+      return makeDoc({ _id: 'ta-contact', ...data });
+    };
+    return { captured, restore: () => { fakeTermsModel.create = original; } };
+  }
+
+  it('returns the stored sellerWhatsapp with no-store and records the target hash', async () => {
+    seedListing();
+    const cap = captureAcceptance();
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID, listingTitle: 'Vintage Calculator' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.sellerWhatsapp).toBe(SELLER_WA);
+      expect(res.headers['cache-control']).toContain('no-store');
+
+      expect(cap.captured).toHaveLength(1);
+      expect(cap.captured[0].sellerContactTarget.sellerWhatsappHash).toBe(sha256hex(SELLER_WA));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('ignores a sellerWhatsapp supplied in the request body', async () => {
+    seedListing();
+    const cap = captureAcceptance();
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID, sellerWhatsapp: '0799999999' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.sellerWhatsapp).toBe(SELLER_WA);
+      expect(cap.captured[0].sellerContactTarget.sellerWhatsappHash).toBe(sha256hex(SELLER_WA));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('404 for a flagged listing, with no sellerWhatsapp in the body', async () => {
+    seedListing({ moderationStatus: 'flagged' });
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('404 for a nonexistent (valid ObjectId) listing', async () => {
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: '650000000000000000000099' });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('404 for a malformed listingId', async () => {
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: 'not-an-object-id' });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('400 when acceptance is missing, even with a valid listingId, and no sellerWhatsapp', async () => {
+    seedListing();
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(400);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('400 Seller contact unavailable when the listing has an empty sellerWhatsapp', async () => {
+    seedListing({ sellerWhatsapp: '' });
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Seller contact unavailable');
+    expect(res.body.sellerWhatsapp).toBeUndefined();
   });
 });

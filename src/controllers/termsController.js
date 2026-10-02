@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const logger = require('../config/logger');
+const Listing = require('../models/Listing');
 const { ACCEPTANCE_TYPES, TERMS_VERSIONS } = require('../config/termsVersions');
 const {
   validateAcceptanceToken,
@@ -19,24 +21,25 @@ exports.getVersions = async (_req, res) => {
   });
 };
 
+// This is the single sanctioned release point for seller contact data. Do not
+// return sellerWhatsapp anywhere else.
 exports.recordContactAcceptance = async (req, res, next) => {
   try {
     const {
       acceptance,
       listingId,
-      sellerWhatsapp,
       listingTitle,
       buyerPhone,
       buyerWhatsapp,
     } = req.body || {};
 
+    // 1. A listing id is required to know which stored contact to release.
     if (!listingId) {
       return res.status(400).json({ success: false, error: 'listingId required' });
     }
-    if (!sellerWhatsapp) {
-      return res.status(400).json({ success: false, error: 'sellerWhatsapp required' });
-    }
 
+    // 2. Validate the acceptance token BEFORE any database lookup, so a caller
+    //    cannot probe listing existence without first proving acceptance.
     const validation = validateAcceptanceToken(acceptance, ACCEPTANCE_TYPES.BUYER_CONTACT);
     if (!validation.valid) {
       return res.status(400).json({
@@ -45,6 +48,31 @@ exports.recordContactAcceptance = async (req, res, next) => {
       });
     }
 
+    // 3. Reject a malformed id without touching the database.
+    if (!mongoose.Types.ObjectId.isValid(listingId)) {
+      return res.status(404).json({ success: false, error: 'Listing not found' });
+    }
+
+    // 4. Only a live, approved listing can release contact — the same visibility
+    //    filter the public listing detail endpoint uses.
+    const listing = await Listing.findOne({
+      _id: listingId,
+      status: 'active',
+      moderationStatus: 'approved',
+    });
+    if (!listing) {
+      return res.status(404).json({ success: false, error: 'Listing not found' });
+    }
+
+    // 5. The stored contact is the only source of truth; if it is missing there
+    //    is nothing to release.
+    const sellerWhatsapp = listing.sellerWhatsapp;
+    if (!sellerWhatsapp) {
+      return res.status(400).json({ success: false, error: 'Seller contact unavailable' });
+    }
+
+    // 6. Record the acceptance, hashing the contact actually released (from the
+    //    listing, never the request body). Await fully before responding.
     const rec = await recordAcceptance({
       acceptanceType: ACCEPTANCE_TYPES.BUYER_CONTACT,
       versions: validation.versions,
@@ -56,7 +84,7 @@ exports.recordContactAcceptance = async (req, res, next) => {
       listingId,
       sellerContactTarget: {
         sellerWhatsapp,
-        listingTitle: listingTitle || null,
+        listingTitle: listing.title || listingTitle || null,
       },
     });
 
@@ -65,10 +93,12 @@ exports.recordContactAcceptance = async (req, res, next) => {
       listingId: String(listingId),
     });
 
+    // 7. Release the contact with no-store so it is never cached.
+    res.set('Cache-Control', 'no-store');
     res.json({
       success: true,
       acceptanceId: String(rec._id),
-      message: 'Buyer terms acceptance recorded. Contact may proceed.',
+      sellerWhatsapp,
     });
   } catch (err) {
     logger.error('Buyer contact acceptance failure', { error: err.message });
