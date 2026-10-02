@@ -57,6 +57,7 @@ route-specific limiter.
 | `INTASEND_SECRET_KEY` | IntaSend secret key | ISSecretKey_test_changeme | No | — |
 | `INTASEND_TEST_MODE` | `true` routes IntaSend to sandbox | true | No | — |
 | `INTASEND_WEBHOOK_CHALLENGE` | Shared secret the webhook must echo | changeme (placeholder) | Yes | 16 |
+| `BLOCK_HASH_SECRET` | HMAC key for hashing blocked contact numbers | dev/test fallback constant (not used in production) | Yes | 16 |
 | `STATUS_RATE_LIMIT` | Payment-status polls per minute per IP | 60 | No | — |
 | `CONTACT_RELEASE_LIMIT` | Contact releases per hour per IP | 40 | No | — |
 | `WHAPI_TOKEN` | Whapi.Cloud bearer token for broadcasts | changeme | No | — |
@@ -94,5 +95,9 @@ From `src/config/envGuard.js` and `server.js`:
   `MONGO_URI` is missing or blank in any environment except `test`. It runs only
   when `server.js` is the entry module (`require.main === module`), i.e. the
   normal `node server.js` path.
+- **Missing or short block-hash secret refuses startup.** In production,
+  `assertStartupConfig()` also reports `BLOCK_HASH_SECRET` when it is missing,
+  blank, or shorter than 16 characters; development and test use a fixed fallback
+  (see `src/utils/phone.js`).
 - **Trust proxy defaults to 1.** `TRUST_PROXY` must be increased to `2` when
   Cloudflare proxies in front of Render so `req.ip` stays the real client address.

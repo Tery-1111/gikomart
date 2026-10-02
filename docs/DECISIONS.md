@@ -142,3 +142,14 @@ new numbers; existing entries are never edited.
   has already paid for, which is worse than letting an operator remove the
   content.
 - **Alternative rejected:** Also enforcing in the webhook.
+
+## 12. Blocked contacts are hashed with HMAC-SHA256 using BLOCK_HASH_SECRET
+
+- **Decision:** `contactHash` returns HMAC-SHA256 of the normalized number keyed
+  by `BLOCK_HASH_SECRET` (at least 16 characters; required in production, with a
+  fixed development/test fallback) instead of a plain SHA-256. Changing the
+  secret invalidates existing blocks.
+- **Reason:** The Kenyan number space is small enough to brute-force an unkeyed
+  hash, so a plain digest gives only weak pseudonymity; a keyed MAC makes the
+  stored hashes useless to anyone who does not hold the secret.
+- **Alternative rejected:** Plain SHA-256 of the normalized number.

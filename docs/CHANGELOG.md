@@ -233,6 +233,26 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/wiring.test.mjs` — blocked-contact payment tests.
 - **Existing tests changed:** None.
 
+## Phase 5B — Keyed hashing, reports, audit events and retention
+
+### Step 1 — Key the block-list hashes with BLOCK_HASH_SECRET
+- **Behavior:** Before, `contactHash` returned a plain (unkeyed) SHA-256 of the
+  normalized number. After, it returns HMAC-SHA256 keyed by `BLOCK_HASH_SECRET`
+  (read at call time, never at module load); production refuses to start when the
+  secret is missing, blank or shorter than 16 characters, and development/test
+  fall back to a fixed constant so local runs and CI need no real value. Changing
+  the secret invalidates existing blocks.
+- **Files changed:** `.env.example`, `src/config/envGuard.js`,
+  `src/utils/phone.js`.
+- **Tests added:** `tests/phone.test.mjs` — keyed-hash tests (same-format,
+  different-secret, not-plain-sha256, production throw, 15/16-character
+  boundary, test-environment fallback); `tests/envGuard.test.mjs` —
+  `BLOCK_HASH_SECRET` startup tests.
+- **Existing tests changed:** `tests/phone.test.mjs` — the `vitest` import line
+  gained `afterEach` and a `node:crypto` import was added (test-only; no existing
+  assertion, status or test name changed). `tests/envGuard.test.mjs` — additions
+  only, no existing line changed.
+
 ## Phase 5 and later
 
 Not documented here until built.

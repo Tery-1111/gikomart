@@ -107,3 +107,40 @@ describe('envGuard — assertStartupConfig (fail fast on missing MONGO_URI)', ()
     expect(onFatal).not.toHaveBeenCalled();
   });
 });
+
+describe('envGuard — assertStartupConfig requires BLOCK_HASH_SECRET in production', () => {
+  it('calls onFatal naming BLOCK_HASH_SECRET when it is missing in production', () => {
+    const onFatal = vi.fn();
+    assertStartupConfig({ NODE_ENV: 'production', MONGO_URI: 'x' }, onFatal);
+    expect(onFatal).toHaveBeenCalledTimes(1);
+    expect(onFatal.mock.calls[0][0]).toContain('BLOCK_HASH_SECRET');
+  });
+
+  it('calls onFatal when the secret is shorter than 16 characters', () => {
+    const onFatal = vi.fn();
+    assertStartupConfig({ NODE_ENV: 'production', MONGO_URI: 'x', BLOCK_HASH_SECRET: 'short-secret-15' }, onFatal);
+    expect(onFatal).toHaveBeenCalledTimes(1);
+    expect(onFatal.mock.calls[0][0]).toContain('BLOCK_HASH_SECRET');
+  });
+
+  it('does not call onFatal when a 16-character secret is set', () => {
+    const onFatal = vi.fn();
+    assertStartupConfig({ NODE_ENV: 'production', MONGO_URI: 'x', BLOCK_HASH_SECRET: '0123456789abcdef' }, onFatal);
+    expect(onFatal).not.toHaveBeenCalled();
+  });
+
+  it('calls onFatal exactly once naming both MONGO_URI and BLOCK_HASH_SECRET', () => {
+    const onFatal = vi.fn();
+    assertStartupConfig({ NODE_ENV: 'production' }, onFatal);
+    expect(onFatal).toHaveBeenCalledTimes(1);
+    const message = onFatal.mock.calls[0][0];
+    expect(message).toContain('MONGO_URI');
+    expect(message).toContain('BLOCK_HASH_SECRET');
+  });
+
+  it('does not require BLOCK_HASH_SECRET under NODE_ENV=test', () => {
+    const onFatal = vi.fn();
+    assertStartupConfig({ NODE_ENV: 'test' }, onFatal);
+    expect(onFatal).not.toHaveBeenCalled();
+  });
+});

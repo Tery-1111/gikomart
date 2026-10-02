@@ -71,6 +71,15 @@ function assertStartupConfig(env = process.env, onFatal) {
   if (env.NODE_ENV !== 'test' && (!env.MONGO_URI || String(env.MONGO_URI).trim() === '')) {
     problems.push('MONGO_URI');
   }
+  // In production the block list is keyed by HMAC with BLOCK_HASH_SECRET; a
+  // missing or short secret would either throw at hash time or leave the keyed
+  // hashes brute-forcible, so refuse to start. Test and development keep the
+  // documented fallback in src/utils/phone.js. MIN_SECRET_LENGTH is the same
+  // 16-character bar the other production secrets use.
+  if (env.NODE_ENV === 'production'
+      && (!env.BLOCK_HASH_SECRET || String(env.BLOCK_HASH_SECRET).length < MIN_SECRET_LENGTH)) {
+    problems.push('BLOCK_HASH_SECRET');
+  }
   if (problems.length === 0) return;
   const message = `Refusing to start: missing required configuration: ${problems.join(', ')}. `
     + 'Set it in the deployment environment.';
