@@ -1920,3 +1920,24 @@ describe('initiate-listing rejects store_id (attach after publish)', () => {
     expect(res.status).not.toBe(400);
   });
 });
+
+// ─── Phase 2, Step 2: store_id forced null at payment completion ─────────────
+describe('webhook creation forces store_id null', () => {
+  it('ignores a stored store_id and creates the listing standalone', async () => {
+    const p = listingPayment();
+    p.listingData = { ...p.listingData, store_id: '650000000000000000000042' };
+    h.payments.push(makeDoc(p));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+
+  it('creates a listing as before when no store_id is stored', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+});

@@ -343,6 +343,9 @@ async function createResourceForPayment(payment) {
       listing = await Listing.create({
         paymentId: payment._id,
         ...payment.listingData,
+        // A listing is always created standalone; any store_id persisted in the
+        // payment payload (from a legacy row or admin replay) is ignored here.
+        store_id: null,
         package: payment.package,
         expiresAt: new Date(Date.now() + pricing.durationMs),
         moderationStatus: moderation.approved ? 'approved' : 'flagged',
