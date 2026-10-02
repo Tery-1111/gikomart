@@ -315,6 +315,17 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/retentionAcceptanceAudit.test.mjs` (new).
 - **Existing tests changed:** None.
 
+### Step 2 — Privacy policy page and fact sources
+- **Behavior:** Documentation only; no runtime behavior changed. Adds a public
+  privacy policy page describing what data is collected, why, which third-party
+  providers receive it, what is stored in the browser, the enforced retention
+  windows and data-subject rights, plus `docs/LEGAL_FACTS.md` recording the
+  source of every factual statement on the page.
+- **Files changed:** `docs/LEGAL_FACTS.md` (new),
+  `public/legal/privacy-policy.html` (new).
+- **Tests added:** None.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

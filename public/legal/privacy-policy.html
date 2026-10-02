@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy - GikoMart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+  .legal-page { max-width: 820px; margin: 0 auto; padding: 64px 24px 96px; }
+  .legal-page h1 { font-family: var(--font-display); font-size: 36px; margin: 0 0 8px; }
+  .legal-page .version-tag { display:inline-block; background: var(--marigold-light); color: var(--marigold-strong); padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 28px; }
+  .legal-page h2 { font-family: var(--font-display); font-size: 22px; margin: 32px 0 12px; }
+  .legal-page p, .legal-page li { color: var(--ink-soft); line-height: 1.75; margin-bottom: 12px; font-size: 15px; }
+  .legal-page ul, .legal-page ol { padding-left: 22px; margin-bottom: 16px; }
+  .legal-page .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--teal); font-weight: 600; text-decoration: none; margin-bottom: 28px; }
+  .legal-page .back-link:hover { text-decoration: underline; }
+  .legal-page table { width: 100%; border-collapse: collapse; margin: 8px 0 20px; font-size: 14px; }
+  .legal-page th, .legal-page td { text-align: left; vertical-align: top; padding: 10px 12px; border: 1px solid var(--border); color: var(--ink-soft); line-height: 1.6; }
+  .legal-page th { background: var(--marigold-light); color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="/" class="logo"><span class="logo-mark">G</span><span class="logo-text">Giko<span class="logo-accent">Mart</span></span></a>
+    <div class="topbar-cta"><span class="campus-tag">📍 Egerton University</span></div>
+  </div>
+</header>
+<main class="legal-page">
+  <a href="/" class="back-link">← Back to GikoMart</a>
+  <h1>Privacy Policy</h1>
+  <span class="version-tag">Effective [EFFECTIVE_DATE]</span>
+
+  <h2>1. Who we are</h2>
+  <p>GikoMart ("we", "us", "our") is operated by [OPERATOR_NAME], [OPERATOR_ADDRESS]. We operate a campus marketplace and introduction platform for Egerton University and neighbouring communities. Our service lets sellers post items and services, and lets buyers discover and contact those sellers.</p>
+  <p>GikoMart is an introduction platform only. We are not a party to, do not guarantee, and are not responsible for any transaction, agreement, dispute, or interaction between a buyer and a seller.</p>
+  <p>You must be at least 18 years old, or the age of majority in your jurisdiction, to use GikoMart — the same minimum age stated in our Terms of Service.</p>
+  <p>This policy explains what personal data we collect, why we collect it, who we share it with, how long we keep it, and the rights you have under the Data Protection Act, 2019 (Kenya).</p>
+
+  <h2>2. What we collect</h2>
+  <p>The table below lists the kinds of data we collect, where each comes from, why we need it, and where it is stored. It also states whether the data is shown publicly.</p>
+  <table>
+    <thead>
+      <tr><th>Data</th><th>Where it comes from</th><th>Why we need it</th><th>Where it is stored</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Listing details: title, category, condition, price, description, location and photo.</td>
+        <td>The Sell form you fill in.</td>
+        <td>To publish and broadcast the listing. Publicly visible.</td>
+        <td>Our MongoDB database (Listing record); the photo is stored on Cloudinary.</td>
+      </tr>
+      <tr>
+        <td>Your name and the seller WhatsApp number you give for the listing.</td>
+        <td>The Sell form you fill in.</td>
+        <td>To identify the seller to buyers. The number is never shown publicly; it is released only to a buyer who accepts the Buyer Terms on the listing page.</td>
+        <td>Our MongoDB database (Listing record).</td>
+      </tr>
+      <tr>
+        <td>Store details: name, description, logo, cover image, category, subcategories, campus, location, pickup location, opening and closing hours, open days, delivery and pickup options, and payment methods.</td>
+        <td>The Store form you fill in.</td>
+        <td>To run your storefront. Publicly visible.</td>
+        <td>Our MongoDB database (Store record); logo and cover images are stored on Cloudinary.</td>
+      </tr>
+      <tr>
+        <td>Store contact details: phone, WhatsApp and email.</td>
+        <td>The Store form you fill in.</td>
+        <td>To let customers contact the store. Never shown publicly; visible only to the store owner and to administrators.</td>
+        <td>Our MongoDB database (Store record).</td>
+      </tr>
+      <tr>
+        <td>The phone number you pay with.</td>
+        <td>The payment step, when you pay for a listing, boost or store plan.</td>
+        <td>To start and match your M-Pesa payment. Never shown publicly.</td>
+        <td>Our MongoDB database (Payment record); also sent to our payment provider, IntaSend.</td>
+      </tr>
+      <tr>
+        <td>The listing or store details attached to a payment while it is pending.</td>
+        <td>The payment step; held until the payment completes.</td>
+        <td>To create your listing or store once the payment completes. Never shown publicly.</td>
+        <td>Our MongoDB database (Payment record).</td>
+      </tr>
+      <tr>
+        <td>Terms acceptance record: which terms and version you accepted, the action, the time, your IP address, your browser's user-agent string, unkeyed hashes of the phone numbers involved, and the listing or store identifiers.</td>
+        <td>Recorded when you accept terms (publishing a listing, creating a store, or releasing seller contact).</td>
+        <td>To keep evidence of the consent you gave. Never shown publicly.</td>
+        <td>Our MongoDB database (TermsAcceptance record).</td>
+      </tr>
+      <tr>
+        <td>Reports: the listing or store reported, the reason, any details you add, and your IP address.</td>
+        <td>The report form on the site.</td>
+        <td>To review and act on reports of bad listings or stores. Never shown publicly.</td>
+        <td>Our MongoDB database (Report record).</td>
+      </tr>
+      <tr>
+        <td>Server logs: request path, method, response status, response time, your IP address and your user-agent string.</td>
+        <td>Recorded automatically for every request to the site.</td>
+        <td>To operate, secure and debug the service. Never shown publicly.</td>
+        <td>Log files written by the server on its host.</td>
+      </tr>
+      <tr>
+        <td>Admin audit records: who did what to which listing, store, payment, blocked contact or report, and when.</td>
+        <td>Recorded when an administrator acts, or when a payment-affecting action occurs.</td>
+        <td>To keep an operational trail of privileged actions. Never shown publicly.</td>
+        <td>Our MongoDB database (AuditEvent record).</td>
+      </tr>
+      <tr>
+        <td>Blocked-contact list: a keyed hash of a phone number, what it was derived from, a reason and the administrator who added it.</td>
+        <td>Added by an administrator when a number is blocked.</td>
+        <td>To keep a banned number from starting a payment. Never shown publicly.</td>
+        <td>Our MongoDB database (BlockedContact record).</td>
+      </tr>
+      <tr>
+        <td>Images you upload.</td>
+        <td>The Sell or Store form.</td>
+        <td>To show the item or storefront. Publicly visible when attached to a public listing or store.</td>
+        <td>Cloudinary. Location and camera metadata (EXIF) is stripped before storage.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. How we use it</h2>
+  <p>We use the data above to:</p>
+  <ul>
+    <li>operate the marketplace — publish and display listings and stores, and broadcast new listings to the WhatsApp groups the operator has configured;</li>
+    <li>take payment for listings, boosts and store plans, and create the item you paid for once payment completes;</li>
+    <li>keep evidence of the terms you accepted;</li>
+    <li>keep an operational audit trail of administrator and payment actions;</li>
+    <li>keep blocked phone numbers from starting a payment;</li>
+    <li>review reports of bad listings or stores; and</li>
+    <li>secure the service, prevent abuse, and diagnose faults.</li>
+  </ul>
+  <h2>4. Who we share it with</h2>
+  <p>We use a small number of third-party providers. Each receives only what it needs to provide its part of the service, and each has its own privacy policy. The providers actually used are:</p>
+  <ul>
+    <li><strong>IntaSend</strong> — payment provider. Receives the phone number you pay with, the amount and a payment reference, and starts the M-Pesa payment.</li>
+    <li><strong>Cloudinary</strong> — image host. Receives the images you upload and serves them back to browsers.</li>
+    <li><strong>Whapi.Cloud</strong> — WhatsApp messaging service. Receives the listing summary and the seller's contact link so the listing can be broadcast to the configured WhatsApp groups.</li>
+    <li><strong>Render</strong> — hosting provider. Runs the application and its log files.</li>
+    <li><strong>MongoDB Atlas</strong> — database provider. Hosts the database that stores the records listed above.</li>
+    <li><strong>Google Fonts</strong> — font provider. Serves the typefaces used on the site; the browser requests them directly from Google's font servers.</li>
+    <li><strong>GoatCounter</strong> — analytics. Receives page-view information so the operator can see how the site is used.</li>
+  </ul>
+  <h2>5. Storage in your browser and analytics</h2>
+  <p>The site stores a few values in your browser's local storage so that a page reload does not lose them. These are:</p>
+  <ul>
+    <li>the one-time ownership token for a listing you created, kept so you can edit or delete that listing from the same browser;</li>
+    <li>the one-time ownership token for a store you created, kept for the same reason; and</li>
+    <li>the ownership token for a payment that is still pending, kept so it can be recovered once the payment completes.</li>
+  </ul>
+  <p>These tokens are stored only in your browser. The server sets no cookies.</p>
+  <p>The home page loads the GoatCounter analytics script, which reports page views to GoatCounter. You can block or clear this script using your browser settings or a content blocker.</p>
+
+  <h2>6. How long we keep data</h2>
+  <p>The table below lists every retention window that is automatically enforced in the code, what is erased, and what is kept. Where a record is kept after a field is erased, the erased field is listed specifically.</p>
+  <table>
+    <thead>
+      <tr><th>Data</th><th>Erased</th><th>When</th><th>Kept</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Store contact and location fields (phone, WhatsApp, email, location, pickup location)</td><td>Those fields are cleared</td><td>30 days after the store's expiry date</td><td>The store record itself</td></tr>
+      <tr><td>Terms acceptance PII (IP address, phone-number hash, user-agent)</td><td>Those fields are cleared</td><td>30 days after the acceptance</td><td>The rest of the acceptance record</td></tr>
+      <tr><td>Terms acceptance WhatsApp hashes (your, and the seller's)</td><td>Those hash fields are cleared</td><td>30 days after the acceptance</td><td>The rest of the acceptance record</td></tr>
+      <tr><td>Report reporter IP address</td><td>The IP address is cleared</td><td>30 days after the report</td><td>The report, its reason and details</td></tr>
+      <tr><td>Payment payer number, and the seller/store contact copies inside a payment</td><td>The payer number is set to "redacted" and the stored contact copies are removed</td><td>90 days after the payment, for completed and failed payments only</td><td>The payment record and its amounts; a pending payment is not touched</td></tr>
+      <tr><td>Audit events</td><td>The event is deleted</td><td>365 days after the event, by default (configurable)</td><td>Nothing</td></tr>
+      <tr><td>Listings</td><td>The listing and its images are deleted</td><td>When the paid period ends</td><td>Nothing</td></tr>
+    </tbody>
+  </table>
+  <p>Some data has no automatic erasure and is kept until an administrator removes it: the server log files, the blocked-contact entries, and the parts of an acceptance record that are kept as evidence (the terms versions, the action, the time, the identifier hashes, the listing or store identifiers and the record metadata).</p>
+
+  <h2>7. Your rights</h2>
+  <p>Under the Data Protection Act, 2019 (Kenya) you have the right to be informed about how your data is used, to access your data, to have inaccurate data corrected, to ask for your data to be deleted, and to object to the processing of your data.</p>
+  <p>We will respond to a request within 14 days. To make a request, see the Data Requests page at /legal/data-requests.html.</p>
+
+  <h2>8. Contact and complaints</h2>
+  <p>For any privacy question or request, contact us at [SUPPORT_EMAIL] or on WhatsApp at [SUPPORT_WHATSAPP].</p>
+  <p>If you are not satisfied with how we have handled your data, you may complain to the Office of the Data Protection Commissioner of Kenya.</p>
+
+  <h2>9. Changes to this policy</h2>
+  <p>We may update this policy from time to time. The effective date at the top of this page identifies the current version. If we make a material change, we will update that date.</p>
+</main>
+</body>
+</html>
