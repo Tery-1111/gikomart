@@ -275,6 +275,20 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   `beforeEach`), the generic `matchesFilter` helper gained `$gte`, and the fake
   rate-limiter module gained a `reportLimiter` passthrough.
 
+### Step 3 — Audit events for edits, auto-flags, attach/detach and payment views
+- **Behavior:** Before, several privileged actions left no audit trail: listing
+  edits, auto-flags (listing and store), store attach/detach and the admin
+  payments view. After, each emits a fire-and-forget audit event —
+  `listing.update` (field names and `autoFlagged` only, never values),
+  `listing.auto_flagged`, `store.auto_flagged`, `store.attach_listing`,
+  `store.detach_listing` and `admin.payments_viewed` — and no existing emit
+  changed.
+- **Files changed:** `src/controllers/adminController.js`,
+  `src/controllers/listingController.js`, `src/controllers/storeController.js`.
+- **Tests added:** `tests/wiring.test.mjs` — audit-event tests for edits,
+  auto-flags, attach/detach and payment views.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

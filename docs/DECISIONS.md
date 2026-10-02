@@ -169,3 +169,15 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** Having resolve apply the moderation itself, which
   would duplicate the moderation authority and let the report path mutate
   content.
+
+## 14. Audit events record field names and ids, never values, contact data or hashes
+
+- **Decision:** Audit events record field NAMES, resource and target ids, and
+  small scalar counts/flags — never the edited values, contact numbers, contact
+  hashes, tokens or reporter IPs.
+- **Reason:** The audit log is readable by every session admin and is retained
+  long-term, so anything written there is effectively a second copy of the
+  underlying PII. Names and ids are enough to reconstruct what changed and who
+  did it without turning the log into a contact-data store.
+- **Alternative rejected:** Logging the edited field values (or a diff), which
+  would copy listing/store contact data and free text into the audit collection.

@@ -201,6 +201,18 @@ exports.updateStore = async (req, res, next) => {
       result: 'success',
       metadata: { updatedFieldCount: Object.keys(updates).length },
     });
+    // A separate signal for the edit having auto-flagged the store, so the flag
+    // is visible without the field-count metadata changing shape.
+    if (updates.moderationStatus === 'flagged') {
+      emit({
+        actor: req.admin ? adminActor(req) : ownerActor(req),
+        action: 'store.auto_flagged',
+        resource: 'store',
+        resourceId: String(req.params.id),
+        result: 'success',
+        metadata: { source: 'update' },
+      });
+    }
     res.json({ success: true, store });
   } catch (err) {
     // Race-window duplicate (two concurrent renames to the same free slug):
@@ -338,6 +350,14 @@ exports.attachListing = async (req, res, next) => {
     listing.store_id = store._id;
     await listing.save();
 
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.attach_listing',
+      resource: 'store',
+      resourceId: String(store._id),
+      result: 'success',
+      metadata: { listingId: String(listing._id) },
+    });
     res.json({ success: true, message: 'Listing attached to store' });
   } catch (err) {
     return next(err);
@@ -378,6 +398,14 @@ exports.detachListing = async (req, res, next) => {
     listing.store_id = null;
     await listing.save();
 
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.detach_listing',
+      resource: 'store',
+      resourceId: String(store._id),
+      result: 'success',
+      metadata: { listingId: String(listing._id) },
+    });
     res.json({ success: true, message: 'Listing removed from store' });
   } catch (err) {
     return next(err);

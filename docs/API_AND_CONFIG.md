@@ -106,3 +106,35 @@ From `src/config/envGuard.js` and `server.js`:
   (see `src/utils/phone.js`).
 - **Trust proxy defaults to 1.** `TRUST_PROXY` must be increased to `2` when
   Cloudflare proxies in front of Render so `req.ip` stays the real client address.
+
+## e) Audit event actions
+
+Every action string emitted by `emit()` in `src/`, with the `resource` it is
+written under (read from the source, not guessed). Events carry field names and
+ids only — never values, contact data, hashes or reporter IPs.
+
+| Action | Resource |
+|---|---|
+| `admin.audit_logs_viewed` | admin |
+| `admin.payments_viewed` | admin |
+| `admin.lockout_triggered` | admin |
+| `admin.session_invalid` | admin |
+| `admin.block_added` | block |
+| `admin.block_removed` | block |
+| `admin.report_resolved` | report |
+| `listing.update` | listing |
+| `listing.auto_flagged` | listing |
+| `listing.delete` | listing |
+| `listing.moderate` | listing |
+| `store.update` | store |
+| `store.auto_flagged` | store |
+| `store.delete` | store |
+| `store.attach_listing` | store |
+| `store.detach_listing` | store |
+| `store.moderate` | store |
+| `store.suspended` | store |
+| `payment.blocked_contact` | payment |
+| `payment.completed` | payment |
+| `payment.amount_mismatch` | payment, Payment |
+| `webhook.missing_invoice_id` | payment |
+| `webhook.broadcast_skipped` | listing |

@@ -2957,3 +2957,153 @@ describe('User reports and admin queue (Phase 5B, Step 2)', () => {
     expect((await resolve({ resolution: 'dismissed', note: 'x'.repeat(201) })).status).toBe(400);
   });
 });
+
+// ─── Phase 5B, Step 3: missing audit events ─────────────────────────────────
+describe('Audit events for edits, auto-flags, attach/detach and payment views (Phase 5B, Step 3)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+
+  const OWNER = 'audit-owner-token';
+  const LISTING_OWNER = 'audit-listing-owner-token';
+
+  const seedListing = (overrides = {}) => h.listings.push(makeDoc({
+    _id: 'lst-audit', title: 'Widget', description: 'A plain widget',
+    sellerName: 'Ted', category: 'Electronics', condition: 'Good', price: 10,
+    sellerWhatsapp: '0700000000', location: 'Njoro',
+    status: 'active', moderationStatus: 'approved',
+    ownerTokenHash: sha256hex(OWNER),
+    ...overrides,
+  }));
+
+  const seedStore = (overrides = {}) => fakeStoreModel.create({
+    name: 'Audit Shop', slug: 'audit-shop', category: 'Books',
+    ownerTokenHash: sha256hex(OWNER),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    ...overrides,
+  });
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  it('a clean owner edit emits listing.update with field names only and no auto-flag', async () => {
+    seedListing();
+    const res = await request(app).put('/api/listings/lst-audit')
+      .set('X-Owner-Token', OWNER)
+      .send({ title: 'New Title', description: 'Clean description' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    const ev = auditEvents.find((e) => e.action === 'listing.update');
+    expect(ev).toBeTruthy();
+    expect(ev.resource).toBe('listing');
+    expect(ev.resourceId).toBe('lst-audit');
+    expect(ev.metadata.autoFlagged).toBe(false);
+    expect([...ev.metadata.fields].sort()).toEqual(['description', 'title']);
+    expect(JSON.stringify(ev.metadata)).not.toContain('New Title');
+    expect(JSON.stringify(ev.metadata)).not.toContain('Clean description');
+    expect(auditEvents.some((e) => e.action === 'listing.auto_flagged')).toBe(false);
+  });
+
+  it('an owner edit adding prohibited text emits listing.update autoFlagged true and listing.auto_flagged', async () => {
+    seedListing();
+    const res = await request(app).put('/api/listings/lst-audit')
+      .set('X-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    const update = auditEvents.find((e) => e.action === 'listing.update');
+    expect(update).toBeTruthy();
+    expect(update.metadata.autoFlagged).toBe(true);
+    expect(update.metadata.fields).toContain('description');
+    expect(update.metadata.fields).not.toContain('moderationStatus');
+    const flagged = auditEvents.find((e) => e.action === 'listing.auto_flagged');
+    expect(flagged).toBeTruthy();
+    expect(flagged.resource).toBe('listing');
+    expect(flagged.resourceId).toBe('lst-audit');
+    expect(flagged.metadata).toEqual({ source: 'update' });
+  });
+
+  it('an owner store edit adding prohibited text emits store.auto_flagged and still store.update', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens available' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    expect(auditEvents.find((e) => e.action === 'store.update')).toBeTruthy();
+    const flagged = auditEvents.find((e) => e.action === 'store.auto_flagged');
+    expect(flagged).toBeTruthy();
+    expect(flagged.resource).toBe('store');
+    expect(flagged.resourceId).toBe('sto-1');
+    expect(flagged.metadata).toEqual({ source: 'update' });
+  });
+
+  it('attach/detach emit store.attach_listing / store.detach_listing; a rejected attach emits none', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-rem', store_id: null, ownerTokenHash: sha256hex(LISTING_OWNER),
+      expiresAt: new Date(Date.now() + 86400000), status: 'active', moderationStatus: 'removed',
+    }));
+    const rejected = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-rem' });
+    expect(rejected.status).toBe(409);
+    await settle();
+    expect(auditEvents.some((e) => e.action === 'store.attach_listing')).toBe(false);
+
+    h.listings.push(makeDoc({
+      _id: 'lst-ok', store_id: null, ownerTokenHash: sha256hex(LISTING_OWNER),
+      expiresAt: new Date(Date.now() + 86400000), status: 'active', moderationStatus: 'approved',
+    }));
+    const attached = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-ok' });
+    expect(attached.status).toBe(200);
+    await settle();
+    const attachEvent = auditEvents.find((e) => e.action === 'store.attach_listing');
+    expect(attachEvent).toBeTruthy();
+    expect(attachEvent.resource).toBe('store');
+    expect(attachEvent.resourceId).toBe('sto-1');
+    expect(attachEvent.metadata).toEqual({ listingId: 'lst-ok' });
+
+    const detached = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-ok' });
+    expect(detached.status).toBe(200);
+    await settle();
+    const detachEvent = auditEvents.find((e) => e.action === 'store.detach_listing');
+    expect(detachEvent).toBeTruthy();
+    expect(detachEvent.resource).toBe('store');
+    expect(detachEvent.metadata).toEqual({ listingId: 'lst-ok' });
+  });
+
+  it('GET /api/admin/payments emits admin.payments_viewed with a correct count; a bogus status is null', async () => {
+    h.payments.push(makeDoc({
+      _id: 'pay-1', type: 'listing', phoneNumber: '0700000000', amount: 500,
+      status: 'completed', createdAt: new Date(),
+    }));
+    const res = await request(app).get('/api/admin/payments').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    await settle();
+
+    const view = auditEvents.find((e) => e.action === 'admin.payments_viewed');
+    expect(view).toBeTruthy();
+    expect(view.resource).toBe('admin');
+    expect(view.metadata).toEqual({ count: 1, status: null, type: null });
+
+    auditEvents.length = 0;
+    const bogus = await request(app).get('/api/admin/payments?status=zzz').set('X-Admin-Session', session());
+    expect(bogus.status).toBe(200);
+    await settle();
+    const bogusView = auditEvents.find((e) => e.action === 'admin.payments_viewed');
+    expect(bogusView).toBeTruthy();
+    expect(bogusView.metadata.status).toBeNull();
+  });
+});

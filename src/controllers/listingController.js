@@ -178,6 +178,31 @@ exports.updateListing = async (req, res, next) => {
       updates.moderationStatus = 'flagged';
     }
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
+    // Audit the edit by field NAME only — never a value. `moderationStatus` is
+    // reported through autoFlagged instead of the field list.
+    const actor = authz.credential === 'owner' ? ownerActor(req) : adminActor(req);
+    const autoFlagged = updates.moderationStatus === 'flagged';
+    emit({
+      actor,
+      action: 'listing.update',
+      resource: 'listing',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: {
+        fields: Object.keys(updates).filter((field) => field !== 'moderationStatus'),
+        autoFlagged,
+      },
+    });
+    if (autoFlagged) {
+      emit({
+        actor,
+        action: 'listing.auto_flagged',
+        resource: 'listing',
+        resourceId: String(req.params.id),
+        result: 'success',
+        metadata: { source: 'update' },
+      });
+    }
     res.json({ success: true, listing });
   } catch (err) {
     return next(err);

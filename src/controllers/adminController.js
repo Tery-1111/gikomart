@@ -71,6 +71,20 @@ exports.listPayments = async (req, res) => {
       return copy;
     });
 
+    // Record the view with the count; the filter values are echoed only when
+    // they are one of the recognized values, never an arbitrary query string.
+    emit({
+      actor: adminActor(req),
+      action: 'admin.payments_viewed',
+      resource: 'admin',
+      result: 'success',
+      metadata: {
+        count: safe.length,
+        status: ['pending', 'completed', 'failed'].includes(status) ? status : null,
+        type: ['listing', 'boost', 'store'].includes(type) ? type : null,
+      },
+    });
+
     res.json({ success: true, count: safe.length, payments: safe });
   } catch (err) {
     logger.error('Payment list error', { error: err.message });
