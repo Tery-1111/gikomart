@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const Payment = require('../models/Payment');
 const logger = require('../config/logger');
-const { emit, SYSTEM_ACTOR } = require('../services/auditService');
+const { emit, SYSTEM_ACTOR, ownerActor } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
@@ -16,6 +16,18 @@ const {
   recordAcceptance,
 } = require('../services/termsAcceptanceService');
 const TermsAcceptance = require('../models/TermsAcceptance');
+const BlockedContact = require('../models/BlockedContact');
+const { contactHash } = require('../utils/phone');
+
+// A contact is blocked when the sha256 of its normalized Kenyan form matches a
+// BlockedContact row. Non-normalizable values are ignored; an all-invalid list
+// is not blocked. Errors are left to propagate to the caller's error handling.
+async function isContactBlocked(numbers) {
+  const hashes = numbers.map(contactHash).filter((hash) => hash !== null);
+  if (hashes.length === 0) return false;
+  const existing = await BlockedContact.findOne({ contactHash: { $in: hashes } });
+  return Boolean(existing);
+}
 
 // Initiate a boost payment (existing listing)
 exports.initiateBoost = async (req, res, next) => {
@@ -137,6 +149,20 @@ exports.initiateListing = async (req, res, next) => {
     // payment record into Listing.create() cleanly.
     listingData.price = price;
 
+    // Blocked contacts cannot start a payment: checked after all validation and
+    // the store_id rejection, and before any IntaSend call, acceptance record or
+    // Payment.create. Enforcement is at initiation only.
+    if (await isContactBlocked([phoneNumber, listingData.sellerWhatsapp])) {
+      emit({
+        actor: ownerActor(req),
+        action: 'payment.blocked_contact',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { route: 'initiate-listing' },
+      });
+      return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
+    }
+
     // Ownership token: the raw token is returned ONCE in this response (the
     // frontend saves it in localStorage) and is never stored server-side —
     // only its sha256 hash persists on the Payment record. The webhook later
@@ -255,6 +281,20 @@ exports.initiateStorePlan = async (req, res, next) => {
     }
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing store details: ${errors.join(', ')}` });
+    }
+
+    // Blocked contacts cannot start a payment: checked after validation and
+    // before any IntaSend call, acceptance record or Payment.create (see
+    // initiateListing). Enforcement is at initiation only.
+    if (await isContactBlocked([phoneNumber, storeData.phone, storeData.whatsapp])) {
+      emit({
+        actor: ownerActor(req),
+        action: 'payment.blocked_contact',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { route: 'initiate-store-plan' },
+      });
+      return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
     }
 
     // Generate store owner token

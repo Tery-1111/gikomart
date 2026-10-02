@@ -2631,3 +2631,107 @@ describe('Admin blocked contacts (Phase 5A, Step 2)', () => {
     expect(JSON.stringify(removed.metadata)).not.toContain('712222222');
   });
 });
+
+// ─── Phase 5A, Step 3: refuse payment initiation for blocked contacts ───────
+describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () => {
+  const TV = require('../src/config/termsVersions.js').TERMS_VERSIONS;
+  const { contactHash: hashContact } = require('../src/utils/phone.js');
+
+  const listingAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TV.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TV.SELLER_TERMS,
+  });
+  const storeAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TV.GIKOMART_TERMS_OF_SERVICE,
+    storeOwnerTermsVersion: TV.STORE_OWNER_TERMS,
+  });
+
+  const listingBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    acceptance: listingAcceptance(),
+    website: '',
+    listingData: {
+      title: 'Test Book', category: 'Books', condition: 'Good', price: 500,
+      description: 'Used calc textbook', sellerName: 'Jane',
+      sellerWhatsapp: '0711111111', location: 'Egerton', images: [],
+      ...overrides,
+    },
+  });
+
+  const storeBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    storePlan: 'starter_weekly',
+    acceptance: storeAcceptance(),
+    website: '',
+    storeData: {
+      name: 'Shop1', category: 'Books', description: '', phone: '0700000000',
+      whatsapp: '0711111111', email: '', location: 'Egerton',
+      ...overrides,
+    },
+  });
+
+  const blockNumber = (raw) => {
+    h.blocks.push(makeDoc({
+      contactHash: hashContact(raw), sourceType: 'phone', sourceId: null,
+      reason: 'x', createdBy: 'admin:owner',
+    }));
+  };
+
+  it('403 with the exact error and no Payment when the seller number is blocked', async () => {
+    blockNumber('0712222222');
+    const res = await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: '+254 712 222 222' }));
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'This number cannot be used on GikoMart' });
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('403 when only the payer phoneNumber is blocked', async () => {
+    blockNumber('0700000000');
+    const res = await request(app).post('/api/payments/initiate-listing').send(listingBody());
+    expect(res.status).toBe(403);
+  });
+
+  it('initiate-store-plan: 403 when only storeData.whatsapp is blocked', async () => {
+    blockNumber('0711111111');
+    const res = await request(app).post('/api/payments/initiate-store-plan').send(storeBody());
+    expect(res.status).toBe(403);
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('initiate-store-plan: 403 when only storeData.phone is blocked', async () => {
+    blockNumber('0700000000'); // the storeData.phone value
+    const body = storeBody({ whatsapp: '0722222222' });
+    body.phoneNumber = '0733333333';
+    const res = await request(app).post('/api/payments/initiate-store-plan').send(body);
+    expect(res.status).toBe(403);
+  });
+
+  it('initiate-listing with no blocked number is not rejected with 403', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing').send(listingBody());
+    expect(res.status).not.toBe(403);
+    expect(res.body.error || '').not.toMatch(/cannot be used/i);
+  });
+
+  it('initiate-listing with an unparseable sellerWhatsapp is not 403 on that basis', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: 'abc' }));
+    expect(res.status).not.toBe(403);
+    expect(res.body.error || '').not.toMatch(/cannot be used/i);
+  });
+
+  it('emits payment.blocked_contact with only the route key and no phone digits', async () => {
+    blockNumber('0712222222');
+    await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: '0712222222' }));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const ev = auditEvents.find((e) => e.action === 'payment.blocked_contact');
+    expect(ev).toBeTruthy();
+    expect(ev.metadata).toEqual({ route: 'initiate-listing' });
+    expect(JSON.stringify(ev.metadata)).not.toMatch(/712222222|0700000000/);
+  });
+});

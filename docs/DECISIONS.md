@@ -131,3 +131,14 @@ new numbers; existing entries are never edited.
   separately with the moderation endpoints.
 - **Alternative rejected:** Storing raw numbers, which would place contact PII in
   a new collection and expose it on every read of the block list.
+
+## 11. Block enforcement runs only at payment initiation
+
+- **Decision:** Block enforcement runs only when a payment is initiated (listing
+  and store plan). A payment that was already pending before a block was added
+  can still complete; remove the content with the moderation endpoints.
+- **Reason:** Initiation is the single point where a new payment can be refused
+  before any money moves; checking in the webhook would reject payments the buyer
+  has already paid for, which is worse than letting an operator remove the
+  content.
+- **Alternative rejected:** Also enforcing in the webhook.

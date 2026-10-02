@@ -221,6 +221,18 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   gained a fake `BlockedContact` (create / findOne / find / findByIdAndDelete) and
   the shared `h` state gained `blocks`, cleared in the global `beforeEach`.
 
+### Step 3 — Refuse payment initiation for blocked contacts
+- **Behavior:** Before, a blocked contact could still start a payment. After,
+  `initiate-listing` and `initiate-store-plan` refuse with 403 (`This number
+  cannot be used on GikoMart`) when the payer number or the listing/store contact
+  is blocked, and they do so before any IntaSend call, acceptance record or
+  `Payment.create`. Boost, the webhook, replay and resource creation are
+  unchanged; a payment that was already pending before a block can still
+  complete.
+- **Files changed:** `src/controllers/paymentController.js`.
+- **Tests added:** `tests/wiring.test.mjs` — blocked-contact payment tests.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
