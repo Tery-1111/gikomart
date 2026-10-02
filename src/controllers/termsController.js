@@ -51,7 +51,7 @@ exports.recordContactAcceptance = async (req, res, next) => {
       action: 'CONTINUE_AND_CONTACT_SELLER',
       phone: buyerPhone || null,
       whatsapp: buyerWhatsapp || null,
-      ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      ip: req.ip,
       userAgent: req.get('user-agent') || '',
       listingId,
       sellerContactTarget: {

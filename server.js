@@ -18,6 +18,13 @@ const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 const app = express();
 
+// Proxy trust: bounds how many hops of X-Forwarded-For are believed so req.ip is
+// the real client address, not the proxy. Never the boolean `true` (that trusts
+// the whole chain, letting a client spoof its own address). 1 covers Render
+// alone; set TRUST_PROXY=2 when Cloudflare proxies traffic.
+const TRUST_PROXY = Number.parseInt(process.env.TRUST_PROXY, 10);
+app.set('trust proxy', Number.isInteger(TRUST_PROXY) && TRUST_PROXY >= 0 ? TRUST_PROXY : 1);
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: {

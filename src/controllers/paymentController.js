@@ -133,7 +133,7 @@ exports.initiateListing = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
 
     const acceptanceRec = await recordAcceptance({
@@ -241,7 +241,7 @@ exports.initiateStorePlan = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
 
     const acceptanceRec = await recordAcceptance({

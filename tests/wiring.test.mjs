@@ -1738,3 +1738,44 @@ describe('CSP analytics origins', () => {
     expect(directive(csp, 'connect-src')).toContain('https://gikomart.goatcounter.com');
   });
 });
+
+// ─── Client IP: bounded trust proxy (a spoofed leftmost XFF is ignored) ──────
+describe('Client IP — bounded trust proxy', () => {
+  it('sets a numeric trust proxy bound (1), never the boolean true', () => {
+    expect(app.get('trust proxy')).toBe(1);
+    expect(app.get('trust proxy')).not.toBe(true);
+  });
+
+  it('records the trusted client IP and ignores a spoofed leftmost X-Forwarded-For', async () => {
+    const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+    const captured = [];
+    const original = fakeTermsModel.create;
+    fakeTermsModel.create = async (data) => {
+      captured.push(data);
+      return makeDoc({ _id: 'ta-ip', ...data });
+    };
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .set('X-Forwarded-For', '198.51.100.1, 203.0.113.7')
+        .send({
+          acceptance: {
+            accepted: true,
+            gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+            buyerTermsVersion: TERMS_VERSIONS.BUYER_TERMS,
+            action: 'CONTINUE_AND_CONTACT_SELLER',
+          },
+          listingId: '650000000000000000000042',
+          sellerWhatsapp: '0712222222',
+          listingTitle: 'Vintage Calculator',
+        });
+
+      expect(res.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].actor.ip).toBe('203.0.113.7');
+      expect(captured[0].actor.ip).not.toBe('198.51.100.1');
+    } finally {
+      fakeTermsModel.create = original;
+    }
+  });
+});
