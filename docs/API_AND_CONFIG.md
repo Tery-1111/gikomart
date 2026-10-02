@@ -156,3 +156,12 @@ by these jobs — only the named fields are cleared.
 | `stripOldPaymentPII` | 90 days after `createdAt` (completed/failed only) | `Payment.phoneNumber` (set to `redacted`) and unsets `listingData.sellerWhatsapp`, `storeData.phone`, `storeData.whatsapp`, `storeData.email` |
 | `stripOldAcceptanceHashes` | 30 days after `timestamp` | `TermsAcceptance.actor.whatsappHash`, `sellerContactTarget.sellerWhatsappHash` |
 | `pruneOldAuditEvents` | `AUDIT_RETENTION_DAYS` days after `timestamp` (default 365) | deletes the audit event (via `deleteMany`) |
+
+## g) Static asset headers
+
+`express.static('public', …)` reads its options from
+`src/config/staticOptions.js`. Files under `public/admin/` and the two admin
+assets (`public/assets/js/admin.js`, `public/assets/css/admin.css`) are served
+with `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`. Everything
+else is unchanged: other assets keep `max-age=604800`, and every other `.html`
+file keeps `Cache-Control: public, max-age=0`.

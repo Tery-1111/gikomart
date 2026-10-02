@@ -253,3 +253,25 @@ new numbers; existing entries are never edited.
   with what shoppers actually see.
 - **Alternative rejected:** Caching metric results, which is not needed at this
   size.
+
+## 21. The admin portal is a static page with no robots.txt
+
+- **Decision:** The admin portal is a static page at `/admin/` with all of its
+  code in an external script, because the site CSP forbids inline scripts. It is
+  not linked from any public page and is excluded from search engines with a
+  response header and a meta tag. No `robots.txt` is used.
+- **Reason:** A hidden URL is not security: protection is the admin key, the TOTP
+  code and the signed session. A `robots.txt` disallow line would advertise the
+  path to anyone who reads it.
+- **Alternative rejected:** A `robots.txt` `Disallow` entry.
+
+## 22. The portal keeps the session token in memory only
+
+- **Decision:** The admin session token is held only in memory in the portal and
+  is never written to browser storage; the admin key and code are discarded
+  after sign-in. Closing or reloading the tab signs the admin out. All portal
+  content is inserted as text, never as HTML.
+- **Reason:** A token in browser storage outlives the tab and is readable by any
+  script that ever runs on the origin; keeping it in memory bounds its life to
+  the page. Inserting content as text removes the stored-XSS surface entirely.
+- **Alternative rejected:** Keeping the token in browser storage for convenience.

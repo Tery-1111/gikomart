@@ -102,14 +102,7 @@ app.use((req, res, next) => {
 // for a week and everything that is HTML is left to revalidate on every load —
 // index.html must never be cached long or a deploy would appear broken until the
 // TTL lapsed.
-app.use(express.static('public', {
-  maxAge: '7d',
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'public, max-age=0');
-    }
-  },
-}));
+app.use(express.static('public', require('./src/config/staticOptions')));
 
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));

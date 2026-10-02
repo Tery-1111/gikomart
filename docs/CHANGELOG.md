@@ -399,6 +399,26 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   additions only (`countDocuments` on the Store, Payment, Report and
   BlockedContact fakes; `aggregate` on the Payment fake).
 
+### Step 3 — Static options, portal shell, sign-in, dashboard and health tabs
+- **Behavior:** Before, the `express.static` options were inline in `server.js`
+  and there was no admin portal. After, the static options live in
+  `src/config/staticOptions.js`; the admin portal and its script and stylesheet
+  are served with `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`
+  while every other file keeps its previous caching. A new static portal at
+  `/admin/` (not linked from any public page) signs in with the admin key plus a
+  TOTP code, holds the session token only in memory (never browser storage) and
+  renders a Dashboard tab (all sixteen metrics) and a Health tab (status,
+  MongoDB, Cloudinary, checked time, uptime). All portal content is built with
+  `createElement` and `textContent`; there is no inline script and no `robots.txt`.
+- **Files changed:** `docs/API_AND_CONFIG.md`, `docs/DECISIONS.md`,
+  `docs/runbook-admin-portal.md` (new), `public/admin/index.html` (new),
+  `public/assets/css/admin.css` (new), `public/assets/js/admin.js` (new),
+  `server.js`, `src/config/staticOptions.js` (new),
+  `tests/adminPortal.test.mjs` (new), `tests/staticHeaders.test.mjs` (new).
+- **Tests added:** `tests/staticHeaders.test.mjs` (new, 8 tests);
+  `tests/adminPortal.test.mjs` (new, 16 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
