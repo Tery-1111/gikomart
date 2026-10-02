@@ -79,6 +79,20 @@ function matchesFilter(doc, filter = {}) {
   return true;
 }
 
+// Bounded matcher for the Store moderationStatus filter. The public store route
+// uses plain equality or $nin; $in/$ne are supported for parity. For $nin and
+// $ne a MISSING field passes, mirroring MongoDB.
+function matchesModFilter(doc, expected) {
+  if (expected === undefined) return true;
+  if (expected !== null && typeof expected === 'object') {
+    if (expected.$nin !== undefined && expected.$nin.includes(doc.moderationStatus)) return false;
+    if (expected.$in !== undefined && !expected.$in.includes(doc.moderationStatus)) return false;
+    if (expected.$ne !== undefined && doc.moderationStatus === expected.$ne) return false;
+    return true;
+  }
+  return doc.moderationStatus === expected;
+}
+
 // ── Listing fake (chainable query builder covering every call shape used) ──
 function applyFind(state) {
   let out = h.listings.filter((l) => matchesFilter(l, state.filter));
@@ -232,7 +246,7 @@ const fakeStoreModel = {
       for (const s of h.stores.values()) {
         const slugOk = filter.slug === undefined || s.slug === filter.slug;
         const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
-        const modOk = !(filter.moderationStatus && filter.moderationStatus.$ne) || s.moderationStatus !== filter.moderationStatus.$ne;
+        const modOk = matchesModFilter(s, filter.moderationStatus);
         if (slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
       }
       return null;
@@ -2206,5 +2220,66 @@ describe('Content moderation on listing edits (Phase 4, Step 2)', () => {
     const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Brand New' });
     expect(res.status).toBe(200);
     expect(h.listings[0].moderationStatus).toBe('flagged');
+  });
+});
+
+// ─── Phase 4, Step 3: moderated store creation + public-read gate ───────────
+describe('Store moderation on creation and public reads (Phase 4, Step 3)', () => {
+  const { createResourceForPayment } = require('../src/controllers/paymentController.js');
+  const storePayment = (storeData) => makeDoc({
+    _id: 'pay-store-1', type: 'store', storePlan: 'starter_weekly',
+    storeData, ownerTokenHash: 'c'.repeat(64),
+  });
+  const seedStore = (overrides) => fakeStoreModel.create({
+    name: 'Shop', slug: 'shop', category: 'Books', ownerTokenHash: sha256hex('t'),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(), status: 'active',
+    ...overrides,
+  });
+
+  it('flags a store payment whose storeData name matches the blocklist', async () => {
+    const { doc } = await createResourceForPayment(storePayment({ name: 'Casino Supplies', slug: 'casino-supplies', category: 'Books' }));
+    expect(doc.moderationStatus).toBe('flagged');
+  });
+
+  it('approves a clean store payment', async () => {
+    const { doc } = await createResourceForPayment(storePayment({ name: 'Clean Shop', slug: 'clean-shop', category: 'Books' }));
+    expect(doc.moderationStatus).toBe('approved');
+  });
+
+  it('GET /stores/slug/:slug → 404 for a flagged store', async () => {
+    await seedStore({ slug: 'flagged-shop', moderationStatus: 'flagged' });
+    const res = await request(app).get('/api/stores/slug/flagged-shop');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /stores/slug/:slug → 200 for an approved store', async () => {
+    await seedStore({ slug: 'approved-shop', moderationStatus: 'approved' });
+    const res = await request(app).get('/api/stores/slug/approved-shop');
+    expect(res.status).toBe(200);
+  });
+
+  it('GET /stores/slug/:slug → 200 for a store with no moderationStatus field', async () => {
+    await seedStore({ slug: 'no-mod-shop' });
+    const res = await request(app).get('/api/stores/slug/no-mod-shop');
+    expect(res.status).toBe(200);
+  });
+
+  it('a flagged store is still readable by its owner but hidden publicly', async () => {
+    await fakeStoreModel.create({
+      _id: 'sto-flag-owner', name: 'F', slug: 'owner-flag', category: 'Books',
+      moderationStatus: 'flagged', ownerTokenHash: sha256hex('owner-flag-token'),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(), status: 'active',
+    });
+    const pub = await request(app).get('/api/stores/slug/owner-flag');
+    expect(pub.status).toBe(404);
+
+    const byId = await request(app).get('/api/stores/sto-flag-owner').set('X-Store-Owner-Token', 'owner-flag-token');
+    expect(byId.status).toBe(200);
+
+    const mine = await request(app).get('/api/stores/me/all').set('X-Store-Owner-Token', 'owner-flag-token');
+    expect(mine.status).toBe(200);
+    expect(mine.body.stores.map((s) => s.slug)).toContain('owner-flag');
   });
 });

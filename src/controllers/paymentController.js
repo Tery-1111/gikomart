@@ -6,7 +6,7 @@ const { emit, SYSTEM_ACTOR } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
-const { checkListing } = require('../services/moderationService');
+const { checkListing, checkStore } = require('../services/moderationService');
 const inputLimits = require('../config/inputLimits');
 const { isOwnerOrAdmin } = require('../middleware/listingAuth');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
@@ -371,12 +371,14 @@ async function createResourceForPayment(payment) {
   if (payment.type === 'store') {
     const Store = require('../models/Store');
     const pricing = STORE_PLANS[payment.storePlan];
+    const moderation = checkStore(payment.storeData || {});
     let store;
     try {
       store = await Store.create({
         paymentId: payment._id,
         name: payment.storeData.name,
         slug: payment.storeData.slug,
+        moderationStatus: moderation.approved ? 'approved' : 'flagged',
         description: payment.storeData.description || '',
         category: payment.storeData.category,
         subcategories: payment.storeData.subcategories || [],

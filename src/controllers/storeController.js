@@ -49,7 +49,7 @@ async function deleteCloudinaryImage(imageUrl) {
 exports.getStore = async (req, res, next) => {
   try {
     const { slug } = req.params;
-    const store = await Store.findOne({ slug, status: { $ne: 'suspended' }, moderationStatus: { $ne: 'removed' } }).select('+ownerTokenHash');
+    const store = await Store.findOne({ slug, status: { $ne: 'suspended' }, moderationStatus: { $nin: ['flagged', 'removed'] } }).select('+ownerTokenHash');
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
 
     // Contact fields are PII: only the owner (valid X-Store-Owner-Token) or an
