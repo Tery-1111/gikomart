@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Listing = require('../models/Listing');
+const Store = require('../models/Store');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
@@ -24,13 +26,34 @@ exports.getListings = async (req, res, next) => {
       { featured: true, featuredUntil: { $ne: null, $lt: new Date() } },
       { $set: { featured: false, boostType: null } }
     );
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
+    // Store-scoped browsing: resolve the store's visibility BEFORE building the
+    // listing query, so the inventory of a suspended, flagged or removed store
+    // is hidden. A malformed or unknown store id returns an empty envelope (and
+    // never an error) so store existence is not revealed. Only a malformed id
+    // skips the database; a syntactically valid id is looked up.
+    if (req.query.store_id) {
+      const storeId = req.query.store_id;
+      const validStoreId = typeof storeId === 'string'
+        && mongoose.isValidObjectId(storeId)
+        && /^[0-9a-fA-F]{24}$/.test(storeId);
+      const visibleStore = validStoreId
+        ? await Store.findOne({
+            _id: storeId,
+            status: { $ne: 'suspended' },
+            moderationStatus: { $nin: ['flagged', 'removed'] },
+          })
+        : null;
+      if (!visibleStore) {
+        return res.json({ success: true, count: 0, total: 0, page: pageNum, totalPages: 0, listings: [] });
+      }
+    }
     const filter = { status: 'active', moderationStatus: 'approved' };
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
     if (req.query.store_id) filter.store_id = req.query.store_id;
-    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
     const skip = (pageNum - 1) * limitNum;
     const [listings, total] = await Promise.all([
       // .lean() makes these plain objects (NOT Mongoose documents). The list

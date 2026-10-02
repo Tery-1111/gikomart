@@ -79,6 +79,19 @@ function matchesFilter(doc, filter = {}) {
   return true;
 }
 
+// Bounded matcher for the Store findOne `_id` key: plain equality, $ne, $nin,
+// $in. For $ne/$nin a MISSING stored id passes, mirroring MongoDB.
+function matchesStoreId(storedId, expected) {
+  if (expected === undefined) return true;
+  if (expected !== null && typeof expected === 'object') {
+    if (expected.$ne !== undefined && String(storedId) === String(expected.$ne)) return false;
+    if (expected.$nin !== undefined && expected.$nin.some((v) => String(v) === String(storedId))) return false;
+    if (expected.$in !== undefined && !expected.$in.some((v) => String(v) === String(storedId))) return false;
+    return true;
+  }
+  return String(storedId) === String(expected);
+}
+
 // Bounded matcher for the Store moderationStatus filter. The public store route
 // uses plain equality or $nin; $in/$ne are supported for parity. For $nin and
 // $ne a MISSING field passes, mirroring MongoDB.
@@ -244,10 +257,11 @@ const fakeStoreModel = {
         return null;
       }
       for (const s of h.stores.values()) {
+        const idOk = matchesStoreId(s._id, filter._id);
         const slugOk = filter.slug === undefined || s.slug === filter.slug;
         const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
         const modOk = matchesModFilter(s, filter.moderationStatus);
-        if (slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
+        if (idOk && slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
       }
       return null;
     };
@@ -2372,5 +2386,87 @@ describe('Store edits and attach guard (Phase 4, Step 4)', () => {
       .send({ listingId: 'lst-det-removed' });
     expect(res.status).toBe(200);
     expect(h.listings[0].store_id).toBeNull();
+  });
+});
+
+// ─── Phase 5A, Step 1: hidden-store inventory gate ─────────────────────────
+describe('GET /api/listings?store_id — hidden-store inventory gate (Phase 5A, Step 1)', () => {
+  const STORE_ID = '6500000000000000000000aa';
+  const seedStoreAndListings = async (storeFields = {}) => {
+    const store = await fakeStoreModel.create({
+      _id: STORE_ID,
+      name: 'Inv Shop', slug: 'inv-shop', category: 'Books',
+      ownerTokenHash: sha256hex('inv-owner-token'),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(), status: 'active',
+      ...storeFields,
+    });
+    h.listings.push(makeDoc({
+      _id: 'lst-inv-1', store_id: String(store._id), title: 'In store',
+      status: 'active', moderationStatus: 'approved',
+    }));
+    return store;
+  };
+
+  it('returns the store listings for an active approved store', async () => {
+    await seedStoreAndListings({ moderationStatus: 'approved' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.listings.map((l) => l._id)).toEqual(['lst-inv-1']);
+  });
+
+  it('returns an empty list and count 0 for a flagged store, status 200', async () => {
+    await seedStoreAndListings({ moderationStatus: 'flagged' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body.count).toBe(0);
+  });
+
+  it('returns an empty list for a removed store', async () => {
+    await seedStoreAndListings({ moderationStatus: 'removed' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+  });
+
+  it('returns an empty list for a suspended store', async () => {
+    await seedStoreAndListings({ status: 'suspended' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+  });
+
+  it('returns an empty list for a nonexistent valid ObjectId, status 200', async () => {
+    const res = await request(app).get('/api/listings?store_id=650000000000000000000099');
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body.count).toBe(0);
+  });
+
+  it('returns an empty list for a malformed store id, status 200, no error', async () => {
+    const res = await request(app).get('/api/listings?store_id=not-an-id');
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body).not.toHaveProperty('error');
+  });
+
+  it('returns listings for a store with no moderationStatus field', async () => {
+    await seedStoreAndListings();
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings.map((l) => l._id)).toEqual(['lst-inv-1']);
+  });
+
+  it('never calls Store.findOne when no store_id is given', async () => {
+    const spy = vi.spyOn(fakeStoreModel, 'findOne');
+    try {
+      const res = await request(app).get('/api/listings');
+      expect(res.status).toBe(200);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

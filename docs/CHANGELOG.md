@@ -190,6 +190,22 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   helper supporting plain equality plus `$in`/`$nin`/`$ne` (a missing field
   passes `$nin`/`$ne`).
 
+## Phase 5A — Store visibility and seller block list
+
+### Step 1 — Hide the inventory of hidden stores
+- **Behavior:** Before, `GET /api/listings?store_id=<id>` returned a store's
+  approved listings regardless of the store's own state. After, the store is
+  resolved first and its inventory is hidden when the store is suspended,
+  flagged or removed; a missing store or a malformed store id returns the normal
+  success envelope with an empty list and zero counts (status 200), so store
+  existence is not revealed. Requests without `store_id` are unchanged and never
+  look up a store.
+- **Files changed:** `src/controllers/listingController.js`.
+- **Tests added:** `tests/wiring.test.mjs` — hidden-store inventory gate tests.
+- **Existing tests changed:** `tests/wiring.test.mjs` — the fake Store model's
+  `findOne` gained a bounded `_id` matcher (`matchesStoreId`: plain equality plus
+  `$ne`/`$nin`/`$in`, missing field passes `$ne`/`$nin`).
+
 ## Phase 5 and later
 
 Not documented here until built.

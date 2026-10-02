@@ -108,3 +108,14 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** Relying on an absent challenge being accepted (the old
   behavior), which lets a forged webhook with no `challenge` field through; this
   was fixed by failing closed.
+
+## 9. Hidden-store inventory returns empty, not 404
+
+- **Decision:** Inventory of suspended, flagged or removed stores is hidden from
+  `GET /api/listings?store_id`; malformed or unknown store ids return an empty
+  list, not an error, so existence is not revealed.
+- **Reason:** A store that is suspended, flagged or removed must not expose its
+  inventory, and a caller must not be able to probe whether a store id exists by
+  reading the status code or error shape.
+- **Alternative rejected:** Returning 404 for a hidden or unknown store, which
+  would reveal whether the store id exists.
