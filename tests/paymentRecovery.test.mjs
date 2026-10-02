@@ -146,3 +146,99 @@ describe('P3 — payment status polling backoff', () => {
     expect(localStorage.getItem(`gikomart_pendingToken:${INVOICE_ID}`)).toBeNull();
   });
 });
+
+describe('P3 — negative paths', () => {
+  it('a manual check on a still-pending payment updates the message but stays in Recovery', async () => {
+    statusPayload = { success: true, status: 'pending' };
+    const base = statusCallCount();
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusCallCount()).toBe(base + 1);
+
+    // Exhaust the automatic window (2+4+8+16+32 = 62s) to hand off to Recovery.
+    await vi.advanceTimersByTimeAsync(62000);
+    expect(statusCallCount()).toBe(base + 5);
+
+    const statusEl = document.getElementById('formStatus');
+    const manualBtn = statusEl.querySelector('[data-manual-check]');
+    expect(manualBtn).toBeTruthy();
+
+    // The provider still reports pending: the manual check must not fabricate a
+    // success or a failure — it only re-renders the still-processing message.
+    manualBtn.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(statusCallCount()).toBe(base + 6); // 5 automatic + exactly 1 manual
+    expect(statusEl.textContent).toBe(`Still processing. Please contact support with reference: ${INVOICE_ID}.`);
+    expect(statusEl.className).toContain('error');
+    expect(statusEl.textContent).not.toContain('confirmed');
+    expect(statusEl.textContent).not.toContain('failed');
+  });
+
+  it('polling detects a failed payment and shows the Failure UI, not a network error', async () => {
+    statusPayload = { success: true, status: 'failed' };
+    const base = statusCallCount();
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // One poll is enough: 'failed' is a terminal provider state.
+    expect(statusCallCount()).toBe(base + 1);
+
+    const statusEl = document.getElementById('formStatus');
+    expect(statusEl.textContent).toBe('❌ Payment failed — nothing was listed. Try again.');
+    expect(statusEl.className).toContain('error');
+    // Distinct from a transport failure, whose copy starts with "Couldn't connect".
+    expect(statusEl.textContent).not.toContain("Couldn't connect");
+
+    // The pending token is dropped so a failed payment can never adopt a listing.
+    expect(localStorage.getItem(`gikomart_pendingToken:${INVOICE_ID}`)).toBeNull();
+
+    // Terminal: no retry is scheduled, so time passing causes no further poll.
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(statusCallCount()).toBe(base + 1);
+  });
+});
+
+describe('P3 — poll lifecycle across navigation', () => {
+  it('keeps polling after the user switches views (no stranded disabled publish button)', async () => {
+    statusPayload = { success: true, status: 'pending' };
+    const base = statusCallCount();
+
+    // Stand on the Sell view, then start a payment that schedules a retry.
+    document.querySelector('.nav-link[data-view="sell"]').click();
+    expect(document.getElementById('view-sell').classList.contains('active')).toBe(true);
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusCallCount()).toBe(base + 1);
+
+    // Navigate away mid-poll: the Sell view is hidden...
+    document.querySelector('.nav-link[data-view="browse"]').click();
+    expect(document.getElementById('view-sell').classList.contains('active')).toBe(false);
+
+    // ...yet the scheduled retry still fires — the poll is not view-scoped, which
+    // is what prevents a permanently disabled publish button.
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(statusCallCount()).toBe(base + 2);
+
+    // Drain the rest of the window so no timer leaks into the next test.
+    await vi.advanceTimersByTimeAsync(60000);
+  });
+
+  it('aborts the pending poll on pagehide (tab close / navigation teardown)', async () => {
+    statusPayload = { success: true, status: 'pending' };
+    const base = statusCallCount();
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusCallCount()).toBe(base + 1);
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    await vi.advanceTimersByTimeAsync(60000);
+    // The retry was cancelled outright — not merely delayed.
+    expect(statusCallCount()).toBe(base + 1);
+  });
+});
