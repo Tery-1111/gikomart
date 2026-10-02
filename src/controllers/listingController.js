@@ -6,6 +6,7 @@ const { isOwnerOrAdmin } = require('../middleware/listingAuth');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const inputLimits = require('../config/inputLimits');
+const { listingView } = require('../utils/publicView');
 
 // Escape special regex characters in user input so it can be safely embedded
 // in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
@@ -44,8 +45,8 @@ exports.getListings = async (req, res, next) => {
     // numbers are only available from the per-listing detail endpoint, which
     // is individually rate-limited and costs a request per item.
     // Also extract store info into flat fields for the frontend.
-    const sanitized = listings.map(({ sellerWhatsapp, store_id, ...rest }) => ({
-      ...rest,
+    const sanitized = listings.map(({ store_id, ...rest }) => ({
+      ...listingView(rest, { includeContact: false }),
       store_name: store_id?.name || null,
       store_slug: store_id?.slug || null,
     }));
@@ -76,9 +77,7 @@ exports.getListing = async (req, res, next) => {
     // (valid X-Owner-Token) or an authenticated admin; the public sees the
     // listing without it. The owner hash is never serialized either way.
     const authz = await isOwnerOrAdmin(req, listing);
-    const payload = typeof listing.toObject === 'function' ? listing.toObject() : { ...listing };
-    delete payload.ownerTokenHash;
-    if (!authz.authorized) delete payload.sellerWhatsapp;
+    const payload = listingView(listing, { includeContact: authz.authorized });
     res.json({ success: true, listing: payload });
   } catch (err) {
     return next(err);

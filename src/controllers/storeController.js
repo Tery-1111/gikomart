@@ -7,6 +7,7 @@ const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isHttpUrl } = require('../utils/safeUrl');
 const mongoose = require('mongoose');
 const inputLimits = require('../config/inputLimits');
+const { storeView } = require('../utils/publicView');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -65,13 +66,7 @@ exports.getStore = async (req, res, next) => {
     }
 
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
-    const payload = typeof store.toObject === 'function' ? store.toObject() : { ...store };
-    delete payload.ownerTokenHash;
-    if (!authorized) {
-      delete payload.phone;
-      delete payload.whatsapp;
-      delete payload.email;
-    }
+    const payload = storeView(store, { includeContact: authorized });
     res.json({ success: true, store: payload, listingCount });
   } catch (err) {
     return next(err);
@@ -98,8 +93,7 @@ exports.getStoreById = async (req, res, next) => {
     // The hash was loaded with .select('+ownerTokenHash') for the ownership
     // check above — strip it before the response so the secret never leaves
     // the server.
-    store.ownerTokenHash = undefined;
-    res.json({ success: true, store, listingCount });
+    res.json({ success: true, store: storeView(store, { includeContact: true }), listingCount });
   } catch (err) {
     return next(err);
   }
@@ -114,7 +108,7 @@ exports.getMyStores = async (req, res, next) => {
     }
     const hash = crypto.createHash('sha256').update(token).digest('hex');
     const stores = await Store.find({ ownerTokenHash: hash });
-    res.json({ success: true, stores });
+    res.json({ success: true, stores: stores.map((s) => storeView(s, { includeContact: true })) });
   } catch (err) {
     return next(err);
   }
