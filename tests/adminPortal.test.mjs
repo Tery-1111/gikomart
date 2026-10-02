@@ -659,3 +659,262 @@ describe('Payments tab', () => {
     expect(listCalls).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ── Step 5: blocks and audit log tabs ──────────────────────────────────────
+
+function blocksData(blocks) {
+  return { success: true, count: blocks.length, blocks: blocks };
+}
+
+function auditData(logs) {
+  return { success: true, count: logs.length, logs: logs };
+}
+
+const BLOCK_PHONE = {
+  id: 'blk-1', sourceType: 'phone', sourceId: null, reason: 'scam', createdBy: 'owner',
+  createdAt: '2026-10-01T09:00:00.000Z',
+};
+const BLOCK_LISTING = {
+  id: 'blk-2', sourceType: 'listing', sourceId: 'lst-1', reason: 'prohibited_item', createdBy: 'owner',
+  createdAt: '2026-10-01T09:05:00.000Z',
+};
+const AUDIT_1 = {
+  actor: 'owner', action: 'listing.moderate', resource: 'listing', resourceId: 'lst-1',
+  result: 'success', metadata: { action: 'approved' }, timestamp: '2026-10-01T09:00:00.000Z',
+};
+
+async function openBlocksTab(handler) {
+  await signIn();
+  if (handler) fetchHandler = handler;
+  document.querySelector('.tab[data-view="blocks"]').click();
+  await tick();
+}
+
+async function openAuditTab(handler) {
+  await signIn();
+  if (handler) fetchHandler = handler;
+  document.querySelector('.tab[data-view="audit"]').click();
+  await tick();
+}
+
+describe('Tabs', () => {
+  it('shows all six tabs in the documented order', () => {
+    const labels = [...document.querySelectorAll('#tabs .tab')].map((t) => t.textContent);
+    expect(labels).toEqual(['Dashboard', 'Reports', 'Payments', 'Blocks', 'Audit log', 'Health']);
+  });
+
+  it('keeps admin.js free of the forbidden constructs', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const content = fs.readFileSync(path.join(process.cwd(), 'public', 'assets', 'js', 'admin.js'), 'utf8');
+    for (const word of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'eval', 'new Function', 'localStorage', 'sessionStorage']) {
+      expect(content.includes(word), `admin.js must not contain "${word}"`).toBe(false);
+    }
+  });
+});
+
+describe('Blocks tab', () => {
+  it('lists blocks and posts a phone block without leaking the number', async () => {
+    const posts = [];
+    let listCalls = 0;
+    await openBlocksTab((url, options = {}) => {
+      if (url.includes('/api/admin/blocks') && options.method === 'POST') { posts.push({ url, options }); return json({ success: true, created: 1, alreadyBlocked: 0 }, 201); }
+      if (url.includes('/api/admin/blocks')) { listCalls += 1; return json(blocksData([BLOCK_PHONE, BLOCK_LISTING])); }
+      return defaultHandler(url);
+    });
+
+    const cells = [...document.querySelector('tr[data-block-id="blk-1"]').querySelectorAll('td')];
+    expect(cells[0].textContent).toBe('2026-10-01 09:00 UTC');
+    expect(cells[1].textContent).toBe('phone');
+    expect(cells[2].textContent).toBe('—');
+    expect(cells[3].textContent).toBe('scam');
+    expect(cells[4].textContent).toBe('owner');
+    expect(document.querySelector('tr[data-block-id="blk-2"] td:nth-child(3)').textContent).toBe('lst-1');
+
+    const before = listCalls;
+    document.getElementById('blockTarget').value = '0700000000';
+    document.getElementById('blockReason').value = 'scam';
+    document.getElementById('blockForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0].options.headers['X-Admin-Session']).toBe('tok-abc');
+    expect(JSON.parse(posts[0].options.body)).toEqual({ sourceType: 'phone', reason: 'scam', phone: '0700000000' });
+    expect(document.getElementById('blockMsg').textContent).toBe('Added: 1 new, 0 already blocked.');
+    expect(document.getElementById('blockTarget').value).toBe('');
+    expect(document.getElementById('blockReason').value).toBe('');
+    expect(listCalls).toBeGreaterThan(before);
+    expect(document.getElementById('viewBody').textContent).not.toContain('0700000000');
+  });
+
+  it('switches to sourceId when the type is a listing', async () => {
+    const posts = [];
+    await openBlocksTab((url, options = {}) => {
+      if (url.includes('/api/admin/blocks') && options.method === 'POST') { posts.push({ url, options }); return json({ success: true, created: 1, alreadyBlocked: 0 }, 201); }
+      if (url.includes('/api/admin/blocks')) return json(blocksData([]));
+      return defaultHandler(url);
+    });
+
+    const typeSel = document.getElementById('blockType');
+    typeSel.value = 'listing';
+    typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(document.getElementById('blockTarget').placeholder).toBe('Listing ID');
+    expect(document.getElementById('blockTarget').type).toBe('text');
+
+    document.getElementById('blockTarget').value = 'lst-1';
+    document.getElementById('blockReason').value = 'r';
+    document.getElementById('blockForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(JSON.parse(posts[0].options.body)).toEqual({ sourceType: 'listing', reason: 'r', sourceId: 'lst-1' });
+  });
+
+  it('requires a target and a reason and never fetches on those failures', async () => {
+    const posts = [];
+    await openBlocksTab((url, options = {}) => {
+      if (url.includes('/api/admin/blocks') && options.method === 'POST') { posts.push(url); return json({ success: true }, 201); }
+      if (url.includes('/api/admin/blocks')) return json(blocksData([]));
+      return defaultHandler(url);
+    });
+
+    document.getElementById('blockTarget').value = '';
+    document.getElementById('blockReason').value = 'r';
+    document.getElementById('blockForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(document.getElementById('blockMsg').textContent).toBe('Enter a target.');
+    expect(posts).toHaveLength(0);
+
+    document.getElementById('blockTarget').value = '0700000000';
+    document.getElementById('blockReason').value = '';
+    document.getElementById('blockForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(document.getElementById('blockMsg').textContent).toBe('Enter a reason.');
+    expect(posts).toHaveLength(0);
+  });
+
+  it('shows the server error on a failed block', async () => {
+    await openBlocksTab((url, options = {}) => {
+      if (url.includes('/api/admin/blocks') && options.method === 'POST') return json({ success: false, error: 'Listing not found' }, 404);
+      if (url.includes('/api/admin/blocks')) return json(blocksData([]));
+      return defaultHandler(url);
+    });
+
+    const typeSel = document.getElementById('blockType');
+    typeSel.value = 'listing';
+    typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    document.getElementById('blockTarget').value = 'lst-missing';
+    document.getElementById('blockReason').value = 'r';
+    document.getElementById('blockForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await tick();
+
+    expect(document.getElementById('blockMsg').textContent).toBe('Failed: Listing not found');
+  });
+
+  it('confirms block removal with two clicks and reloads', async () => {
+    const deletes = [];
+    let listCalls = 0;
+    await openBlocksTab((url, options = {}) => {
+      if (url.includes('/api/admin/blocks') && options.method === 'DELETE') { deletes.push(url); return json({ success: true }); }
+      if (url.includes('/api/admin/blocks')) { listCalls += 1; return json(blocksData([BLOCK_PHONE])); }
+      return defaultHandler(url);
+    });
+
+    const btn = document.querySelector('tr[data-block-id="blk-1"] [data-action="unblock"]');
+    btn.click();
+    expect(btn.textContent).toBe('Confirm?');
+    expect(deletes).toHaveLength(0);
+
+    const before = listCalls;
+    btn.click();
+    await tick();
+
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0]).toBe('/api/admin/blocks/blk-1');
+    expect(listCalls).toBeGreaterThan(before);
+  });
+
+  it('renders a hostile block reason as literal text', async () => {
+    const evil = { ...BLOCK_PHONE, id: 'blk-evil', reason: '<script>alert(1)</script>' };
+    await openBlocksTab((url) => (url.includes('/api/admin/blocks') ? json(blocksData([evil])) : defaultHandler(url)));
+
+    expect(document.querySelector('#viewBody script')).toBeNull();
+    expect(document.getElementById('viewBody').textContent).toContain('<script>alert(1)</script>');
+  });
+});
+
+describe('Audit log tab', () => {
+  it('queries limit=50 by default and adds action/resource filters', async () => {
+    const urls = [];
+    await openAuditTab((url) => {
+      if (url.includes('/api/admin/audit-logs')) { urls.push(url); return json(auditData([AUDIT_1])); }
+      return defaultHandler(url);
+    });
+
+    expect(urls[0]).toBe('/api/admin/audit-logs?limit=50');
+
+    document.getElementById('auditAction').value = 'listing.moderate';
+    document.getElementById('auditResource').value = 'listing';
+    document.getElementById('auditLoad').click();
+    await tick();
+
+    const last = urls[urls.length - 1];
+    expect(last).toContain('limit=50');
+    expect(last).toContain('action=listing.moderate');
+    expect(last).toContain('resource=listing');
+  });
+
+  it('renders rows and truncates long metadata to 200 characters', async () => {
+    const log = { ...AUDIT_1, metadata: { note: 'x'.repeat(260) } };
+    await openAuditTab((url) => (url.includes('/api/admin/audit-logs') ? json(auditData([log])) : defaultHandler(url)));
+
+    const cells = [...document.querySelector('tr[data-audit="1"]').querySelectorAll('td')];
+    expect(cells[0].textContent).toBe('2026-10-01 09:00 UTC');
+    expect(cells[1].textContent).toBe('owner');
+    expect(cells[2].textContent).toBe('listing.moderate');
+    expect(cells[3].textContent).toBe('listing');
+    expect(cells[4].textContent).toBe('lst-1');
+    expect(cells[5].textContent).toBe('success');
+    expect(cells[6].textContent).toHaveLength(201);
+    expect(cells[6].textContent.endsWith('…')).toBe(true);
+  });
+
+  it('shows Load older only when exactly 50 logs are returned', async () => {
+    const makeLogs = (n) => Array.from({ length: n }, (_, i) => ({ ...AUDIT_1, resourceId: 'r-' + i }));
+
+    await openAuditTab((url) => (url.includes('/api/admin/audit-logs') ? json(auditData(makeLogs(49))) : defaultHandler(url)));
+    expect(document.getElementById('auditMore')).toBeNull();
+
+    fetchHandler = (url) => (url.includes('/api/admin/audit-logs') ? json(auditData(makeLogs(50))) : defaultHandler(url));
+    document.querySelector('.tab[data-view="audit"]').click();
+    await tick();
+    expect(document.getElementById('auditMore')).not.toBeNull();
+  });
+
+  it('Load older requests before=last timestamp and appends rows', async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => ({ ...AUDIT_1, resourceId: 'p1-' + i, timestamp: '2026-10-01T09:00:00.000Z' }));
+    page1[49] = { ...page1[49], timestamp: '2026-09-30T12:00:00.000Z' };
+    const page2 = Array.from({ length: 50 }, (_, i) => ({ ...AUDIT_1, resourceId: 'p2-' + i, timestamp: '2026-09-30T11:00:00.000Z' }));
+    const urls = [];
+    await openAuditTab((url) => {
+      if (url.includes('/api/admin/audit-logs')) {
+        urls.push(url);
+        return url.includes('before=') ? json(auditData(page2)) : json(auditData(page1));
+      }
+      return defaultHandler(url);
+    });
+
+    document.getElementById('auditMore').click();
+    await tick();
+
+    const lastUrl = urls[urls.length - 1];
+    const before = new URL(lastUrl, 'https://gikomart.test').searchParams.get('before');
+    expect(before).toBe('2026-09-30T12:00:00.000Z');
+    expect(document.querySelectorAll('#auditTable tbody tr')).toHaveLength(100);
+  });
+
+  it('renders a hostile actor as literal text', async () => {
+    const log = { ...AUDIT_1, actor: '<i>x</i>' };
+    await openAuditTab((url) => (url.includes('/api/admin/audit-logs') ? json(auditData([log])) : defaultHandler(url)));
+
+    expect(document.querySelector('#viewBody i')).toBeNull();
+    expect(document.getElementById('viewBody').textContent).toContain('<i>x</i>');
+  });
+});

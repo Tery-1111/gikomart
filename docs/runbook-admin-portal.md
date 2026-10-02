@@ -39,6 +39,8 @@ try again." with a Retry button.
 - **Reports** — open reports by default, filterable by status and target type.
 - **Payments** — payments filterable by status and type, with masked phone
   numbers and a replay action for eligible payments.
+- **Blocks** — add, list and remove blocked contacts.
+- **Audit log** — read audit events, filterable by action and resource.
 - **Health** — MongoDB and Cloudinary status, the check time and process uptime.
 
 ## Reports tab
@@ -61,3 +63,24 @@ numbers are masked (first 4 and last 2 digits); full numbers are obtained only
 through the data-request runbook (`docs/runbook-data-requests.md`). The replay
 action is two-click confirmed and is offered only for non-completed payments
 that carry an invoice id.
+
+## Blocks tab
+
+Adds a block from a phone number, a listing id or a store id. The list shows
+what was blocked and who added it; removal is two-click confirmed. The portal
+never shows a typed phone number again after submit. Rotating
+`BLOCK_HASH_SECRET` invalidates every existing block — see
+`docs/runbook-moderation.md`.
+
+## Audit log tab
+
+Reads audit events (newest first, 50 at a time), optionally filtered by action
+and resource. Each event's metadata is truncated to 200 characters. "Load older"
+requests the next page using the last row's timestamp as `before`.
+
+## Known limits
+
+- No polling: views refresh only when opened, reloaded or acted on.
+- Sessions last 24 hours and are memory-only.
+- The admin rate limit applies to every portal request.
+- The portal requires 2FA to be enrolled before sign-in works.

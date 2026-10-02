@@ -433,6 +433,22 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/adminPortal.test.mjs` (14 tests).
 - **Existing tests changed:** None.
 
+### Step 5 — Blocks and audit log tabs, final docs
+- **Behavior:** Before, the portal had no way to manage blocked contacts or read
+  the audit trail. After, a **Blocks** tab adds a block (from a phone number, a
+  listing id or a store id), lists blocks and removes one (two-click confirmed) —
+  the typed phone number is never shown again after submit; an **Audit log** tab
+  reads audit events with optional action and resource filters, truncates each
+  event's metadata to 200 characters, and pages with "Load older" using the last
+  row's `before` timestamp. The `.env.example` Analytics note now says only the
+  GoatCounter site code is hardcoded (PostHog is not loaded on any public page),
+  and the portal runbook is complete.
+- **Files changed:** `.env.example`, `docs/CHANGELOG.md`,
+  `docs/runbook-admin-portal.md`, `public/admin/index.html`,
+  `public/assets/js/admin.js`, `tests/adminPortal.test.mjs`.
+- **Tests added:** `tests/adminPortal.test.mjs` (13 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

@@ -14,6 +14,8 @@
   let reportTypeFilter = '';
   let paymentStatusFilter = '';
   let paymentTypeFilter = '';
+  let auditActionFilter = '';
+  let auditResourceFilter = '';
 
   // ── Element helpers ──────────────────────────────────────────────────────
   function el(tag, props, text) {
@@ -549,6 +551,243 @@
       table.appendChild(tbody);
       wrap.appendChild(table);
       viewBody.appendChild(wrap);
+    },
+  };
+
+  // ── Blocks and audit log ─────────────────────────────────────────────────
+  function detailsText(metadata) {
+    const json = JSON.stringify(metadata || {});
+    return json.length > 200 ? json.slice(0, 200) + '…' : json;
+  }
+
+  views.blocks = {
+    load: async function () {
+      const viewBody = document.getElementById('viewBody');
+      const first = await api('GET', '/api/admin/blocks');
+      assertOk(first.status);
+
+      clear(viewBody);
+      const viewMsg = document.getElementById('viewMsg');
+      viewMsg.className = '';
+      viewMsg.textContent = '';
+
+      const form = el('form', { id: 'blockForm' });
+      form.setAttribute('novalidate', '');
+      form.setAttribute('autocomplete', 'off');
+
+      const typeSel = filterSelect('blockType', [
+        { value: 'phone', label: 'Phone number' },
+        { value: 'listing', label: 'Listing ID' },
+        { value: 'store', label: 'Store ID' },
+      ], 'phone');
+      const target = el('input', { id: 'blockTarget', type: 'tel' });
+      target.setAttribute('autocomplete', 'off');
+      const reason = el('input', { id: 'blockReason' });
+      reason.maxLength = 200;
+      reason.placeholder = 'Reason (required)';
+      const submit = el('button', { id: 'blockSubmit', type: 'submit' }, 'Add block');
+      const blockMsg = el('p', { id: 'blockMsg' });
+      blockMsg.setAttribute('role', 'status');
+
+      const applyType = function () {
+        if (typeSel.value === 'phone') {
+          target.type = 'tel';
+          target.placeholder = 'Phone number';
+        } else {
+          target.type = 'text';
+          target.placeholder = typeSel.value === 'listing' ? 'Listing ID' : 'Store ID';
+        }
+      };
+      typeSel.addEventListener('change', applyType);
+      applyType();
+
+      form.appendChild(typeSel);
+      form.appendChild(target);
+      form.appendChild(reason);
+      form.appendChild(submit);
+      form.appendChild(blockMsg);
+      viewBody.appendChild(form);
+
+      const listContainer = el('div');
+      viewBody.appendChild(listContainer);
+
+      function renderList(blocks) {
+        viewMsg.textContent = blocks.length ? '' : 'Nothing to show.';
+        clear(listContainer);
+        const wrap = el('div', { className: 'scroll' });
+        const table = el('table', { id: 'blocksTable' });
+        const headRow = el('tr');
+        ['Time', 'Type', 'Source ID', 'Reason', 'Added by', 'Actions'].forEach(function (heading) {
+          headRow.appendChild(el('th', null, heading));
+        });
+        const thead = el('thead');
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        const tbody = el('tbody');
+        blocks.forEach(function (block) {
+          const row = el('tr', { dataset: { blockId: block.id } });
+          row.appendChild(el('td', null, fmtTime(block.createdAt)));
+          row.appendChild(el('td', null, String(block.sourceType)));
+          row.appendChild(el('td', null, block.sourceId ? String(block.sourceId) : '—'));
+          row.appendChild(el('td', null, String(block.reason)));
+          row.appendChild(el('td', null, String(block.createdBy)));
+          const actions = el('td');
+          const rowMsg = el('span', { dataset: { role: 'rowMsg' } });
+          actions.appendChild(rowMsg);
+          const btn = el('button', { type: 'button', dataset: { action: 'unblock' } }, 'Remove block');
+          armed(btn, 'Remove block', function () {
+            api('DELETE', '/api/admin/blocks/' + encodeURIComponent(block.id)).then(function (outcome) {
+              if (outcome.status === 200) refreshList();
+              else rowMsg.textContent = 'Failed: ' + errorText(outcome.data);
+            }, function () {
+              rowMsg.textContent = 'Failed: error';
+            });
+          });
+          actions.appendChild(btn);
+          row.appendChild(actions);
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        listContainer.appendChild(wrap);
+      }
+
+      function refreshList() {
+        return api('GET', '/api/admin/blocks').then(function (result) {
+          if (result.status !== 200) {
+            showViewFailure(result.status === 429
+              ? 'Too many requests. Wait a minute and try again.'
+              : 'Could not load this view.');
+            return;
+          }
+          renderList(Array.isArray(result.data.blocks) ? result.data.blocks : []);
+        }, function () {
+          showViewFailure('Could not load this view.');
+        });
+      }
+
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        const targetValue = target.value.trim();
+        const reasonValue = reason.value.trim();
+        if (!targetValue) { blockMsg.textContent = 'Enter a target.'; return; }
+        if (!reasonValue) { blockMsg.textContent = 'Enter a reason.'; return; }
+        const body = { sourceType: typeSel.value, reason: reasonValue };
+        if (typeSel.value === 'phone') body.phone = targetValue;
+        else body.sourceId = targetValue;
+        api('POST', '/api/admin/blocks', body).then(function (outcome) {
+          if (outcome.status === 200 || outcome.status === 201) {
+            blockMsg.textContent = 'Added: ' + outcome.data.created + ' new, '
+              + outcome.data.alreadyBlocked + ' already blocked.';
+            target.value = '';
+            reason.value = '';
+            refreshList();
+          } else {
+            blockMsg.textContent = 'Failed: ' + errorText(outcome.data);
+            target.value = '';
+          }
+        }, function () {
+          target.value = '';
+          blockMsg.textContent = 'Failed: error';
+        });
+      });
+
+      renderList(Array.isArray(first.data.blocks) ? first.data.blocks : []);
+    },
+  };
+
+  views.audit = {
+    load: async function () {
+      const params = new URLSearchParams();
+      params.set('limit', '50');
+      if (auditActionFilter) params.set('action', auditActionFilter);
+      if (auditResourceFilter) params.set('resource', auditResourceFilter);
+      const result = await api('GET', '/api/admin/audit-logs?' + params.toString());
+      assertOk(result.status);
+      const data = result.data || {};
+      const logs = Array.isArray(data.logs) ? data.logs : [];
+      const viewBody = document.getElementById('viewBody');
+      const viewMsg = document.getElementById('viewMsg');
+      clear(viewBody);
+      viewMsg.className = '';
+      viewMsg.textContent = logs.length ? '' : 'Nothing to show.';
+
+      const actionInput = el('input', { id: 'auditAction' });
+      actionInput.placeholder = 'Action (optional)';
+      actionInput.value = auditActionFilter;
+      const resourceInput = el('input', { id: 'auditResource' });
+      resourceInput.placeholder = 'Resource (optional)';
+      resourceInput.value = auditResourceFilter;
+      const loadBtn = el('button', { id: 'auditLoad', type: 'button' }, 'Load');
+      loadBtn.addEventListener('click', function () {
+        auditActionFilter = actionInput.value.trim();
+        auditResourceFilter = resourceInput.value.trim();
+        activateView('audit');
+      });
+      const toolbar = el('div', { className: 'toolbar' });
+      toolbar.appendChild(actionInput);
+      toolbar.appendChild(resourceInput);
+      toolbar.appendChild(loadBtn);
+      viewBody.appendChild(toolbar);
+
+      const wrap = el('div', { className: 'scroll' });
+      const table = el('table', { id: 'auditTable' });
+      const headRow = el('tr');
+      ['Time', 'Actor', 'Action', 'Resource', 'Resource ID', 'Result', 'Details'].forEach(function (heading) {
+        headRow.appendChild(el('th', null, heading));
+      });
+      const thead = el('thead');
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = el('tbody');
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      viewBody.appendChild(wrap);
+
+      let lastTimestamp = logs.length ? logs[logs.length - 1].timestamp : null;
+
+      const appendRows = function (rows) {
+        rows.forEach(function (log) {
+          const row = el('tr', { dataset: { audit: '1' } });
+          row.appendChild(el('td', null, fmtTime(log.timestamp)));
+          row.appendChild(el('td', null, String(log.actor)));
+          row.appendChild(el('td', null, String(log.action)));
+          row.appendChild(el('td', null, String(log.resource)));
+          row.appendChild(el('td', null, log.resourceId ? String(log.resourceId) : '—'));
+          row.appendChild(el('td', null, String(log.result)));
+          row.appendChild(el('td', null, detailsText(log.metadata)));
+          tbody.appendChild(row);
+        });
+      };
+
+      const syncMore = function (rows) {
+        const existing = document.getElementById('auditMore');
+        if (existing) existing.remove();
+        if (rows.length !== 50) return;
+        const more = el('button', { id: 'auditMore', type: 'button' }, 'Load older');
+        more.addEventListener('click', function () {
+          const older = new URLSearchParams(params);
+          if (lastTimestamp !== null) older.set('before', String(lastTimestamp));
+          api('GET', '/api/admin/audit-logs?' + older.toString()).then(function (outcome) {
+            if (outcome.status !== 200) {
+              showViewFailure(outcome.status === 429
+                ? 'Too many requests. Wait a minute and try again.'
+                : 'Could not load this view.');
+              return;
+            }
+            const more2 = Array.isArray(outcome.data.logs) ? outcome.data.logs : [];
+            appendRows(more2);
+            if (more2.length) lastTimestamp = more2[more2.length - 1].timestamp;
+            syncMore(more2);
+          }, function () {
+            showViewFailure('Could not load this view.');
+          });
+        });
+        viewBody.appendChild(more);
+      };
+
+      appendRows(logs);
+      syncMore(logs);
     },
   };
 
