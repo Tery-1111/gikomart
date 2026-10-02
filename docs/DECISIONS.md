@@ -119,3 +119,15 @@ new numbers; existing entries are never edited.
   reading the status code or error shape.
 - **Alternative rejected:** Returning 404 for a hidden or unknown store, which
   would reveal whether the store id exists.
+
+## 10. Blocked contacts are stored only as a hash, and blocking never removes content
+
+- **Decision:** Blocked contacts are stored only as sha256 of the normalized
+  Kenyan number; the API never returns the hash or the number; blocking a target
+  never removes its content automatically.
+- **Reason:** A block list keyed by hashed numbers lets an operator stop a
+  number without storing the raw PII, and keeps the number out of responses and
+  logs. Blocking is a gate, not a deletion, so an operator reviews content
+  separately with the moderation endpoints.
+- **Alternative rejected:** Storing raw numbers, which would place contact PII in
+  a new collection and expose it on every read of the block list.

@@ -11,6 +11,7 @@ const {
 const adminAuth = require('../middleware/adminAuth');
 const { moderateStore, suspendStore } = require('../controllers/storeController');
 const { getAuditLogs, listPayments } = require('../controllers/adminController');
+const { addBlock, listBlocks, removeBlock } = require('../controllers/blockController');
 
 // FIX A4 — dedicated stricter limiter for admin endpoints (additive to the
 // global limiter, which still applies at app level).
@@ -46,5 +47,11 @@ router.put('/stores/:id/suspend', adminAuth, suspendStore);
 // Read-only admin views — session-only, matching the replay action.
 router.get('/audit-logs', requireAdminSession, getAuditLogs);
 router.get('/payments', requireAdminSession, listPayments);
+
+// Blocked seller contacts — keyed by hashed normalized number; session-only,
+// matching the other admin views.
+router.post('/blocks', requireAdminSession, addBlock);
+router.get('/blocks', requireAdminSession, listBlocks);
+router.delete('/blocks/:id', requireAdminSession, removeBlock);
 
 module.exports = router;

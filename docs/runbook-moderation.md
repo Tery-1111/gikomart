@@ -130,3 +130,37 @@ curl -sS -X PUT "$BASE_URL/api/admin/stores/$STORE_ID/suspend" \
 ## 8. Finding the id of a flagged item
 
 No list endpoint exists; the id must come from the seller or the logs.
+
+## 9. Block a seller number
+
+`POST /api/admin/blocks`, header `X-Admin-Session`. `sourceType` is `phone`,
+`listing` or `store`; for `listing`/`store` send `sourceId`, for `phone` send
+`phone`. `reason` is required (1–200 characters). The response reports only
+counts — never the number or its hash.
+
+```bash
+curl -sS -X POST "$BASE_URL/api/admin/blocks" \
+  -H "X-Admin-Session: $ADMIN_SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{"sourceType":"phone","phone":"07XXXXXXXX","reason":"Repeated scam attempts"}'
+```
+
+## 10. List blocks
+
+`GET /api/admin/blocks` returns the newest first (optional `?limit`, capped at
+50). Each entry carries id, sourceType, sourceId, reason, createdBy and
+createdAt — never the hash or the number.
+
+```bash
+curl -sS "$BASE_URL/api/admin/blocks?limit=50" \
+  -H "X-Admin-Session: $ADMIN_SESSION"
+```
+
+## 11. Remove a block
+
+`DELETE /api/admin/blocks/:id`.
+
+```bash
+curl -sS -X DELETE "$BASE_URL/api/admin/blocks/$BLOCK_ID" \
+  -H "X-Admin-Session: $ADMIN_SESSION"
+```

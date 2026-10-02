@@ -28,6 +28,9 @@ route-specific limiter.
 | PUT | `/api/admin/stores/:id/suspend` | Admin auth | globalLimiter + adminLimiter | Suspend a store |
 | GET | `/api/admin/audit-logs` | `X-Admin-Session` | globalLimiter + adminLimiter | Read audit logs |
 | GET | `/api/admin/payments` | `X-Admin-Session` | globalLimiter + adminLimiter | List payments |
+| POST | `/api/admin/blocks` | `X-Admin-Session` | globalLimiter + adminLimiter | Block the contacts behind a listing, store or number |
+| GET | `/api/admin/blocks` | `X-Admin-Session` | globalLimiter + adminLimiter | List blocked contacts (hash/number never returned) |
+| DELETE | `/api/admin/blocks/:id` | `X-Admin-Session` | globalLimiter + adminLimiter | Remove a blocked contact |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |

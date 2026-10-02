@@ -29,6 +29,7 @@ const h = {
   stores: new Map(),
   listings: [],
   admins: new Map(),
+  blocks: [],
 };
 
 function makeDoc(obj) {
@@ -390,6 +391,56 @@ const fakeAuditEvent = {
   },
 };
 
+// ── Blocked contacts (Phase 5A) — create / findOne / find / findByIdAndDelete ──
+const fakeBlockedContactModel = {
+  create: async (data) => {
+    if (h.blocks.some((b) => b.contactHash === data.contactHash)) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      dup.keyPattern = { contactHash: 1 };
+      throw dup;
+    }
+    const doc = makeDoc({ _id: `6500000000000000000000${String(h.blocks.length + 1).padStart(2, '0')}`, sourceId: null, ...data });
+    h.blocks.push(doc);
+    return doc;
+  },
+  findOne: async (filter = {}) => {
+    if (filter.contactHash === undefined) return null;
+    const expected = filter.contactHash;
+    const match = h.blocks.find((b) => {
+      if (expected !== null && typeof expected === 'object') {
+        if (expected.$in !== undefined) return expected.$in.includes(b.contactHash);
+        return false;
+      }
+      return b.contactHash === expected;
+    });
+    return match ? { ...match } : null;
+  },
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = h.blocks.filter((b) => matchesFilter(b, filter));
+        if (state.sort && state.sort.createdAt === -1) {
+          out = [...out].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map((b) => ({ ...b }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
+  findByIdAndDelete: async (id) => {
+    const i = h.blocks.findIndex((b) => String(b._id) === String(id));
+    if (i === -1) return null;
+    return h.blocks.splice(i, 1)[0];
+  },
+};
+
 // ── require.cache injection (must precede importing server.js) ──
 function injectModule(relPath, exportsObj) {
   const resolved = resolveFromTests(relPath);
@@ -405,6 +456,7 @@ injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
 injectModule('../src/models/AuditEvent.js', fakeAuditEvent);
+injectModule('../src/models/BlockedContact.js', fakeBlockedContactModel);
 
 // ── Transparent sharp wrapper for the decode-concurrency test. While tracking
 // is off it is the real sharp, so every other test is unaffected.
@@ -455,6 +507,7 @@ beforeEach(() => {
   h.stores.clear();
   h.listings.length = 0;
   h.admins.clear();
+  h.blocks.length = 0;
   broadcastListing.mockClear();
   cloudinaryUpload.mockClear();
   cloudinaryDestroy.mockClear();
@@ -2468,5 +2521,113 @@ describe('GET /api/listings?store_id — hidden-store inventory gate (Phase 5A, 
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+// ─── Phase 5A, Step 2: admin seller block list ──────────────────────────────
+describe('Admin blocked contacts (Phase 5A, Step 2)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const auth = (r) => r.set('X-Admin-Session', session());
+  const HEX64 = /[0-9a-f]{64}/;
+
+  const blockPhone = (phone, reason = 'spam') => auth(request(app).post('/api/admin/blocks'))
+    .send({ sourceType: 'phone', phone, reason });
+
+  it('POST /api/admin/blocks without an admin session is rejected as GET /audit-logs is', async () => {
+    const blocked = await request(app).post('/api/admin/blocks')
+      .send({ sourceType: 'phone', phone: '0712222222', reason: 'spam' });
+    expect(blocked.status).toBe(401);
+    const logs = await request(app).get('/api/admin/audit-logs');
+    expect(logs.status).toBe(401);
+  });
+
+  it('blocks a phone number: 201, created 1, no digits or hash in the response', async () => {
+    const res = await blockPhone('0712222222');
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ success: true, created: 1, alreadyBlocked: 0 });
+    const body = JSON.stringify(res.body);
+    expect(body).not.toContain('712222222');
+    expect(body).not.toMatch(HEX64);
+  });
+
+  it('is idempotent across formats: same number again returns created 0, alreadyBlocked 1', async () => {
+    await blockPhone('0712222222');
+    const res = await blockPhone('+254712222222');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, created: 0, alreadyBlocked: 1 });
+  });
+
+  it('blocks a listing seller by listing id', async () => {
+    h.listings.push(makeDoc({ _id: '6500000000000000000000bb', sellerWhatsapp: '0712222222' }));
+    const res = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: '6500000000000000000000bb', reason: 'fraud' });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(1);
+    expect(h.blocks).toHaveLength(1);
+  });
+
+  it('blocks a store phone and whatsapp (two numbers -> created 2)', async () => {
+    await fakeStoreModel.create({
+      _id: '6500000000000000000000cc', name: 'S', slug: 's', category: 'Books',
+      phone: '0700000000', whatsapp: '0711111111',
+    });
+    const res = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'store', sourceId: '6500000000000000000000cc', reason: 'fraud' });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(2);
+    expect(h.blocks).toHaveLength(2);
+  });
+
+  it('404 for an unknown listing id; 400 for a malformed id', async () => {
+    const missing = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: '650000000000000000000099', reason: 'x' });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error).toBe('Listing not found');
+
+    const malformed = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: 'not-an-id', reason: 'x' });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toBe('Invalid block request');
+  });
+
+  it('400 for a reason longer than 200 characters', async () => {
+    const res = await blockPhone('0712222222', 'x'.repeat(201));
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/admin/blocks returns entries without any contactHash field', async () => {
+    await blockPhone('0712222222');
+    const res = await auth(request(app).get('/api/admin/blocks'));
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.blocks[0]).toMatchObject({ sourceType: 'phone', reason: 'spam' });
+    expect(res.body.blocks[0]).not.toHaveProperty('contactHash');
+    expect(JSON.stringify(res.body)).not.toMatch(HEX64);
+  });
+
+  it('DELETE /api/admin/blocks/:id removes it; a second DELETE returns 404', async () => {
+    await blockPhone('0712222222');
+    const id = h.blocks[0]._id;
+    const del = await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    expect(del.status).toBe(200);
+    expect(h.blocks).toHaveLength(0);
+
+    const again = await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    expect(again.status).toBe(404);
+  });
+
+  it('emits admin.block_added and admin.block_removed with no phone digits in metadata', async () => {
+    await blockPhone('0712222222');
+    const id = h.blocks[0]._id;
+    await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const added = auditEvents.find((e) => e.action === 'admin.block_added');
+    const removed = auditEvents.find((e) => e.action === 'admin.block_removed');
+    expect(added).toBeTruthy();
+    expect(removed).toBeTruthy();
+    expect(JSON.stringify(added.metadata)).not.toContain('712222222');
+    expect(JSON.stringify(removed.metadata)).not.toContain('712222222');
   });
 });

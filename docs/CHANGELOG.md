@@ -206,6 +206,21 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   `findOne` gained a bounded `_id` matcher (`matchesStoreId`: plain equality plus
   `$ne`/`$nin`/`$in`, missing field passes `$ne`/`$nin`).
 
+### Step 2 — Seller block list, model and admin endpoints
+- **Behavior:** Before, there was no way to block a seller contact and no admin
+  surface for one. After, an admin can block the contacts behind a listing, a
+  store, or a raw Kenyan number; the block is stored only as the sha256 of the
+  normalized number, and `POST`/`GET /api/admin/blocks` and
+  `DELETE /api/admin/blocks/:id` are gated by the same admin session as the other
+  admin views. The API never returns the number or the hash.
+- **Files changed:** `src/utils/phone.js`, `src/models/BlockedContact.js`,
+  `src/controllers/blockController.js`, `src/routes/adminAuth.js`.
+- **Tests added:** `tests/phone.test.mjs` (new); `tests/wiring.test.mjs` — admin
+  blocked-contact endpoint tests.
+- **Existing tests changed:** `tests/wiring.test.mjs` — the model injection block
+  gained a fake `BlockedContact` (create / findOne / find / findByIdAndDelete) and
+  the shared `h` state gained `blocks`, cleared in the global `beforeEach`.
+
 ## Phase 5 and later
 
 Not documented here until built.
