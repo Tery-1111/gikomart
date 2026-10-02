@@ -19,6 +19,21 @@ const V2 = { GIKOMART_TERMS_OF_SERVICE: '1.0.1', STORE_OWNER_TERMS: '1.0.1', SEL
 let nextVersions = V1;
 // What /api/upload answers. The 503 test flips this later to prove the branch.
 let uploadResponse = { ok: false, status: 503, json: async () => ({}), text: async () => '' };
+// What /api/listings answers. A real (non-demo) listing is served from the
+// start so the boost section's ownership gate can be exercised through the real
+// UI: the card is rendered during init, and opening it re-evaluates ownership.
+const listingsResponse = {
+  ok: true,
+  status: 200,
+  json: async () => ({
+    success: true,
+    listings: [{
+      _id: 'lst-dom', title: 'Owned DOM listing', category: 'Electronics', condition: 'Good',
+      price: 1000, description: 'A listing used to exercise the boost gate.', location: 'Njoro',
+      sellerName: 'Test', views: 1, images: [], featured: false,
+    }],
+  }),
+};
 const fetchCalls = [];
 
 beforeAll(async () => {
@@ -54,6 +69,7 @@ beforeAll(async () => {
       return jsonResponse({ success: true, message: 'STK push sent. Check your phone.', amount: 150, invoiceId: 'INV-STG-1', ownerToken: 'tok-abc' });
     }
     if (u.includes('/payments/status/')) return jsonResponse({ success: true, storeId: 'sto-9' });
+    if (u.includes('/listings')) return listingsResponse;
     if (u.includes('/upload')) return uploadResponse;
     return { ok: false, status: 404, json: async () => ({ success: false }) };
   }));
@@ -111,6 +127,43 @@ describe('Store modal terms freshness (Fix 4)', () => {
     const noticeAfter = [...document.querySelectorAll('#storeCreationForm .terms-acceptance .terms-version')].map((s) => s.textContent);
 
     expect(noticeAfter).toEqual(['v1.0.1', 'v1.0.1']);
+  });
+});
+
+describe('Boost UI — owner-only (Phase 2, Step 3)', () => {
+  const openOwnedListingModal = async (ownerToken) => {
+    localStorage.clear();
+    if (ownerToken) localStorage.setItem('gikomart_ownerToken:lst-dom', ownerToken);
+    // The card was rendered during init (listingsResponse is a real listing).
+    let card = null;
+    for (let i = 0; i < 40 && !card; i++) {
+      card = document.querySelector('.listing-card[data-id="lst-dom"]');
+      if (!card) await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(card, 'the real listing card must be rendered').not.toBeNull();
+    card.click();
+    await new Promise((r) => setTimeout(r, 10));
+  };
+
+  it('does not render the boost section when no owner token is stored', async () => {
+    await openOwnedListingModal(null);
+    const modalCard = document.getElementById('modalCard');
+    expect(modalCard.querySelector('#boostPayBtn')).toBeNull();
+    expect(modalCard.querySelector('[data-action="initiate-boost"]')).toBeNull();
+  });
+
+  it('renders the boost section and sends X-Owner-Token on the boost request for the owner', async () => {
+    await openOwnedListingModal('dom-owner-token');
+    const btn = document.getElementById('modalCard').querySelector('#boostPayBtn');
+    expect(btn).not.toBeNull();
+
+    document.getElementById('boostPhone').value = '0712345678';
+    btn.click();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const boostCall = fetchCalls.find((c) => c.url.includes('/payments/boost'));
+    expect(boostCall).toBeTruthy();
+    expect(boostCall.options.headers['X-Owner-Token']).toBe('dom-owner-token');
   });
 });
 

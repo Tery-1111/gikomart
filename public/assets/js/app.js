@@ -745,7 +745,7 @@ function openListingModal(id, source) {
       <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${listing._id}">✏️ Edit listing</button>
       <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${listing._id}">🗑️ Delete listing</button>
     </div>` : ''}
-    ${listing.featured ? '' : boostSectionHTML(listing._id)}
+    ${listing.featured || usingDemoData || !hasOwnerToken(listing._id) ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
 
@@ -995,7 +995,7 @@ async function initiateBoost(listingId) {
   try {
     const res = await fetch(`${API_BASE}/payments/boost`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Owner-Token': getOwnerToken(listingId) || '' },
       body: JSON.stringify({ listingId, phoneNumber: phone, boostType }),
     });
 

@@ -8,6 +8,7 @@ const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing } = require('../services/moderationService');
 const inputLimits = require('../config/inputLimits');
+const { isOwnerOrAdmin } = require('../middleware/listingAuth');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
 const {
@@ -25,9 +26,15 @@ exports.initiateBoost = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Invalid boost type' });
     }
 
-    const listing = await Listing.findById(listingId);
+    // Select the hidden owner hash so ownership can be verified the same way
+    // the listing update path does, BEFORE any IntaSend call is made.
+    const listing = await Listing.findById(listingId).select('+ownerTokenHash');
     if (!listing) {
       return res.status(404).json({ success: false, error: 'Listing not found' });
+    }
+    const authz = await isOwnerOrAdmin(req, listing);
+    if (!authz.authorized) {
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     const apiRef = `boost_${listingId}_${Date.now()}`;

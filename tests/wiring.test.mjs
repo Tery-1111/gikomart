@@ -1296,7 +1296,7 @@ describe('Payment error UX (Task 2)', () => {
 
   beforeEach(() => {
     // initiateBoost looks the listing up through the injected Listing model.
-    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false }));
+    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false, ownerTokenHash: sha256hex('boost-owner-token') }));
   });
 
   // The 503 body must be exactly the fixed message plus the request ID, with
@@ -1353,15 +1353,80 @@ describe('Payment error UX (Task 2)', () => {
   });
 
   it('initiate-boost 503 on IntaSend failure', async () => {
-    const res = await request(app).post('/api/payments/boost').send({
-      listingId: 'lst-plain',
-      phoneNumber: '0700000000',
-      boostType: 'featured',
-    });
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', 'boost-owner-token')
+      .send({
+        listingId: 'lst-plain',
+        phoneNumber: '0700000000',
+        boostType: 'featured',
+      });
 
     expect(res.status).toBe(503);
     expectFixedErrorBody(res.body);
     expect(res.headers['x-request-id']).toBeTruthy();
+  });
+});
+
+// ─── Phase 2, Step 3: owner-only boost ──────────────────────────────────────
+describe('Payment boost — owner-only', () => {
+  const BOOST_OWNER_TOKEN = 'boost-owner-token';
+  const boostBody = (overrides = {}) => ({
+    listingId: 'lst-owned',
+    phoneNumber: '0700000000',
+    boostType: 'featured',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    h.listings.push(makeDoc({
+      _id: 'lst-owned', title: 'Owned item', boostType: null, featured: false,
+      ownerTokenHash: sha256hex(BOOST_OWNER_TOKEN),
+    }));
+  });
+
+  it('403 without an X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost').send(boostBody());
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+
+  it('403 with a wrong X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', 'wrong-token')
+      .send(boostBody());
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+
+  it('reaches the provider (503 shape) with the correct X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', BOOST_OWNER_TOKEN)
+      .send(boostBody());
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
+      requestId: expect.any(String),
+    });
+  });
+
+  it('404 for a nonexistent listing even with a token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', BOOST_OWNER_TOKEN)
+      .send(boostBody({ listingId: 'nope' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('unit: isOwnerOrAdmin is true for a matching token hash and false for a mismatch', async () => {
+    const { isOwnerOrAdmin } = require('../src/middleware/listingAuth');
+    const listing = { ownerTokenHash: sha256hex('raw-token') };
+    const fakeReq = (token) => ({ get: (h) => (h === 'X-Owner-Token' ? token : undefined), headers: {} });
+
+    const ok = await isOwnerOrAdmin(fakeReq('raw-token'), listing);
+    expect(ok.authorized).toBe(true);
+    expect(ok.credential).toBe('owner');
+
+    const bad = await isOwnerOrAdmin(fakeReq('not-the-token'), listing);
+    expect(bad.authorized).toBe(false);
   });
 });
 
