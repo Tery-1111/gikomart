@@ -351,6 +351,15 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/legalPages.test.mjs` (new).
 - **Existing tests changed:** None.
 
+### Step 5 — Data request runbook
+- **Behavior:** Documentation only; no runtime behavior changed. Adds
+  `docs/runbook-data-requests.md`: how to find a requester's records across each
+  collection, erase the erasable contact PII, keep what cannot be erased, and log
+  the request outside the database.
+- **Files changed:** `docs/runbook-data-requests.md` (new).
+- **Tests added:** None.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
