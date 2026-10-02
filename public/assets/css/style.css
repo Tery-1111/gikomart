@@ -1551,3 +1551,26 @@ textarea:focus-visible {
   .btn-spinner,
   .image-upload.uploading::after { animation: none; }
 }
+
+/* ============================================
+   REPORT MODAL
+   ============================================ */
+/* Sit above the listing/store overlays (both z-index 200) so a report opened
+   from the listing detail modal is never hidden behind it. */
+#reportModalOverlay { z-index: 210; }
+
+.modal-sm { max-width: 420px; }
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.modal-actions .btn { flex: 1; }
+
+/* Smaller, low-emphasis variant for secondary actions such as Report. */
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 13px;
+}

@@ -1,15 +1,15 @@
 const mongoose = require('mongoose');
 const listingSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  category: { type: String, required: true },
-  subcategory: { type: String },
-  condition: { type: String, required: true },
+  title: { type: String, required: true, maxlength: 120 },
+  category: { type: String, required: true, maxlength: 60 },
+  subcategory: { type: String, maxlength: 60 },
+  condition: { type: String, required: true, maxlength: 20 },
   price: { type: Number, required: true },
-  description: { type: String, required: true },
+  description: { type: String, required: true, maxlength: 2000 },
   images: [{ type: String }],
-  sellerName: { type: String, required: true },
-  sellerWhatsapp: { type: String, required: true },
-  location: { type: String, default: 'Egerton University, Njoro' },
+  sellerName: { type: String, required: true, maxlength: 80 },
+  sellerWhatsapp: { type: String, required: true, maxlength: 20 },
+  location: { type: String, default: 'Egerton University, Njoro', maxlength: 120 },
   status: { type: String, enum: ['active', 'sold', 'deleted'], default: 'active' },
   // Content moderation: flagged/removed listings are hidden from public queries
   // until an admin resolves them. Defaults to 'approved' so existing listings

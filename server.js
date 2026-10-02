@@ -11,12 +11,19 @@ require('dotenv').config();
 // Fail fast on insecure production secrets BEFORE any route module is required
 // (adminAuth reads ADMIN_SESSION_SECRET at module load). Development/test are
 // exempt — see src/config/envGuard.js.
-const { assertProductionSecrets } = require('./src/config/envGuard');
+const { assertProductionSecrets, assertStartupConfig } = require('./src/config/envGuard');
 assertProductionSecrets();
 
 const { startCleanupScheduler } = require('./src/services/cleanupService');
 
 const app = express();
+
+// Proxy trust: bounds how many hops of X-Forwarded-For are believed so req.ip is
+// the real client address, not the proxy. Never the boolean `true` (that trusts
+// the whole chain, letting a client spoof its own address). 1 covers Render
+// alone; set TRUST_PROXY=2 when Cloudflare proxies traffic.
+const TRUST_PROXY = Number.parseInt(process.env.TRUST_PROXY, 10);
+app.set('trust proxy', Number.isInteger(TRUST_PROXY) && TRUST_PROXY >= 0 ? TRUST_PROXY : 1);
 
 // Security headers
 app.use(helmet({
@@ -95,14 +102,7 @@ app.use((req, res, next) => {
 // for a week and everything that is HTML is left to revalidate on every load —
 // index.html must never be cached long or a deploy would appear broken until the
 // TTL lapsed.
-app.use(express.static('public', {
-  maxAge: '7d',
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'public, max-age=0');
-    }
-  },
-}));
+app.use(express.static('public', require('./src/config/staticOptions')));
 
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));
@@ -111,6 +111,7 @@ app.use('/api/payments', require('./src/routes/payments'));
 app.use('/api/admin', require('./src/routes/adminAuth'));
 app.use('/api/stores', require('./src/routes/stores'));
 app.use('/api/terms', require('./src/routes/terms'));
+app.use('/api/reports', require('./src/routes/reports'));
 app.use('/health', require('./src/routes/health'));
 
 // Central error handler — must be the LAST middleware so every thrown/
@@ -118,6 +119,9 @@ app.use('/health', require('./src/routes/health'));
 app.use(require('./src/middleware/errorHandler'));
 
 if (require.main === module) {
+  // Fail fast when the database is not configured — the API is useless without
+  // it, and a silent start would leave the health check flapping forever.
+  assertStartupConfig();
   mongoose.connect(process.env.MONGO_URI)
     .then(() => {
       logger.info('MongoDB connected');

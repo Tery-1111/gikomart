@@ -2,30 +2,30 @@ const mongoose = require('mongoose');
 
 const storeSchema = new mongoose.Schema({
   // Identity
-  name:          { type: String, required: true, trim: true },
+  name:          { type: String, required: true, trim: true, maxlength: 100 },
   slug:          { type: String, required: true, unique: true, lowercase: true, trim: true },
-  description:   { type: String, default: '' },
+  description:   { type: String, default: '', maxlength: 2000 },
   logo_url:      { type: String, default: null },
   cover_url:     { type: String, default: null },
 
   // Business
-  category:      { type: String, required: true },
+  category:      { type: String, required: true, maxlength: 60 },
   subcategories: [{ type: String }],
 
   // Contact
-  phone:         { type: String, default: '' },
-  whatsapp:      { type: String, default: '' },
-  email:         { type: String, default: '' },
+  phone:         { type: String, default: '', maxlength: 20 },
+  whatsapp:      { type: String, default: '', maxlength: 20 },
+  email:         { type: String, default: '', maxlength: 100 },
 
   // Location
   campus:           { type: String, default: 'Egerton University' },
-  location:         { type: String, default: '' },
-  pickup_location:  { type: String, default: '' },
+  location:         { type: String, default: '', maxlength: 120 },
+  pickup_location:  { type: String, default: '', maxlength: 120 },
 
   // Operations
-  opening_hours:       { type: String, default: '' },
-  closing_hours:       { type: String, default: '' },
-  open_days:           { type: String, default: '' },
+  opening_hours:       { type: String, default: '', maxlength: 40 },
+  closing_hours:       { type: String, default: '', maxlength: 40 },
+  open_days:           { type: String, default: '', maxlength: 60 },
   delivery_available:  { type: Boolean, default: false },
   pickup_available:    { type: Boolean, default: true },
   payment_methods:     [{ type: String }],

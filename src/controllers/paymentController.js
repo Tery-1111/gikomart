@@ -2,11 +2,13 @@ const crypto = require('crypto');
 const Listing = require('../models/Listing');
 const Payment = require('../models/Payment');
 const logger = require('../config/logger');
-const { emit, SYSTEM_ACTOR } = require('../services/auditService');
+const { emit, SYSTEM_ACTOR, ownerActor } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
-const { checkListing } = require('../services/moderationService');
+const { checkListing, checkStore } = require('../services/moderationService');
+const inputLimits = require('../config/inputLimits');
+const { isOwnerOrAdmin } = require('../middleware/listingAuth');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
 const {
@@ -14,6 +16,18 @@ const {
   recordAcceptance,
 } = require('../services/termsAcceptanceService');
 const TermsAcceptance = require('../models/TermsAcceptance');
+const BlockedContact = require('../models/BlockedContact');
+const { contactHash } = require('../utils/phone');
+
+// A contact is blocked when the sha256 of its normalized Kenyan form matches a
+// BlockedContact row. Non-normalizable values are ignored; an all-invalid list
+// is not blocked. Errors are left to propagate to the caller's error handling.
+async function isContactBlocked(numbers) {
+  const hashes = numbers.map(contactHash).filter((hash) => hash !== null);
+  if (hashes.length === 0) return false;
+  const existing = await BlockedContact.findOne({ contactHash: { $in: hashes } });
+  return Boolean(existing);
+}
 
 // Initiate a boost payment (existing listing)
 exports.initiateBoost = async (req, res, next) => {
@@ -24,9 +38,15 @@ exports.initiateBoost = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Invalid boost type' });
     }
 
-    const listing = await Listing.findById(listingId);
+    // Select the hidden owner hash so ownership can be verified the same way
+    // the listing update path does, BEFORE any IntaSend call is made.
+    const listing = await Listing.findById(listingId).select('+ownerTokenHash');
     if (!listing) {
       return res.status(404).json({ success: false, error: 'Listing not found' });
+    }
+    const authz = await isOwnerOrAdmin(req, listing);
+    if (!authz.authorized) {
+      return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
     const apiRef = `boost_${listingId}_${Date.now()}`;
@@ -101,12 +121,47 @@ exports.initiateListing = async (req, res, next) => {
     if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
     if (typeof listingData.sellerName !== 'string' || !listingData.sellerName.trim()) errors.push('sellerName');
     if (typeof listingData.sellerWhatsapp !== 'string' || !listingData.sellerWhatsapp.trim()) errors.push('sellerWhatsapp');
+    // Length caps: reject oversized free-text (and too many images) before the
+    // STK push, since the webhook persists this payload verbatim.
+    const listingCaps = inputLimits.listing;
+    for (const [field, cap] of Object.entries(listingCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = listingData[field];
+      if (typeof value === 'string' && value.trim().length > cap) errors.push(field);
+    }
+    if (Array.isArray(listingData.images) && listingData.images.length > listingCaps.images.maxItems) {
+      errors.push('images');
+    }
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing listing details: ${errors.join(', ')}` });
+    }
+    // store_id is not accepted at creation: a listing is always published
+    // standalone and attached to a store afterwards via the owner endpoint.
+    // Rejecting here (before any IntaSend call or Payment.create) means a caller
+    // cannot link a listing to an unverified store at payment time.
+    if (listingData.store_id !== undefined && listingData.store_id !== null && listingData.store_id !== '') {
+      return res.status(400).json({
+        success: false,
+        error: 'store_id is not accepted here; attach the listing to a store after it is published',
+      });
     }
     // Normalize price to a proper number so it round-trips through the Mixed-type
     // payment record into Listing.create() cleanly.
     listingData.price = price;
+
+    // Blocked contacts cannot start a payment: checked after all validation and
+    // the store_id rejection, and before any IntaSend call, acceptance record or
+    // Payment.create. Enforcement is at initiation only.
+    if (await isContactBlocked([phoneNumber, listingData.sellerWhatsapp])) {
+      emit({
+        actor: ownerActor(req),
+        action: 'payment.blocked_contact',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { route: 'initiate-listing' },
+      });
+      return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
+    }
 
     // Ownership token: the raw token is returned ONCE in this response (the
     // frontend saves it in localStorage) and is never stored server-side —
@@ -133,7 +188,7 @@ exports.initiateListing = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
 
     const acceptanceRec = await recordAcceptance({
@@ -204,8 +259,42 @@ exports.initiateStorePlan = async (req, res, next) => {
     if (typeof storeData.category !== 'string' || !storeData.category.trim()) errors.push('category');
     if (typeof storeData.phone !== 'string' || !storeData.phone.trim()) errors.push('phone');
     if (typeof storeData.whatsapp !== 'string' || !storeData.whatsapp.trim()) errors.push('whatsapp');
+    // Length caps: reject oversized free-text and oversized arrays before the
+    // STK push, since the webhook persists this payload verbatim.
+    const storeCaps = inputLimits.store;
+    for (const [field, cap] of Object.entries(storeCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = storeData[field];
+      if (typeof value === 'string' && value.trim().length > cap) errors.push(field);
+    }
+    if (Array.isArray(storeData.subcategories)) {
+      if (storeData.subcategories.length > storeCaps.subcategories.maxItems
+        || storeData.subcategories.some((item) => typeof item === 'string' && item.trim().length > storeCaps.subcategories.item)) {
+        errors.push('subcategories');
+      }
+    }
+    if (Array.isArray(storeData.payment_methods)) {
+      if (storeData.payment_methods.length > storeCaps.payment_methods.maxItems
+        || storeData.payment_methods.some((item) => typeof item === 'string' && item.trim().length > storeCaps.payment_methods.item)) {
+        errors.push('payment_methods');
+      }
+    }
     if (errors.length > 0) {
       return res.status(400).json({ success: false, error: `Invalid or missing store details: ${errors.join(', ')}` });
+    }
+
+    // Blocked contacts cannot start a payment: checked after validation and
+    // before any IntaSend call, acceptance record or Payment.create (see
+    // initiateListing). Enforcement is at initiation only.
+    if (await isContactBlocked([phoneNumber, storeData.phone, storeData.whatsapp])) {
+      emit({
+        actor: ownerActor(req),
+        action: 'payment.blocked_contact',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { route: 'initiate-store-plan' },
+      });
+      return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
     }
 
     // Generate store owner token
@@ -241,7 +330,7 @@ exports.initiateStorePlan = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
-    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null;
+    const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
 
     const acceptanceRec = await recordAcceptance({
@@ -301,6 +390,9 @@ async function createResourceForPayment(payment) {
       listing = await Listing.create({
         paymentId: payment._id,
         ...payment.listingData,
+        // A listing is always created standalone; any store_id persisted in the
+        // payment payload (from a legacy row or admin replay) is ignored here.
+        store_id: null,
         package: payment.package,
         expiresAt: new Date(Date.now() + pricing.durationMs),
         moderationStatus: moderation.approved ? 'approved' : 'flagged',
@@ -319,12 +411,14 @@ async function createResourceForPayment(payment) {
   if (payment.type === 'store') {
     const Store = require('../models/Store');
     const pricing = STORE_PLANS[payment.storePlan];
+    const moderation = checkStore(payment.storeData || {});
     let store;
     try {
       store = await Store.create({
         paymentId: payment._id,
         name: payment.storeData.name,
         slug: payment.storeData.slug,
+        moderationStatus: moderation.approved ? 'approved' : 'flagged',
         description: payment.storeData.description || '',
         category: payment.storeData.category,
         subcategories: payment.storeData.subcategories || [],

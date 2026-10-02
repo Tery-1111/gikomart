@@ -33,15 +33,10 @@ const SCAM_PATTERNS = [
   /\bpaypal\s*gift/i,
 ];
 
-function checkListing(listingFields) {
-  const haystack = [
-    listingFields.title,
-    listingFields.description,
-    listingFields.sellerName,
-    listingFields.category,
-    listingFields.location,
-  ].filter(Boolean).join(' ');
-
+// Shared pattern runner: tests one already-built haystack against every flagged
+// and scam pattern and returns the canonical moderation result shape. Both
+// checkListing and checkStore funnel through here so the two never drift.
+function runPatterns(haystack) {
   const matches = [];
   for (const re of [...FLAGGED_PATTERNS, ...SCAM_PATTERNS]) {
     if (re.test(haystack)) {
@@ -55,4 +50,41 @@ function checkListing(listingFields) {
   };
 }
 
-module.exports = { checkListing, FLAGGED_PATTERNS, SCAM_PATTERNS };
+function checkListing(listingFields) {
+  const haystack = [
+    listingFields.title,
+    listingFields.description,
+    listingFields.sellerName,
+    listingFields.category,
+    listingFields.location,
+  ].filter(Boolean).join(' ');
+
+  return runPatterns(haystack);
+}
+
+// Store counterpart of checkListing: same normalization and runner, over the
+// free-text store fields. Array fields (subcategories, payment_methods) are
+// flattened with a single space; non-string and missing values are dropped so
+// a malformed document can never throw here.
+function checkStore(storeFields) {
+  const fields = storeFields || {};
+  const haystack = [
+    fields.name,
+    fields.description,
+    fields.category,
+    fields.subcategories,
+    fields.location,
+    fields.pickup_location,
+    fields.opening_hours,
+    fields.closing_hours,
+    fields.open_days,
+    fields.payment_methods,
+  ]
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .filter((value) => typeof value === 'string' && value)
+    .join(' ');
+
+  return runPatterns(haystack);
+}
+
+module.exports = { checkListing, checkStore, FLAGGED_PATTERNS, SCAM_PATTERNS };

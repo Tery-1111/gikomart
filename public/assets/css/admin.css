@@ -1,0 +1,133 @@
+:root {
+  --ink: #2B2B2B;
+  --cream: #FFF8EE;
+  --teal: #0B6E6E;
+  --marigold: #FF9F1C;
+  --border: #EEE3D4;
+  --danger: #dc3545;
+  --success: #1D9A4A;
+  --ink-soft: #6B6660;
+  --white: #FFFFFF;
+  --radius: 14px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--cream);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+}
+
+.bar h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h2 { font-size: 16px; }
+
+form { max-width: 420px; }
+
+label { display: block; margin: 12px 0 4px; color: var(--ink-soft); }
+
+input,
+select {
+  width: 100%;
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink);
+}
+
+button {
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tab { margin: 8px 6px 8px 0; }
+
+.tab.active {
+  background: var(--teal);
+  color: var(--white);
+  border-color: var(--teal);
+}
+
+#loginMsg,
+#viewMsg {
+  margin: 12px 0;
+  color: var(--ink-soft);
+}
+
+#loginMsg.error,
+#viewMsg.error {
+  color: var(--danger);
+}
+
+#viewBody { margin-top: 12px; }
+
+.scroll { width: 100%; overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+td,
+th {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+#metrics,
+#healthList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.metric,
+#healthList > div {
+  padding: 12px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.metric dt,
+#healthList dt {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.metric dd,
+#healthList dd {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}

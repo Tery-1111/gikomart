@@ -29,6 +29,8 @@ const h = {
   stores: new Map(),
   listings: [],
   admins: new Map(),
+  blocks: [],
+  reports: [],
 };
 
 function makeDoc(obj) {
@@ -71,12 +73,40 @@ function matchesFilter(doc, filter = {}) {
       if (v.$ne !== undefined && doc[k] === v.$ne) return false;
       if (v.$lte !== undefined && !(doc[k] && new Date(doc[k]) <= new Date(v.$lte))) return false;
       if (v.$lt !== undefined && !(doc[k] && new Date(doc[k]) < new Date(v.$lt))) return false;
+      if (v.$gte !== undefined && !(doc[k] && new Date(doc[k]) >= new Date(v.$gte))) return false;
       if (v.$regex !== undefined && !new RegExp(v.$regex, v.$options || '').test(String(doc[k] ?? ''))) return false;
     } else if (String(doc[k] ?? '') !== String(v ?? '')) {
       return false;
     }
   }
   return true;
+}
+
+// Bounded matcher for the Store findOne `_id` key: plain equality, $ne, $nin,
+// $in. For $ne/$nin a MISSING stored id passes, mirroring MongoDB.
+function matchesStoreId(storedId, expected) {
+  if (expected === undefined) return true;
+  if (expected !== null && typeof expected === 'object') {
+    if (expected.$ne !== undefined && String(storedId) === String(expected.$ne)) return false;
+    if (expected.$nin !== undefined && expected.$nin.some((v) => String(v) === String(storedId))) return false;
+    if (expected.$in !== undefined && !expected.$in.some((v) => String(v) === String(storedId))) return false;
+    return true;
+  }
+  return String(storedId) === String(expected);
+}
+
+// Bounded matcher for the Store moderationStatus filter. The public store route
+// uses plain equality or $nin; $in/$ne are supported for parity. For $nin and
+// $ne a MISSING field passes, mirroring MongoDB.
+function matchesModFilter(doc, expected) {
+  if (expected === undefined) return true;
+  if (expected !== null && typeof expected === 'object') {
+    if (expected.$nin !== undefined && expected.$nin.includes(doc.moderationStatus)) return false;
+    if (expected.$in !== undefined && !expected.$in.includes(doc.moderationStatus)) return false;
+    if (expected.$ne !== undefined && doc.moderationStatus === expected.$ne) return false;
+    return true;
+  }
+  return doc.moderationStatus === expected;
 }
 
 // ── Listing fake (chainable query builder covering every call shape used) ──
@@ -118,6 +148,25 @@ const fakeListingModel = {
   findOne: async (filter = {}) => {
     if (filter.paymentId != null) {
       return h.listings.find(l => String(l.paymentId) === String(filter.paymentId)) || null;
+    }
+    // Visibility-filter lookup (no paymentId): match the seeded listing by _id,
+    // then apply every remaining key. Supports plain equality plus $in / $nin /
+    // $ne only — the real visibility filter uses plain equality for all keys.
+    if (filter._id !== undefined) {
+      const doc = h.listings.find(l => String(l._id) === String(filter._id));
+      if (!doc) return null;
+      for (const [key, expected] of Object.entries(filter)) {
+        if (key === '_id') continue;
+        const actual = doc[key];
+        if (expected !== null && typeof expected === 'object') {
+          if (expected.$in !== undefined && !expected.$in.includes(actual)) return null;
+          if (expected.$nin !== undefined && expected.$nin.includes(actual)) return null;
+          if (expected.$ne !== undefined && actual === expected.$ne) return null;
+        } else if (actual !== expected) {
+          return null;
+        }
+      }
+      return doc;
     }
     return null;
   },
@@ -211,10 +260,11 @@ const fakeStoreModel = {
         return null;
       }
       for (const s of h.stores.values()) {
+        const idOk = matchesStoreId(s._id, filter._id);
         const slugOk = filter.slug === undefined || s.slug === filter.slug;
         const statusOk = !(filter.status && filter.status.$ne) || s.status !== filter.status.$ne;
-        const modOk = !(filter.moderationStatus && filter.moderationStatus.$ne) || s.moderationStatus !== filter.moderationStatus.$ne;
-        if (slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
+        const modOk = matchesModFilter(s, filter.moderationStatus);
+        if (idOk && slugOk && statusOk && modOk) { const view = { ...s }; if (!includeHash) delete view.ownerTokenHash; return view; }
       }
       return null;
     };
@@ -242,6 +292,7 @@ const fakeStoreModel = {
     return doc;
   },
   deleteOne: (filter) => chainableResult({ deletedCount: h.stores.delete(String(filter._id)) ? 1 : 0 }),
+  countDocuments: async () => 0,
 };
 
 // ── Payment fake (findOneAndUpdate emulates the webhook's atomic claim) ──
@@ -278,6 +329,8 @@ const fakePaymentModel = {
     Object.assign(p, update);
     return p;
   },
+  countDocuments: async () => 0,
+  aggregate: async () => [],
 };
 
 // ── Remaining fakes ──
@@ -343,6 +396,108 @@ const fakeAuditEvent = {
   },
 };
 
+// ── Blocked contacts (Phase 5A) — create / findOne / find / findByIdAndDelete ──
+const fakeBlockedContactModel = {
+  create: async (data) => {
+    if (h.blocks.some((b) => b.contactHash === data.contactHash)) {
+      const dup = new Error('E11000 duplicate key error');
+      dup.code = 11000;
+      dup.keyPattern = { contactHash: 1 };
+      throw dup;
+    }
+    const doc = makeDoc({ _id: `6500000000000000000000${String(h.blocks.length + 1).padStart(2, '0')}`, sourceId: null, ...data });
+    h.blocks.push(doc);
+    return doc;
+  },
+  findOne: async (filter = {}) => {
+    if (filter.contactHash === undefined) return null;
+    const expected = filter.contactHash;
+    const match = h.blocks.find((b) => {
+      if (expected !== null && typeof expected === 'object') {
+        if (expected.$in !== undefined) return expected.$in.includes(b.contactHash);
+        return false;
+      }
+      return b.contactHash === expected;
+    });
+    return match ? { ...match } : null;
+  },
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = h.blocks.filter((b) => matchesFilter(b, filter));
+        if (state.sort && state.sort.createdAt === -1) {
+          out = [...out].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map((b) => ({ ...b }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
+  findByIdAndDelete: async (id) => {
+    const i = h.blocks.findIndex((b) => String(b._id) === String(id));
+    if (i === -1) return null;
+    return h.blocks.splice(i, 1)[0];
+  },
+  countDocuments: async () => 0,
+};
+
+// ── Reports (Phase 5B) — create / findOne / find / findById / findByIdAndUpdate ──
+// Matches on plain equality plus $gte/$lte on createdAt (the 24h dedupe window).
+const fakeReportModel = {
+  create: async (data) => {
+    const doc = makeDoc({
+      _id: `6500000000000000000000${String(h.reports.length + 1).padStart(2, '0')}`,
+      details: '',
+      reporterIp: null,
+      status: 'open',
+      moderationAction: null,
+      resolvedAt: null,
+      resolvedBy: null,
+      note: '',
+      createdAt: new Date(),
+      ...data,
+    });
+    h.reports.push(doc);
+    return doc;
+  },
+  findOne: async (filter = {}) => {
+    const match = h.reports.find((r) => matchesFilter(r, filter));
+    return match ? { ...match } : null;
+  },
+  find: (filter = {}) => {
+    const state = { filter };
+    const builder = {
+      sort: (s) => { state.sort = s; return builder; },
+      limit: (n) => { state.limit = n; return builder; },
+      lean: async () => {
+        let out = h.reports.filter((r) => matchesFilter(r, filter));
+        if (state.sort && state.sort.createdAt === -1) {
+          out = [...out].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (state.limit) out = out.slice(0, state.limit);
+        return out.map((r) => ({ ...r }));
+      },
+      then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
+      catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
+    };
+    return builder;
+  },
+  findById: (id) => selectableDoc(h.reports.find((r) => String(r._id) === String(id)) || null),
+  findByIdAndUpdate: async (id, update) => {
+    const doc = h.reports.find((r) => String(r._id) === String(id));
+    if (!doc) return null;
+    Object.assign(doc, update);
+    return doc;
+  },
+  countDocuments: async () => 0,
+};
+
 // ── require.cache injection (must precede importing server.js) ──
 function injectModule(relPath, exportsObj) {
   const resolved = resolveFromTests(relPath);
@@ -358,6 +513,8 @@ injectModule('../src/services/whatsappService.js', fakeWhatsappService);
 injectModule('../src/config/cloudinary.js', fakeCloudinary);
 injectModule('../src/config/logger.js', fakeLogger);
 injectModule('../src/models/AuditEvent.js', fakeAuditEvent);
+injectModule('../src/models/BlockedContact.js', fakeBlockedContactModel);
+injectModule('../src/models/Report.js', fakeReportModel);
 
 // ── Transparent sharp wrapper for the decode-concurrency test. While tracking
 // is off it is the real sharp, so every other test is unaffected.
@@ -394,6 +551,7 @@ injectModule('../src/middleware/rateLimiter.js', {
   uploadLimiter: (req, _res, next) => next(),
   paymentLimiter: (req, _res, next) => next(),
   listingCreateLimiter: (req, _res, next) => next(),
+  reportLimiter: (req, _res, next) => next(),
   adminLimiter: (req, _res, next) => next(),
 });
 
@@ -408,6 +566,8 @@ beforeEach(() => {
   h.stores.clear();
   h.listings.length = 0;
   h.admins.clear();
+  h.blocks.length = 0;
+  h.reports.length = 0;
   broadcastListing.mockClear();
   cloudinaryUpload.mockClear();
   cloudinaryDestroy.mockClear();
@@ -1055,6 +1215,36 @@ describe('Admin 2FA (real speakeasy) and moderation auth', () => {
   });
 });
 
+// ─── Admin health route ─────────────────────────────────────────────────────
+describe('Admin health route', () => {
+  it('GET /api/admin/health without a session → 401 Admin 2FA required', async () => {
+    const res = await request(app).get('/api/admin/health');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, error: 'Admin 2FA required' });
+  });
+});
+
+// ─── Admin metrics route ────────────────────────────────────────────────────
+describe('Admin metrics route', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  it('GET /api/admin/metrics without a session → 401 Admin 2FA required', async () => {
+    const res = await request(app).get('/api/admin/metrics');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, error: 'Admin 2FA required' });
+  });
+
+  it('GET /api/admin/metrics with a session → 200 with the metric groups', async () => {
+    const res = await request(app).get('/api/admin/metrics').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    for (const key of ['generatedAt', 'listings', 'stores', 'payments', 'revenue', 'reports', 'blocks']) {
+      expect(res.body).toHaveProperty(key);
+    }
+  });
+});
+
 // ─── Upload validation ──────────────────────────────────────────────────────
 describe('POST /api/upload — magic-byte and processing validation', () => {
   it('400 when the bytes are not a real image (Content-Type lie rejected)', async () => {
@@ -1296,7 +1486,7 @@ describe('Payment error UX (Task 2)', () => {
 
   beforeEach(() => {
     // initiateBoost looks the listing up through the injected Listing model.
-    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false }));
+    h.listings.push(makeDoc({ _id: 'lst-plain', title: 'Regular item', boostType: null, featured: false, ownerTokenHash: sha256hex('boost-owner-token') }));
   });
 
   // The 503 body must be exactly the fixed message plus the request ID, with
@@ -1353,15 +1543,80 @@ describe('Payment error UX (Task 2)', () => {
   });
 
   it('initiate-boost 503 on IntaSend failure', async () => {
-    const res = await request(app).post('/api/payments/boost').send({
-      listingId: 'lst-plain',
-      phoneNumber: '0700000000',
-      boostType: 'featured',
-    });
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', 'boost-owner-token')
+      .send({
+        listingId: 'lst-plain',
+        phoneNumber: '0700000000',
+        boostType: 'featured',
+      });
 
     expect(res.status).toBe(503);
     expectFixedErrorBody(res.body);
     expect(res.headers['x-request-id']).toBeTruthy();
+  });
+});
+
+// ─── Phase 2, Step 3: owner-only boost ──────────────────────────────────────
+describe('Payment boost — owner-only', () => {
+  const BOOST_OWNER_TOKEN = 'boost-owner-token';
+  const boostBody = (overrides = {}) => ({
+    listingId: 'lst-owned',
+    phoneNumber: '0700000000',
+    boostType: 'featured',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    h.listings.push(makeDoc({
+      _id: 'lst-owned', title: 'Owned item', boostType: null, featured: false,
+      ownerTokenHash: sha256hex(BOOST_OWNER_TOKEN),
+    }));
+  });
+
+  it('403 without an X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost').send(boostBody());
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+
+  it('403 with a wrong X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', 'wrong-token')
+      .send(boostBody());
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'Not authorized' });
+  });
+
+  it('reaches the provider (503 shape) with the correct X-Owner-Token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', BOOST_OWNER_TOKEN)
+      .send(boostBody());
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({
+      error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
+      requestId: expect.any(String),
+    });
+  });
+
+  it('404 for a nonexistent listing even with a token', async () => {
+    const res = await request(app).post('/api/payments/boost')
+      .set('X-Owner-Token', BOOST_OWNER_TOKEN)
+      .send(boostBody({ listingId: 'nope' }));
+    expect(res.status).toBe(404);
+  });
+
+  it('unit: isOwnerOrAdmin is true for a matching token hash and false for a mismatch', async () => {
+    const { isOwnerOrAdmin } = require('../src/middleware/listingAuth');
+    const listing = { ownerTokenHash: sha256hex('raw-token') };
+    const fakeReq = (token) => ({ get: (h) => (h === 'X-Owner-Token' ? token : undefined), headers: {} });
+
+    const ok = await isOwnerOrAdmin(fakeReq('raw-token'), listing);
+    expect(ok.authorized).toBe(true);
+    expect(ok.credential).toBe('owner');
+
+    const bad = await isOwnerOrAdmin(fakeReq('not-the-token'), listing);
+    expect(bad.authorized).toBe(false);
   });
 });
 
@@ -1736,5 +1991,1154 @@ describe('CSP analytics origins', () => {
     // Primary path: the script itself, and the POST beacon it sends.
     expect(directive(csp, 'script-src')).toContain('gc.zgo.at');
     expect(directive(csp, 'connect-src')).toContain('https://gikomart.goatcounter.com');
+  });
+});
+
+// ─── Client IP: bounded trust proxy (a spoofed leftmost XFF is ignored) ──────
+describe('Client IP — bounded trust proxy', () => {
+  it('sets a numeric trust proxy bound (1), never the boolean true', () => {
+    expect(app.get('trust proxy')).toBe(1);
+    expect(app.get('trust proxy')).not.toBe(true);
+  });
+
+  it('records the trusted client IP and ignores a spoofed leftmost X-Forwarded-For', async () => {
+    const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+    // The contact-release path now looks the listing up by its visibility
+    // filter, so seed the listing whose id this request sends.
+    h.listings.push(makeDoc({
+      _id: '650000000000000000000042',
+      title: 'Vintage Calculator',
+      status: 'active',
+      moderationStatus: 'approved',
+      sellerWhatsapp: '0712222222',
+    }));
+    const captured = [];
+    const original = fakeTermsModel.create;
+    fakeTermsModel.create = async (data) => {
+      captured.push(data);
+      return makeDoc({ _id: 'ta-ip', ...data });
+    };
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .set('X-Forwarded-For', '198.51.100.1, 203.0.113.7')
+        .send({
+          acceptance: {
+            accepted: true,
+            gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+            buyerTermsVersion: TERMS_VERSIONS.BUYER_TERMS,
+            action: 'CONTINUE_AND_CONTACT_SELLER',
+          },
+          listingId: '650000000000000000000042',
+          sellerWhatsapp: '0712222222',
+          listingTitle: 'Vintage Calculator',
+        });
+
+      expect(res.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].actor.ip).toBe('203.0.113.7');
+      expect(captured[0].actor.ip).not.toBe('198.51.100.1');
+    } finally {
+      fakeTermsModel.create = original;
+    }
+  });
+});
+
+// ─── Input length caps (Step 3) ─────────────────────────────────────────────
+describe('Input length caps — server-side enforcement', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const listingAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+  });
+  const listingBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    acceptance: listingAcceptance(),
+    website: '',
+    listingData: {
+      title: 'Test Book',
+      category: 'Books',
+      condition: 'Good',
+      price: 500,
+      description: 'Used calc textbook',
+      sellerName: 'Jane',
+      sellerWhatsapp: '0711111111',
+      location: 'Egerton',
+      images: [],
+      ...overrides,
+    },
+  });
+
+  it('initiate-listing with a 5000-character title returns 400 naming title', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ title: 'x'.repeat(5000) }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/title/);
+  });
+
+  it('initiate-listing with a title of exactly 120 characters is not rejected for length', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ title: 'x'.repeat(120) }));
+    expect(res.status).not.toBe(400);
+    expect(res.body.error || '').not.toMatch(/title/);
+  });
+
+  it('initiate-listing with 7 images returns 400 naming images', async () => {
+    const images = Array.from({ length: 7 }, (_, i) => `https://res.cloudinary.com/demo/image/upload/v1/gikomart/${i}.jpg`);
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ images }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/images/);
+  });
+
+  it('PUT /api/listings/:id with an over-cap description (valid owner token) returns 400', async () => {
+    const OWNER_TOKEN = 'limit-owner-token';
+    h.listings.push(makeDoc({
+      _id: 'lst-limit', title: 'Widget', condition: 'Good', images: [],
+      ownerTokenHash: sha256hex(OWNER_TOKEN), status: 'active', moderationStatus: 'approved',
+    }));
+    const res = await request(app)
+      .put('/api/listings/lst-limit')
+      .set('X-Owner-Token', OWNER_TOKEN)
+      .send({ description: 'x'.repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/description/);
+  });
+
+  it('PUT /api/stores/:id with an over-cap name (valid store token) returns 400', async () => {
+    const OWNER_TOKEN = 'limit-store-token';
+    const store = await fakeStoreModel.create({
+      name: 'Limit Shop', slug: 'limit-shop', category: 'Books',
+      ownerTokenHash: sha256hex(OWNER_TOKEN),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    });
+    const res = await request(app)
+      .put(`/api/stores/${store._id}`)
+      .set('X-Store-Owner-Token', OWNER_TOKEN)
+      .send({ name: 'n'.repeat(101) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/name/);
+  });
+});
+
+// ─── Phase 2, Step 1: reject store_id at listing creation ────────────────────
+describe('initiate-listing rejects store_id (attach after publish)', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const listingBody = (listingData) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    website: '',
+    acceptance: {
+      accepted: true,
+      gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+      sellerTermsVersion: TERMS_VERSIONS.SELLER_TERMS,
+    },
+    listingData: {
+      title: 'Test Book',
+      category: 'Books',
+      condition: 'Good',
+      price: 500,
+      description: 'Used calc textbook',
+      sellerName: 'Jane',
+      sellerWhatsapp: '0711111111',
+      location: 'Egerton',
+      images: [],
+      ...listingData,
+    },
+  });
+
+  it('rejects a valid-looking ObjectId store_id with 400 naming store_id and creates no Payment', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: '650000000000000000000042' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/store_id/);
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('rejects a numeric store_id with 400', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: 42 }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/store_id/);
+  });
+
+  it('accepts a listing with no store_id (proceeds past validation)', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({}));
+    expect(res.status).not.toBe(400);
+  });
+
+  it('accepts store_id "" (treated as standalone)', async () => {
+    const res = await request(app)
+      .post('/api/payments/initiate-listing')
+      .send(listingBody({ store_id: '' }));
+    expect(res.status).not.toBe(400);
+  });
+});
+
+// ─── Phase 2, Step 2: store_id forced null at payment completion ─────────────
+describe('webhook creation forces store_id null', () => {
+  it('ignores a stored store_id and creates the listing standalone', async () => {
+    const p = listingPayment();
+    p.listingData = { ...p.listingData, store_id: '650000000000000000000042' };
+    h.payments.push(makeDoc(p));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+
+  it('creates a listing as before when no store_id is stored', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+    const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
+    expect(res.status).toBe(200);
+    expect(h.listings).toHaveLength(1);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+});
+
+// ─── Phase 3, Step 2: contact release after a recorded acceptance ────────────
+describe('POST /api/terms/contact-acceptance — releases the stored seller contact', () => {
+  const { TERMS_VERSIONS } = require('../src/config/termsVersions.js');
+  const CONTACT_LISTING_ID = '650000000000000000000042';
+  const SELLER_WA = '0712222222';
+
+  const acceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TERMS_VERSIONS.GIKOMART_TERMS_OF_SERVICE,
+    buyerTermsVersion: TERMS_VERSIONS.BUYER_TERMS,
+    action: 'CONTINUE_AND_CONTACT_SELLER',
+  });
+
+  const seedListing = (overrides = {}) => {
+    h.listings.push(makeDoc({
+      _id: CONTACT_LISTING_ID,
+      title: 'Vintage Calculator',
+      status: 'active',
+      moderationStatus: 'approved',
+      sellerWhatsapp: SELLER_WA,
+      ...overrides,
+    }));
+  };
+
+  // Capture every TermsAcceptance.create payload so the recorded target can be
+  // asserted without the fake projecting fields.
+  function captureAcceptance() {
+    const captured = [];
+    const original = fakeTermsModel.create;
+    fakeTermsModel.create = async (data) => {
+      captured.push(data);
+      return makeDoc({ _id: 'ta-contact', ...data });
+    };
+    return { captured, restore: () => { fakeTermsModel.create = original; } };
+  }
+
+  it('returns the stored sellerWhatsapp with no-store and records the target hash', async () => {
+    seedListing();
+    const cap = captureAcceptance();
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID, listingTitle: 'Vintage Calculator' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.sellerWhatsapp).toBe(SELLER_WA);
+      expect(res.headers['cache-control']).toContain('no-store');
+
+      expect(cap.captured).toHaveLength(1);
+      expect(cap.captured[0].sellerContactTarget.sellerWhatsappHash).toBe(sha256hex(SELLER_WA));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('ignores a sellerWhatsapp supplied in the request body', async () => {
+    seedListing();
+    const cap = captureAcceptance();
+    try {
+      const res = await request(app)
+        .post('/api/terms/contact-acceptance')
+        .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID, sellerWhatsapp: '0799999999' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.sellerWhatsapp).toBe(SELLER_WA);
+      expect(cap.captured[0].sellerContactTarget.sellerWhatsappHash).toBe(sha256hex(SELLER_WA));
+    } finally {
+      cap.restore();
+    }
+  });
+
+  it('404 for a flagged listing, with no sellerWhatsapp in the body', async () => {
+    seedListing({ moderationStatus: 'flagged' });
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('404 for a nonexistent (valid ObjectId) listing', async () => {
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: '650000000000000000000099' });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('404 for a malformed listingId', async () => {
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: 'not-an-object-id' });
+    expect(res.status).toBe(404);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('400 when acceptance is missing, even with a valid listingId, and no sellerWhatsapp', async () => {
+    seedListing();
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(400);
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+
+  it('400 Seller contact unavailable when the listing has an empty sellerWhatsapp', async () => {
+    seedListing({ sellerWhatsapp: '' });
+    const res = await request(app)
+      .post('/api/terms/contact-acceptance')
+      .send({ acceptance: acceptance(), listingId: CONTACT_LISTING_ID });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Seller contact unavailable');
+    expect(res.body.sellerWhatsapp).toBeUndefined();
+  });
+});
+
+// ─── Phase 4, Step 2: moderation on listing edits ───────────────────────────
+describe('Content moderation on listing edits (Phase 4, Step 2)', () => {
+  const OWNER = 'edit-owner-token';
+  const seed = (overrides = {}) => {
+    h.listings.push(makeDoc({
+      _id: 'lst-edit', title: 'Widget', description: 'A plain widget',
+      sellerName: 'Ted', category: 'Electronics', location: 'Njoro',
+      status: 'active', moderationStatus: 'approved',
+      ownerTokenHash: sha256hex(OWNER),
+      ...overrides,
+    }));
+  };
+
+  it('flags a clean listing when the owner adds prohibited text, and hides it publicly', async () => {
+    seed();
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ description: 'Cheap casino tokens' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+    const pub = await request(app).get('/api/listings');
+    expect(pub.body.listings.find((l) => l._id === 'lst-edit')).toBeUndefined();
+  });
+
+  it('keeps moderationStatus approved for a clean edit of a clean listing', async () => {
+    seed();
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Better Widget' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('approved');
+  });
+
+  it('leaves a flagged listing flagged on a clean edit', async () => {
+    seed({ moderationStatus: 'flagged' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Cleaner Widget' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+  });
+
+  it('409 when an owner edits a removed listing, and nothing changes', async () => {
+    seed({ moderationStatus: 'removed', title: 'Original' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'New title' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Listing has been removed and can no longer be edited' });
+    expect(h.listings[0].title).toBe('Original');
+  });
+
+  it('403 (not 409) when a non-owner edits a removed listing', async () => {
+    seed({ moderationStatus: 'removed' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', 'wrong').send({ title: 'New' });
+    expect(res.status).toBe(403);
+  });
+
+  it('flags on a title-only edit when the stored description is prohibited', async () => {
+    seed({ description: 'Totally stolen goods' });
+    const res = await request(app).put('/api/listings/lst-edit').set('X-Owner-Token', OWNER).send({ title: 'Brand New' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].moderationStatus).toBe('flagged');
+  });
+});
+
+// ─── Phase 4, Step 3: moderated store creation + public-read gate ───────────
+describe('Store moderation on creation and public reads (Phase 4, Step 3)', () => {
+  const { createResourceForPayment } = require('../src/controllers/paymentController.js');
+  const storePayment = (storeData) => makeDoc({
+    _id: 'pay-store-1', type: 'store', storePlan: 'starter_weekly',
+    storeData, ownerTokenHash: 'c'.repeat(64),
+  });
+  const seedStore = (overrides) => fakeStoreModel.create({
+    name: 'Shop', slug: 'shop', category: 'Books', ownerTokenHash: sha256hex('t'),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(), status: 'active',
+    ...overrides,
+  });
+
+  it('flags a store payment whose storeData name matches the blocklist', async () => {
+    const { doc } = await createResourceForPayment(storePayment({ name: 'Casino Supplies', slug: 'casino-supplies', category: 'Books' }));
+    expect(doc.moderationStatus).toBe('flagged');
+  });
+
+  it('approves a clean store payment', async () => {
+    const { doc } = await createResourceForPayment(storePayment({ name: 'Clean Shop', slug: 'clean-shop', category: 'Books' }));
+    expect(doc.moderationStatus).toBe('approved');
+  });
+
+  it('GET /stores/slug/:slug → 404 for a flagged store', async () => {
+    await seedStore({ slug: 'flagged-shop', moderationStatus: 'flagged' });
+    const res = await request(app).get('/api/stores/slug/flagged-shop');
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /stores/slug/:slug → 200 for an approved store', async () => {
+    await seedStore({ slug: 'approved-shop', moderationStatus: 'approved' });
+    const res = await request(app).get('/api/stores/slug/approved-shop');
+    expect(res.status).toBe(200);
+  });
+
+  it('GET /stores/slug/:slug → 200 for a store with no moderationStatus field', async () => {
+    await seedStore({ slug: 'no-mod-shop' });
+    const res = await request(app).get('/api/stores/slug/no-mod-shop');
+    expect(res.status).toBe(200);
+  });
+
+  it('a flagged store is still readable by its owner but hidden publicly', async () => {
+    await fakeStoreModel.create({
+      _id: 'sto-flag-owner', name: 'F', slug: 'owner-flag', category: 'Books',
+      moderationStatus: 'flagged', ownerTokenHash: sha256hex('owner-flag-token'),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(), status: 'active',
+    });
+    const pub = await request(app).get('/api/stores/slug/owner-flag');
+    expect(pub.status).toBe(404);
+
+    const byId = await request(app).get('/api/stores/sto-flag-owner').set('X-Store-Owner-Token', 'owner-flag-token');
+    expect(byId.status).toBe(200);
+
+    const mine = await request(app).get('/api/stores/me/all').set('X-Store-Owner-Token', 'owner-flag-token');
+    expect(mine.status).toBe(200);
+    expect(mine.body.stores.map((s) => s.slug)).toContain('owner-flag');
+  });
+});
+
+// ─── Phase 4, Step 4: store edits + attach guard ────────────────────────────
+describe('Store edits and attach guard (Phase 4, Step 4)', () => {
+  const OWNER = 'raw-owner-token';
+  const seedStore = (overrides = {}) => fakeStoreModel.create({
+    name: 'My Shop', slug: 'my-shop', category: 'Books',
+    ownerTokenHash: sha256hex(OWNER),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    ...overrides,
+  });
+
+  it('flags a store when the owner adds prohibited text, and hides it publicly', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens available' });
+    expect(res.status).toBe(200);
+    expect(h.stores.get('sto-1').moderationStatus).toBe('flagged');
+
+    const pub = await request(app).get('/api/stores/slug/my-shop');
+    expect(pub.status).toBe(404);
+  });
+
+  it('leaves a flagged store flagged on a clean edit', async () => {
+    await seedStore({ moderationStatus: 'flagged' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'A perfectly clean description' });
+    expect(res.status).toBe(200);
+    expect(h.stores.get('sto-1').moderationStatus).toBe('flagged');
+  });
+
+  it('still rejects a suspended store PUT via storeAuth with 403 (regression)', async () => {
+    await seedStore({ status: 'suspended' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Anything' });
+    expect(res.status).toBe(403);
+  });
+
+  it('409 when the owner edits a removed (but active) store, and nothing changes', async () => {
+    await seedStore({ moderationStatus: 'removed', name: 'Original Name' });
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ name: 'New Name' });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ success: false, error: 'Store has been removed and can no longer be edited' });
+    expect(h.stores.get('sto-1').name).toBe('Original Name');
+  });
+
+  it('attach-listing rejects a removed listing with 409 and leaves store_id unchanged', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-removed', store_id: null, moderationStatus: 'removed',
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000),
+    }));
+    const res = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-removed' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('Removed listings cannot be attached to a store');
+    expect(h.listings[0].store_id).toBeNull();
+  });
+
+  it('attach-listing still succeeds for an active listing with no moderationStatus field', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-ok', store_id: null,
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000),
+    }));
+    const res = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-ok' });
+    expect(res.status).toBe(200);
+    expect(String(h.listings[0].store_id)).toBe('sto-1');
+  });
+
+  it('detach-listing still succeeds for a removed listing', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-det-removed', store_id: 'sto-1', moderationStatus: 'removed',
+      ownerTokenHash: sha256hex('listing-owner-token'), expiresAt: new Date(Date.now() + 86400000), status: 'active',
+    }));
+    const res = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', OWNER).set('X-Owner-Token', 'listing-owner-token')
+      .send({ listingId: 'lst-det-removed' });
+    expect(res.status).toBe(200);
+    expect(h.listings[0].store_id).toBeNull();
+  });
+});
+
+// ─── Phase 5A, Step 1: hidden-store inventory gate ─────────────────────────
+describe('GET /api/listings?store_id — hidden-store inventory gate (Phase 5A, Step 1)', () => {
+  const STORE_ID = '6500000000000000000000aa';
+  const seedStoreAndListings = async (storeFields = {}) => {
+    const store = await fakeStoreModel.create({
+      _id: STORE_ID,
+      name: 'Inv Shop', slug: 'inv-shop', category: 'Books',
+      ownerTokenHash: sha256hex('inv-owner-token'),
+      plan: 'starter_weekly', plan_price: 150, plan_duration: 1, listing_limit: 5,
+      started_at: new Date(), expires_at: new Date(), status: 'active',
+      ...storeFields,
+    });
+    h.listings.push(makeDoc({
+      _id: 'lst-inv-1', store_id: String(store._id), title: 'In store',
+      status: 'active', moderationStatus: 'approved',
+    }));
+    return store;
+  };
+
+  it('returns the store listings for an active approved store', async () => {
+    await seedStoreAndListings({ moderationStatus: 'approved' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.listings.map((l) => l._id)).toEqual(['lst-inv-1']);
+  });
+
+  it('returns an empty list and count 0 for a flagged store, status 200', async () => {
+    await seedStoreAndListings({ moderationStatus: 'flagged' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body.count).toBe(0);
+  });
+
+  it('returns an empty list for a removed store', async () => {
+    await seedStoreAndListings({ moderationStatus: 'removed' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+  });
+
+  it('returns an empty list for a suspended store', async () => {
+    await seedStoreAndListings({ status: 'suspended' });
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+  });
+
+  it('returns an empty list for a nonexistent valid ObjectId, status 200', async () => {
+    const res = await request(app).get('/api/listings?store_id=650000000000000000000099');
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body.count).toBe(0);
+  });
+
+  it('returns an empty list for a malformed store id, status 200, no error', async () => {
+    const res = await request(app).get('/api/listings?store_id=not-an-id');
+    expect(res.status).toBe(200);
+    expect(res.body.listings).toEqual([]);
+    expect(res.body).not.toHaveProperty('error');
+  });
+
+  it('returns listings for a store with no moderationStatus field', async () => {
+    await seedStoreAndListings();
+    const res = await request(app).get(`/api/listings?store_id=${STORE_ID}`);
+    expect(res.status).toBe(200);
+    expect(res.body.listings.map((l) => l._id)).toEqual(['lst-inv-1']);
+  });
+
+  it('never calls Store.findOne when no store_id is given', async () => {
+    const spy = vi.spyOn(fakeStoreModel, 'findOne');
+    try {
+      const res = await request(app).get('/api/listings');
+      expect(res.status).toBe(200);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+// ─── Phase 5A, Step 2: admin seller block list ──────────────────────────────
+describe('Admin blocked contacts (Phase 5A, Step 2)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const auth = (r) => r.set('X-Admin-Session', session());
+  const HEX64 = /[0-9a-f]{64}/;
+
+  const blockPhone = (phone, reason = 'spam') => auth(request(app).post('/api/admin/blocks'))
+    .send({ sourceType: 'phone', phone, reason });
+
+  it('POST /api/admin/blocks without an admin session is rejected as GET /audit-logs is', async () => {
+    const blocked = await request(app).post('/api/admin/blocks')
+      .send({ sourceType: 'phone', phone: '0712222222', reason: 'spam' });
+    expect(blocked.status).toBe(401);
+    const logs = await request(app).get('/api/admin/audit-logs');
+    expect(logs.status).toBe(401);
+  });
+
+  it('blocks a phone number: 201, created 1, no digits or hash in the response', async () => {
+    const res = await blockPhone('0712222222');
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ success: true, created: 1, alreadyBlocked: 0 });
+    const body = JSON.stringify(res.body);
+    expect(body).not.toContain('712222222');
+    expect(body).not.toMatch(HEX64);
+  });
+
+  it('is idempotent across formats: same number again returns created 0, alreadyBlocked 1', async () => {
+    await blockPhone('0712222222');
+    const res = await blockPhone('+254712222222');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, created: 0, alreadyBlocked: 1 });
+  });
+
+  it('blocks a listing seller by listing id', async () => {
+    h.listings.push(makeDoc({ _id: '6500000000000000000000bb', sellerWhatsapp: '0712222222' }));
+    const res = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: '6500000000000000000000bb', reason: 'fraud' });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(1);
+    expect(h.blocks).toHaveLength(1);
+  });
+
+  it('blocks a store phone and whatsapp (two numbers -> created 2)', async () => {
+    await fakeStoreModel.create({
+      _id: '6500000000000000000000cc', name: 'S', slug: 's', category: 'Books',
+      phone: '0700000000', whatsapp: '0711111111',
+    });
+    const res = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'store', sourceId: '6500000000000000000000cc', reason: 'fraud' });
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(2);
+    expect(h.blocks).toHaveLength(2);
+  });
+
+  it('404 for an unknown listing id; 400 for a malformed id', async () => {
+    const missing = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: '650000000000000000000099', reason: 'x' });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error).toBe('Listing not found');
+
+    const malformed = await auth(request(app).post('/api/admin/blocks'))
+      .send({ sourceType: 'listing', sourceId: 'not-an-id', reason: 'x' });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toBe('Invalid block request');
+  });
+
+  it('400 for a reason longer than 200 characters', async () => {
+    const res = await blockPhone('0712222222', 'x'.repeat(201));
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/admin/blocks returns entries without any contactHash field', async () => {
+    await blockPhone('0712222222');
+    const res = await auth(request(app).get('/api/admin/blocks'));
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.blocks[0]).toMatchObject({ sourceType: 'phone', reason: 'spam' });
+    expect(res.body.blocks[0]).not.toHaveProperty('contactHash');
+    expect(JSON.stringify(res.body)).not.toMatch(HEX64);
+  });
+
+  it('DELETE /api/admin/blocks/:id removes it; a second DELETE returns 404', async () => {
+    await blockPhone('0712222222');
+    const id = h.blocks[0]._id;
+    const del = await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    expect(del.status).toBe(200);
+    expect(h.blocks).toHaveLength(0);
+
+    const again = await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    expect(again.status).toBe(404);
+  });
+
+  it('emits admin.block_added and admin.block_removed with no phone digits in metadata', async () => {
+    await blockPhone('0712222222');
+    const id = h.blocks[0]._id;
+    await auth(request(app).delete(`/api/admin/blocks/${id}`));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const added = auditEvents.find((e) => e.action === 'admin.block_added');
+    const removed = auditEvents.find((e) => e.action === 'admin.block_removed');
+    expect(added).toBeTruthy();
+    expect(removed).toBeTruthy();
+    expect(JSON.stringify(added.metadata)).not.toContain('712222222');
+    expect(JSON.stringify(removed.metadata)).not.toContain('712222222');
+  });
+});
+
+// ─── Phase 5A, Step 3: refuse payment initiation for blocked contacts ───────
+describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () => {
+  const TV = require('../src/config/termsVersions.js').TERMS_VERSIONS;
+  const { contactHash: hashContact } = require('../src/utils/phone.js');
+
+  const listingAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TV.GIKOMART_TERMS_OF_SERVICE,
+    sellerTermsVersion: TV.SELLER_TERMS,
+  });
+  const storeAcceptance = () => ({
+    accepted: true,
+    gikomartTermsVersion: TV.GIKOMART_TERMS_OF_SERVICE,
+    storeOwnerTermsVersion: TV.STORE_OWNER_TERMS,
+  });
+
+  const listingBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    package: 'quick',
+    acceptance: listingAcceptance(),
+    website: '',
+    listingData: {
+      title: 'Test Book', category: 'Books', condition: 'Good', price: 500,
+      description: 'Used calc textbook', sellerName: 'Jane',
+      sellerWhatsapp: '0711111111', location: 'Egerton', images: [],
+      ...overrides,
+    },
+  });
+
+  const storeBody = (overrides = {}) => ({
+    phoneNumber: '0700000000',
+    storePlan: 'starter_weekly',
+    acceptance: storeAcceptance(),
+    website: '',
+    storeData: {
+      name: 'Shop1', category: 'Books', description: '', phone: '0700000000',
+      whatsapp: '0711111111', email: '', location: 'Egerton',
+      ...overrides,
+    },
+  });
+
+  const blockNumber = (raw) => {
+    h.blocks.push(makeDoc({
+      contactHash: hashContact(raw), sourceType: 'phone', sourceId: null,
+      reason: 'x', createdBy: 'admin:owner',
+    }));
+  };
+
+  it('403 with the exact error and no Payment when the seller number is blocked', async () => {
+    blockNumber('0712222222');
+    const res = await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: '+254 712 222 222' }));
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'This number cannot be used on GikoMart' });
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('403 when only the payer phoneNumber is blocked', async () => {
+    blockNumber('0700000000');
+    const res = await request(app).post('/api/payments/initiate-listing').send(listingBody());
+    expect(res.status).toBe(403);
+  });
+
+  it('initiate-store-plan: 403 when only storeData.whatsapp is blocked', async () => {
+    blockNumber('0711111111');
+    const res = await request(app).post('/api/payments/initiate-store-plan').send(storeBody());
+    expect(res.status).toBe(403);
+    expect(h.payments).toHaveLength(0);
+  });
+
+  it('initiate-store-plan: 403 when only storeData.phone is blocked', async () => {
+    blockNumber('0700000000'); // the storeData.phone value
+    const body = storeBody({ whatsapp: '0722222222' });
+    body.phoneNumber = '0733333333';
+    const res = await request(app).post('/api/payments/initiate-store-plan').send(body);
+    expect(res.status).toBe(403);
+  });
+
+  it('initiate-listing with no blocked number is not rejected with 403', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing').send(listingBody());
+    expect(res.status).not.toBe(403);
+    expect(res.body.error || '').not.toMatch(/cannot be used/i);
+  });
+
+  it('initiate-listing with an unparseable sellerWhatsapp is not 403 on that basis', async () => {
+    const res = await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: 'abc' }));
+    expect(res.status).not.toBe(403);
+    expect(res.body.error || '').not.toMatch(/cannot be used/i);
+  });
+
+  it('emits payment.blocked_contact with only the route key and no phone digits', async () => {
+    blockNumber('0712222222');
+    await request(app).post('/api/payments/initiate-listing')
+      .send(listingBody({ sellerWhatsapp: '0712222222' }));
+    await new Promise((r) => setTimeout(r, 10));
+
+    const ev = auditEvents.find((e) => e.action === 'payment.blocked_contact');
+    expect(ev).toBeTruthy();
+    expect(ev.metadata).toEqual({ route: 'initiate-listing' });
+    expect(JSON.stringify(ev.metadata)).not.toMatch(/712222222|0700000000/);
+  });
+});
+
+// ─── Phase 5B, Step 2: user reports + admin queue ───────────────────────────
+describe('User reports and admin queue (Phase 5B, Step 2)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const auth = (r) => r.set('X-Admin-Session', session());
+
+  const LISTING_ID = '6500000000000000000000aa';
+  const OTHER_ID = '6500000000000000000000ab';
+  const STORE_ID = '6500000000000000000000ac';
+  const REMOVED_ID = '6500000000000000000000ad';
+
+  const seedListing = (id, overrides = {}) => h.listings.push(makeDoc({
+    _id: id, title: 'T', category: 'Books', condition: 'Good', price: 10,
+    description: 'd', sellerName: 's', sellerWhatsapp: '0700000000',
+    moderationStatus: 'approved', ...overrides,
+  }));
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  const postReport = (body) => request(app).post('/api/reports').send(body);
+  const validReport = (overrides = {}) => ({
+    targetType: 'listing', targetId: LISTING_ID, reason: 'scam', details: 'looks fake', ...overrides,
+  });
+
+  it('accepts a listing report: 201, one Report, no id or IP in the body', async () => {
+    seedListing(LISTING_ID);
+    const res = await postReport(validReport());
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports).toHaveLength(1);
+    expect(JSON.stringify(res.body)).not.toMatch(/[0-9a-f]{24}/);
+  });
+
+  it('deduplicates a second report from the same IP on the same open target within 24h', async () => {
+    seedListing(LISTING_ID);
+    await postReport(validReport());
+    const res = await postReport(validReport());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports).toHaveLength(1);
+  });
+
+  it('allows a new report when the existing one is older than 24 hours', async () => {
+    seedListing(LISTING_ID);
+    await postReport(validReport());
+    h.reports[0].createdAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    const res = await postReport(validReport());
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(2);
+  });
+
+  it('creates a new report for a different target from the same IP', async () => {
+    seedListing(LISTING_ID);
+    seedListing(OTHER_ID);
+    await postReport(validReport());
+    const res = await postReport(validReport({ targetId: OTHER_ID }));
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(2);
+  });
+
+  it('accepts a store report', async () => {
+    await fakeStoreModel.create({
+      _id: STORE_ID, name: 'S', slug: 's', category: 'Books', moderationStatus: 'approved',
+    });
+    const res = await postReport(validReport({ targetType: 'store', targetId: STORE_ID }));
+    expect(res.status).toBe(201);
+    expect(h.reports).toHaveLength(1);
+  });
+
+  it('404 for an unknown valid ObjectId, a malformed id, and a removed target', async () => {
+    seedListing(REMOVED_ID, { moderationStatus: 'removed' });
+    expect((await postReport(validReport({ targetId: '6500000000000000000000ef' }))).status).toBe(404);
+    expect((await postReport(validReport({ targetId: 'not-an-id' }))).status).toBe(404);
+    expect((await postReport(validReport({ targetId: REMOVED_ID }))).status).toBe(404);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('400 for an invalid reason, an invalid targetType and details over 500 characters', async () => {
+    seedListing(LISTING_ID);
+    expect((await postReport(validReport({ reason: 'bogus' }))).status).toBe(400);
+    expect((await postReport(validReport({ targetType: 'user' }))).status).toBe(400);
+    expect((await postReport(validReport({ details: 'x'.repeat(501) }))).status).toBe(400);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('the honeypot drops a filled website field: 200 and no Report', async () => {
+    seedListing(LISTING_ID);
+    const res = await postReport(validReport({ website: 'http://spam.example' }));
+    expect(res.status).toBe(200);
+    expect(h.reports).toHaveLength(0);
+  });
+
+  it('GET /api/admin/reports without a session is rejected as GET /audit-logs is', async () => {
+    expect((await request(app).get('/api/admin/reports')).status).toBe(401);
+    expect((await request(app).get('/api/admin/audit-logs')).status).toBe(401);
+  });
+
+  it('GET /api/admin/reports returns open reports, never reporterIp, and honors status/targetType', async () => {
+    const ip = '198.51.100.7';
+    h.reports.push(makeDoc({
+      _id: '6500000000000000000000c1', targetType: 'listing', targetId: LISTING_ID, reason: 'scam',
+      details: 'd', reporterIp: ip, status: 'open', moderationAction: null, resolvedAt: null,
+      resolvedBy: null, note: '', createdAt: new Date(),
+    }));
+    h.reports.push(makeDoc({
+      _id: '6500000000000000000000c2', targetType: 'store', targetId: STORE_ID, reason: 'other',
+      details: '', reporterIp: ip, status: 'actioned', moderationAction: 'removed', resolvedAt: new Date(),
+      resolvedBy: 'admin:owner', note: '', createdAt: new Date(),
+    }));
+
+    const open = await auth(request(app).get('/api/admin/reports'));
+    expect(open.status).toBe(200);
+    expect(open.body.count).toBe(1);
+    expect(JSON.stringify(open.body)).not.toContain(ip);
+
+    const all = await auth(request(app).get('/api/admin/reports?status=all'));
+    expect(all.body.count).toBe(2);
+
+    const stores = await auth(request(app).get('/api/admin/reports?status=all&targetType=store'));
+    expect(stores.body.count).toBe(1);
+
+    const bogus = await auth(request(app).get('/api/admin/reports?status=bogus'));
+    expect(bogus.status).toBe(400);
+  });
+
+  const seedReport = (overrides = {}) => h.reports.push(makeDoc({
+    _id: '6500000000000000000000d1', targetType: 'listing', targetId: LISTING_ID,
+    reason: 'scam', details: '', reporterIp: '198.51.100.9', status: 'open',
+    moderationAction: null, resolvedAt: null, resolvedBy: null, note: '',
+    createdAt: new Date(), ...overrides,
+  }));
+
+  const resolve = (body, id = '6500000000000000000000d1') => auth(request(app).put(`/api/admin/reports/${id}/resolve`)).send(body);
+
+  it('PUT resolve actioned updates the report and emits admin.report_resolved with ids and no IP', async () => {
+    seedReport();
+    const res = await resolve({ resolution: 'actioned', moderationAction: 'removed' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(h.reports[0].status).toBe('actioned');
+    expect(h.reports[0].moderationAction).toBe('removed');
+    expect(h.reports[0].resolvedBy).toBe('admin:owner');
+
+    await new Promise((r) => setTimeout(r, 10));
+    const ev = auditEvents.find((e) => e.action === 'admin.report_resolved');
+    expect(ev).toBeTruthy();
+    expect(ev.metadata).toMatchObject({
+      targetType: 'listing', targetId: LISTING_ID, resolution: 'actioned', moderationAction: 'removed',
+    });
+    expect(JSON.stringify(ev.metadata)).not.toContain('198.51.100.9');
+  });
+
+  it('PUT resolve on an already resolved report returns 409; unknown id returns 404', async () => {
+    seedReport({ status: 'dismissed' });
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'none' })).status).toBe(409);
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'none' }, '6500000000000000000000ef')).status).toBe(404);
+  });
+
+  it('rejects invalid resolutions', async () => {
+    seedReport();
+    expect((await resolve({ resolution: 'actioned', moderationAction: 'suspended' })).status).toBe(400);
+    expect((await resolve({ resolution: 'actioned' })).status).toBe(400);
+    expect((await resolve({ resolution: 'dismissed', moderationAction: 'removed' })).status).toBe(400);
+    expect((await resolve({ resolution: 'dismissed', note: 'x'.repeat(201) })).status).toBe(400);
+  });
+});
+
+// ─── Phase 5B, Step 3: missing audit events ─────────────────────────────────
+describe('Audit events for edits, auto-flags, attach/detach and payment views (Phase 5B, Step 3)', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+
+  const OWNER = 'audit-owner-token';
+  const LISTING_OWNER = 'audit-listing-owner-token';
+
+  const seedListing = (overrides = {}) => h.listings.push(makeDoc({
+    _id: 'lst-audit', title: 'Widget', description: 'A plain widget',
+    sellerName: 'Ted', category: 'Electronics', condition: 'Good', price: 10,
+    sellerWhatsapp: '0700000000', location: 'Njoro',
+    status: 'active', moderationStatus: 'approved',
+    ownerTokenHash: sha256hex(OWNER),
+    ...overrides,
+  }));
+
+  const seedStore = (overrides = {}) => fakeStoreModel.create({
+    name: 'Audit Shop', slug: 'audit-shop', category: 'Books',
+    ownerTokenHash: sha256hex(OWNER),
+    plan: 'starter_weekly', plan_price: 150, plan_duration: 604800000, listing_limit: 5,
+    started_at: new Date(), expires_at: new Date(Date.now() + 86400000), status: 'active',
+    ...overrides,
+  });
+
+  beforeEach(() => { auditEvents.length = 0; });
+
+  it('a clean owner edit emits listing.update with field names only and no auto-flag', async () => {
+    seedListing();
+    const res = await request(app).put('/api/listings/lst-audit')
+      .set('X-Owner-Token', OWNER)
+      .send({ title: 'New Title', description: 'Clean description' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    const ev = auditEvents.find((e) => e.action === 'listing.update');
+    expect(ev).toBeTruthy();
+    expect(ev.resource).toBe('listing');
+    expect(ev.resourceId).toBe('lst-audit');
+    expect(ev.metadata.autoFlagged).toBe(false);
+    expect([...ev.metadata.fields].sort()).toEqual(['description', 'title']);
+    expect(JSON.stringify(ev.metadata)).not.toContain('New Title');
+    expect(JSON.stringify(ev.metadata)).not.toContain('Clean description');
+    expect(auditEvents.some((e) => e.action === 'listing.auto_flagged')).toBe(false);
+  });
+
+  it('an owner edit adding prohibited text emits listing.update autoFlagged true and listing.auto_flagged', async () => {
+    seedListing();
+    const res = await request(app).put('/api/listings/lst-audit')
+      .set('X-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    const update = auditEvents.find((e) => e.action === 'listing.update');
+    expect(update).toBeTruthy();
+    expect(update.metadata.autoFlagged).toBe(true);
+    expect(update.metadata.fields).toContain('description');
+    expect(update.metadata.fields).not.toContain('moderationStatus');
+    const flagged = auditEvents.find((e) => e.action === 'listing.auto_flagged');
+    expect(flagged).toBeTruthy();
+    expect(flagged.resource).toBe('listing');
+    expect(flagged.resourceId).toBe('lst-audit');
+    expect(flagged.metadata).toEqual({ source: 'update' });
+  });
+
+  it('an owner store edit adding prohibited text emits store.auto_flagged and still store.update', async () => {
+    await seedStore();
+    const res = await request(app).put('/api/stores/sto-1')
+      .set('X-Store-Owner-Token', OWNER)
+      .send({ description: 'Cheap casino tokens available' });
+    expect(res.status).toBe(200);
+    await settle();
+
+    expect(auditEvents.find((e) => e.action === 'store.update')).toBeTruthy();
+    const flagged = auditEvents.find((e) => e.action === 'store.auto_flagged');
+    expect(flagged).toBeTruthy();
+    expect(flagged.resource).toBe('store');
+    expect(flagged.resourceId).toBe('sto-1');
+    expect(flagged.metadata).toEqual({ source: 'update' });
+  });
+
+  it('attach/detach emit store.attach_listing / store.detach_listing; a rejected attach emits none', async () => {
+    await seedStore();
+    h.listings.push(makeDoc({
+      _id: 'lst-rem', store_id: null, ownerTokenHash: sha256hex(LISTING_OWNER),
+      expiresAt: new Date(Date.now() + 86400000), status: 'active', moderationStatus: 'removed',
+    }));
+    const rejected = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-rem' });
+    expect(rejected.status).toBe(409);
+    await settle();
+    expect(auditEvents.some((e) => e.action === 'store.attach_listing')).toBe(false);
+
+    h.listings.push(makeDoc({
+      _id: 'lst-ok', store_id: null, ownerTokenHash: sha256hex(LISTING_OWNER),
+      expiresAt: new Date(Date.now() + 86400000), status: 'active', moderationStatus: 'approved',
+    }));
+    const attached = await request(app).put('/api/stores/sto-1/attach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-ok' });
+    expect(attached.status).toBe(200);
+    await settle();
+    const attachEvent = auditEvents.find((e) => e.action === 'store.attach_listing');
+    expect(attachEvent).toBeTruthy();
+    expect(attachEvent.resource).toBe('store');
+    expect(attachEvent.resourceId).toBe('sto-1');
+    expect(attachEvent.metadata).toEqual({ listingId: 'lst-ok' });
+
+    const detached = await request(app).put('/api/stores/sto-1/detach-listing')
+      .set('X-Store-Owner-Token', OWNER)
+      .set('X-Owner-Token', LISTING_OWNER)
+      .send({ listingId: 'lst-ok' });
+    expect(detached.status).toBe(200);
+    await settle();
+    const detachEvent = auditEvents.find((e) => e.action === 'store.detach_listing');
+    expect(detachEvent).toBeTruthy();
+    expect(detachEvent.resource).toBe('store');
+    expect(detachEvent.metadata).toEqual({ listingId: 'lst-ok' });
+  });
+
+  it('GET /api/admin/payments emits admin.payments_viewed with a correct count; a bogus status is null', async () => {
+    h.payments.push(makeDoc({
+      _id: 'pay-1', type: 'listing', phoneNumber: '0700000000', amount: 500,
+      status: 'completed', createdAt: new Date(),
+    }));
+    const res = await request(app).get('/api/admin/payments').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    await settle();
+
+    const view = auditEvents.find((e) => e.action === 'admin.payments_viewed');
+    expect(view).toBeTruthy();
+    expect(view.resource).toBe('admin');
+    expect(view.metadata).toEqual({ count: 1, status: null, type: null });
+
+    auditEvents.length = 0;
+    const bogus = await request(app).get('/api/admin/payments?status=zzz').set('X-Admin-Session', session());
+    expect(bogus.status).toBe(200);
+    await settle();
+    const bogusView = auditEvents.find((e) => e.action === 'admin.payments_viewed');
+    expect(bogusView).toBeTruthy();
+    expect(bogusView.metadata.status).toBeNull();
   });
 });

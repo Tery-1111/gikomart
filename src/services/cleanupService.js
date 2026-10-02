@@ -3,8 +3,15 @@ const Listing = require('../models/Listing');
 const Store = require('../models/Store');
 const TermsAcceptance = require('../models/TermsAcceptance');
 const Payment = require('../models/Payment');
+const Report = require('../models/Report');
+const AuditEvent = require('../models/AuditEvent');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
+
+// Retention windows (days). Report IPs are kept only for deduplication; payment
+// PII is kept for the dispute window and then redacted.
+const REPORT_IP_RETENTION_DAYS = 30;
+const PAYMENT_PII_RETENTION_DAYS = 90;
 
 // Extract the Cloudinary public_id from a stored secure_url
 // e.g. https://res.cloudinary.com/xxx/image/upload/v123/gikomart/abc.webp -> gikomart/abc
@@ -122,6 +129,105 @@ async function stripOldAcceptancePII() {
   }
 }
 
+// 30-day PII retention: null the two contact hashes on acceptance records older
+// than 30 days. whatsappHash and sellerContactTarget.sellerWhatsappHash are
+// unkeyed hashes of phone numbers and are brute-forceable over the small Kenyan
+// number space, exactly like phoneHash. ownerTokenHash is kept (a long random
+// token, not reversible into a person); listing/store ids and metadata are kept
+// as evidence. The record itself is kept.
+async function stripOldAcceptanceHashes() {
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const old = await TermsAcceptance.find({
+      timestamp: { $lte: cutoff },
+      $or: [
+        { 'actor.whatsappHash': { $ne: null } },
+        { 'sellerContactTarget.sellerWhatsappHash': { $ne: null } },
+      ],
+    });
+
+    if (!old.length) return;
+
+    for (const record of old) {
+      record.actor.whatsappHash = null;
+      if (record.sellerContactTarget) {
+        record.sellerContactTarget.sellerWhatsappHash = null;
+      }
+      await record.save();
+    }
+
+    logger.info('Retention: stripped TermsAcceptance contact hashes (>30d)', { count: old.length });
+  } catch (err) {
+    logger.error('Acceptance hash retention job error', { error: err.message });
+  }
+}
+
+// 30-day PII retention: null the reporter IP on reports older than 30 days. The
+// report body is kept; the IP existed only to deduplicate repeats.
+async function stripOldReportPII() {
+  try {
+    const cutoff = new Date(Date.now() - REPORT_IP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const old = await Report.find({ createdAt: { $lte: cutoff }, reporterIp: { $ne: null } });
+
+    if (!old.length) return;
+
+    for (const record of old) {
+      record.reporterIp = null;
+      await record.save();
+    }
+
+    logger.info('Retention: stripped report reporter IPs (>30d)', { count: old.length });
+  } catch (err) {
+    logger.error('Report IP retention job error', { error: err.message });
+  }
+}
+
+// 90-day PII retention: redact the payer number and the seller/store contact
+// copies inside a settled payment's payload. Only completed/failed payments are
+// touched — a pending payment may still be needed to complete — and
+// piiStrippedAt keeps the job idempotent.
+async function stripOldPaymentPII() {
+  try {
+    const cutoff = new Date(Date.now() - PAYMENT_PII_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const result = await Payment.updateMany(
+      { status: { $in: ['completed', 'failed'] }, createdAt: { $lte: cutoff }, piiStrippedAt: null },
+      {
+        $set: { phoneNumber: 'redacted', piiStrippedAt: new Date() },
+        $unset: {
+          'listingData.sellerWhatsapp': '',
+          'storeData.phone': '',
+          'storeData.whatsapp': '',
+          'storeData.email': '',
+        },
+      },
+    );
+
+    if (result.modifiedCount > 0) {
+      logger.info('Retention: stripped payment PII (>90d)', { count: result.modifiedCount });
+    }
+  } catch (err) {
+    logger.error('Payment PII retention job error', { error: err.message });
+  }
+}
+
+// Audit-event retention. AUDIT_RETENTION_DAYS is read at call time so ops can
+// change it without a redeploy of the logic; any value that is not a positive
+// integer falls back to 365 days. Deletion is batched by MongoDB via deleteMany.
+async function pruneOldAuditEvents() {
+  try {
+    const configuredDays = Number.parseInt(process.env.AUDIT_RETENTION_DAYS, 10);
+    const days = Number.isInteger(configuredDays) && configuredDays > 0 ? configuredDays : 365;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const result = await AuditEvent.deleteMany({ timestamp: { $lt: cutoff } });
+
+    if (result.deletedCount > 0) {
+      logger.info('Retention: pruned old audit events', { count: result.deletedCount });
+    }
+  } catch (err) {
+    logger.error('Audit event retention job error', { error: err.message });
+  }
+}
+
 async function expireStores() {
   try {
     const expired = await Store.find({
@@ -150,8 +256,12 @@ function startCleanupScheduler() {
     await expireStores();
     await stripExpiredStoreContacts();
     await stripOldAcceptancePII();
+    await stripOldAcceptanceHashes();
+    await stripOldReportPII();
+    await stripOldPaymentPII();
+    await pruneOldAuditEvents();
   });
-  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + PII retention');
+  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + retention (store/acceptance contacts and hashes, report IPs, payment PII, audit events)');
 }
 
 module.exports = {
@@ -160,4 +270,8 @@ module.exports = {
   expireStores,
   stripExpiredStoreContacts,
   stripOldAcceptancePII,
+  stripOldAcceptanceHashes,
+  stripOldReportPII,
+  stripOldPaymentPII,
+  pruneOldAuditEvents,
 };

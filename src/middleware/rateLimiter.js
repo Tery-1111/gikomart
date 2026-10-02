@@ -64,4 +64,40 @@ const adminLimiter = rateLimit({
   message: { success: false, error: 'Too many admin requests — please try again later' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter };
+// Contact release: buyer contact-acceptance returns seller PII, so it gets its
+// own long-window budget on top of contactLimiter. The default is 40 per hour
+// per IP and tunable via CONTACT_RELEASE_LIMIT for ops. A missing or
+// non-positive value uses 40.
+const configuredContactReleaseMax = Number.parseInt(process.env.CONTACT_RELEASE_LIMIT, 10);
+const contactReleaseLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number.isInteger(configuredContactReleaseMax) && configuredContactReleaseMax > 0 ? configuredContactReleaseMax : 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many contact releases — please try again later' },
+});
+
+// Payment status polling: the frontend polls while an STK push is pending, so
+// the default is generous (60 per minute per IP) and tunable via the
+// STATUS_RATE_LIMIT env var for ops. A missing or non-positive value uses 60.
+const configuredStatusMax = Number.parseInt(process.env.STATUS_RATE_LIMIT, 10);
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number.isInteger(configuredStatusMax) && configuredStatusMax > 0 ? configuredStatusMax : 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many status checks — please try again shortly' },
+});
+
+// Public report submission: 10 per hour per IP, tunable via REPORT_RATE_LIMIT
+// for ops. A missing or non-positive value uses 10.
+const configuredReportMax = Number.parseInt(process.env.REPORT_RATE_LIMIT, 10);
+const reportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number.isInteger(configuredReportMax) && configuredReportMax > 0 ? configuredReportMax : 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many reports — please try again later' },
+});
+
+module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };

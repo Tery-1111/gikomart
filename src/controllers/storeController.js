@@ -5,7 +5,10 @@ const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isHttpUrl } = require('../utils/safeUrl');
+const { checkStore } = require('../services/moderationService');
 const mongoose = require('mongoose');
+const inputLimits = require('../config/inputLimits');
+const { storeView } = require('../utils/publicView');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
 // Constant-time comparison (same pattern as listingController.js)
@@ -47,7 +50,7 @@ async function deleteCloudinaryImage(imageUrl) {
 exports.getStore = async (req, res, next) => {
   try {
     const { slug } = req.params;
-    const store = await Store.findOne({ slug, status: { $ne: 'suspended' }, moderationStatus: { $ne: 'removed' } }).select('+ownerTokenHash');
+    const store = await Store.findOne({ slug, status: { $ne: 'suspended' }, moderationStatus: { $nin: ['flagged', 'removed'] } }).select('+ownerTokenHash');
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
 
     // Contact fields are PII: only the owner (valid X-Store-Owner-Token) or an
@@ -64,13 +67,7 @@ exports.getStore = async (req, res, next) => {
     }
 
     const listingCount = await Listing.countDocuments({ store_id: store._id, status: 'active' });
-    const payload = typeof store.toObject === 'function' ? store.toObject() : { ...store };
-    delete payload.ownerTokenHash;
-    if (!authorized) {
-      delete payload.phone;
-      delete payload.whatsapp;
-      delete payload.email;
-    }
+    const payload = storeView(store, { includeContact: authorized });
     res.json({ success: true, store: payload, listingCount });
   } catch (err) {
     return next(err);
@@ -97,8 +94,7 @@ exports.getStoreById = async (req, res, next) => {
     // The hash was loaded with .select('+ownerTokenHash') for the ownership
     // check above — strip it before the response so the secret never leaves
     // the server.
-    store.ownerTokenHash = undefined;
-    res.json({ success: true, store, listingCount });
+    res.json({ success: true, store: storeView(store, { includeContact: true }), listingCount });
   } catch (err) {
     return next(err);
   }
@@ -113,7 +109,7 @@ exports.getMyStores = async (req, res, next) => {
     }
     const hash = crypto.createHash('sha256').update(token).digest('hex');
     const stores = await Store.find({ ownerTokenHash: hash });
-    res.json({ success: true, stores });
+    res.json({ success: true, stores: stores.map((s) => storeView(s, { includeContact: true })) });
   } catch (err) {
     return next(err);
   }
@@ -139,6 +135,33 @@ exports.updateStore = async (req, res, next) => {
       }
     }
 
+    // Reject oversized free-text and oversized arrays before any write.
+    const storeCaps = inputLimits.store;
+    for (const [field, cap] of Object.entries(storeCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = updates[field];
+      if (typeof value === 'string' && value.trim().length > cap) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum length of ${cap} characters` });
+      }
+    }
+    for (const [field, cfg] of [['subcategories', storeCaps.subcategories], ['payment_methods', storeCaps.payment_methods]]) {
+      const value = updates[field];
+      if (!Array.isArray(value)) continue;
+      if (value.length > cfg.maxItems) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum of ${cfg.maxItems} items` });
+      }
+      if (value.some((item) => typeof item === 'string' && item.trim().length > cfg.item)) {
+        return res.status(400).json({ success: false, error: `${field} items exceed the maximum length of ${cfg.item} characters` });
+      }
+    }
+
+    // A removed store is terminal: its owner may not edit it. (A removed store
+    // is normally also suspended, which storeAuth rejects earlier with 403; this
+    // covers a removed-but-still-active row.)
+    if (req.store.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Store has been removed and can no longer be edited' });
+    }
+
     // If name changed, derive the new slug and REFUSE if another store
     // already owns it (409 — actionable) instead of silently assigning a
     // suffixed slug the user never asked for.
@@ -160,6 +183,15 @@ exports.updateStore = async (req, res, next) => {
       }
     }
 
+    // Re-screen the effective document (stored fields + this edit) so an edit
+    // cannot smuggle prohibited content past the create-time check. A clean edit
+    // never sets 'approved' — a flagged store stays flagged until an admin acts.
+    const effective = typeof req.store.toObject === 'function' ? req.store.toObject() : { ...req.store };
+    Object.assign(effective, updates);
+    if (!checkStore(effective).approved) {
+      updates.moderationStatus = 'flagged';
+    }
+
     const store = await Store.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
     emit({
       actor: req.admin ? adminActor(req) : ownerActor(req),
@@ -169,6 +201,18 @@ exports.updateStore = async (req, res, next) => {
       result: 'success',
       metadata: { updatedFieldCount: Object.keys(updates).length },
     });
+    // A separate signal for the edit having auto-flagged the store, so the flag
+    // is visible without the field-count metadata changing shape.
+    if (updates.moderationStatus === 'flagged') {
+      emit({
+        actor: req.admin ? adminActor(req) : ownerActor(req),
+        action: 'store.auto_flagged',
+        resource: 'store',
+        resourceId: String(req.params.id),
+        result: 'success',
+        metadata: { source: 'update' },
+      });
+    }
     res.json({ success: true, store });
   } catch (err) {
     // Race-window duplicate (two concurrent renames to the same free slug):
@@ -297,10 +341,23 @@ exports.attachListing = async (req, res, next) => {
       });
     }
 
+    // A removed listing is terminal: it can never be attached to a store.
+    if (listing.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Removed listings cannot be attached to a store' });
+    }
+
     // Attach
     listing.store_id = store._id;
     await listing.save();
 
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.attach_listing',
+      resource: 'store',
+      resourceId: String(store._id),
+      result: 'success',
+      metadata: { listingId: String(listing._id) },
+    });
     res.json({ success: true, message: 'Listing attached to store' });
   } catch (err) {
     return next(err);
@@ -341,6 +398,14 @@ exports.detachListing = async (req, res, next) => {
     listing.store_id = null;
     await listing.save();
 
+    emit({
+      actor: req.admin ? adminActor(req) : ownerActor(req),
+      action: 'store.detach_listing',
+      resource: 'store',
+      resourceId: String(store._id),
+      result: 'success',
+      metadata: { listingId: String(listing._id) },
+    });
     res.json({ success: true, message: 'Listing removed from store' });
   } catch (err) {
     return next(err);

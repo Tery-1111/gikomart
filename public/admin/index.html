@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>GikoMart Admin</title>
+<link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body>
+<header class="bar">
+  <h1>GikoMart Admin</h1>
+  <button id="signOutBtn" type="button" hidden>Sign out</button>
+</header>
+<main>
+  <section id="loginSection">
+    <h2>Admin sign-in</h2>
+    <form id="loginForm" autocomplete="off" novalidate>
+      <label for="adminKey">Admin key</label>
+      <input id="adminKey" type="password" autocomplete="off">
+      <label for="totpCode">Authenticator code</label>
+      <input id="totpCode" type="text" inputmode="numeric" autocomplete="off" maxlength="6">
+      <button id="loginBtn" type="submit">Sign in</button>
+      <p id="loginMsg" role="alert"></p>
+    </form>
+  </section>
+  <section id="appSection" hidden>
+    <nav id="tabs">
+      <button type="button" class="tab" data-view="dashboard">Dashboard</button>
+      <button type="button" class="tab" data-view="reports">Reports</button>
+      <button type="button" class="tab" data-view="payments">Payments</button>
+      <button type="button" class="tab" data-view="blocks">Blocks</button>
+      <button type="button" class="tab" data-view="audit">Audit log</button>
+      <button type="button" class="tab" data-view="health">Health</button>
+    </nav>
+    <p id="viewMsg" role="status"></p>
+    <div id="viewBody"></div>
+  </section>
+</main>
+<script src="/assets/js/admin.js"></script>
+</body>
+</html>

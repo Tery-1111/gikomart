@@ -206,6 +206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupForm();
   setupModal();
   setupStoreModal();
+  setupReportModal();
   setupActionDelegation();
   loadListings();
   recoverPendingTokens();
@@ -710,7 +711,7 @@ function setupModal() {
     }
     const btn = e.target.closest('.contact-btn');
     if (!btn) return;
-    contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '', btn.dataset.listingId || '');
+    contactSeller(btn.dataset.title || '', btn.dataset.listingId || '');
   });
 }
 
@@ -740,29 +741,15 @@ function openListingModal(id, source) {
     <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}" data-listing-id="${listing._id}">
       💬 Contact seller on WhatsApp
     </button>
+    <button class="btn btn-ghost btn-sm" data-action="report-listing" data-target-id="${listing._id}" style="margin-top:10px;">🚩 Report</button>
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
     <div class="owner-controls">
       <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${listing._id}">✏️ Edit listing</button>
       <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${listing._id}">🗑️ Delete listing</button>
     </div>` : ''}
-    ${listing.featured ? '' : boostSectionHTML(listing._id)}
+    ${listing.featured || usingDemoData || !hasOwnerToken(listing._id) ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
-
-  if (!usingDemoData && !id.startsWith('demo')) {
-    // List responses intentionally omit sellerWhatsapp (anti-scraping); the
-    // per-listing detail endpoint is the only source of the contact number.
-    // Fetch it and backfill the contact button once it arrives.
-    fetch(`${API_BASE}/listings/${id}`)
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        if (data && data.success && data.listing && data.listing.sellerWhatsapp) {
-          const btn = card.querySelector('.contact-btn');
-          if (btn) btn.dataset.whatsapp = data.listing.sellerWhatsapp;
-        }
-      })
-      .catch(() => {});
-  }
 }
 
 function closeModal() {
@@ -781,6 +768,79 @@ function setupStoreModal() {
     if (e.target.id !== 'storeCreationForm') return;
     handleStorePlanSubmit(e);
   });
+}
+
+// ─── Report modal ───────────────────────────────────────────────────────────
+
+function setupReportModal() {
+  const overlay = document.getElementById('reportModalOverlay');
+  if (!overlay) return;
+  // Same overlay-click-to-close pattern as the listing/store modals.
+  overlay.addEventListener('click', (e) => {
+    if (e.target.id === 'reportModalOverlay') closeReportModal();
+  });
+  const form = document.getElementById('reportForm');
+  if (form) form.addEventListener('submit', handleReportSubmit);
+}
+
+function openReportModal(targetType, targetId) {
+  const typeEl = document.getElementById('report-target-type');
+  const idEl = document.getElementById('report-target-id');
+  if (!typeEl || !idEl) return;
+  typeEl.value = targetType || '';
+  idEl.value = targetId || '';
+
+  const form = document.getElementById('reportForm');
+  if (form) form.reset();
+  const statusEl = document.getElementById('reportFormStatus');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'form-status'; }
+  // A prior failed submit may have left "Retry" on the button — reset it.
+  const btn = document.getElementById('reportSubmitBtn');
+  if (btn) btn.textContent = 'Submit Report';
+
+  document.getElementById('reportModalOverlay').classList.add('open');
+}
+
+function closeReportModal() {
+  document.getElementById('reportModalOverlay').classList.remove('open');
+}
+
+async function handleReportSubmit(e) {
+  e.preventDefault();
+  const btn = document.getElementById('reportSubmitBtn');
+  const statusEl = document.getElementById('reportFormStatus');
+  const targetType = document.getElementById('report-target-type').value;
+  const targetId = document.getElementById('report-target-id').value;
+  const reason = document.getElementById('report-reason').value;
+  const details = document.getElementById('report-details').value;
+
+  // Guard the required fields client-side too: an empty select would otherwise
+  // be sent and rejected by the server as a 400.
+  if (!targetType || !targetId || !reason) {
+    if (statusEl) { statusEl.textContent = '⚠️ Please choose a reason.'; statusEl.className = 'form-status error'; }
+    return;
+  }
+
+  setBtnBusy(btn, true, 'Submitting…');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'form-status'; }
+
+  try {
+    const res = await fetch(`${API_BASE}/reports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetType, targetId, reason, details }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw httpError(res, data);
+
+    setBtnBusy(btn, false);
+    showToast('✅ Report submitted. Thank you.');
+    closeReportModal();
+  } catch (err) {
+    setBtnBusy(btn, false);
+    if (btn) btn.textContent = 'Retry';
+    if (statusEl) { statusEl.textContent = friendlyFetchError(err); statusEl.className = 'form-status error'; }
+  }
 }
 
 // Delegated click dispatch for action buttons. Inline onclick attributes are
@@ -818,6 +878,10 @@ function setupActionDelegation() {
       case 'delete-store': deleteStore(el.dataset.storeId); break;
       case 'select-store-plan': selectStorePlan(el); break;
       case 'close-store-modal': closeStoreModal(); break;
+      // ── Reporting ──
+      case 'report-listing': openReportModal('listing', el.dataset.targetId); break;
+      case 'report-store': openReportModal('store', el.dataset.targetId); break;
+      case 'close-report-modal': closeReportModal(); break;
       case 'save-store-edit': saveStoreEdit(el.dataset.storeId); break;
       case 'attach-listing-to-store': attachListingToStore(el.dataset.storeId, el.dataset.listingId); break;
       // ── Buyer contact acceptance gate ──
@@ -828,7 +892,6 @@ function setupActionDelegation() {
 }
 
 let _buyerGateSavedHTML = null;
-let _buyerGateSavedWhatsapp = '';
 let _buyerGateSavedTitle = '';
 let _buyerGateSavedListingId = '';
 
@@ -840,11 +903,17 @@ function _restoreBuyerGateListing() {
   }
 }
 
-function contactSeller(whatsapp, title, listingId) {
-  if (!whatsapp) { showToast('⏳ Loading contact details…'); return; }
+// Build a wa.me link that always uses the international form. Kenyan numbers
+// arrive as 07XXXXXXXX / 01XXXXXXXX, or already prefixed with 254.
+function _waMeLink(rawNumber) {
+  const digits = String(rawNumber || '').replace(/\D/g, '');
+  const intl = digits.startsWith('254') ? digits : `254${digits.replace(/^0/, '')}`;
+  return `https://wa.me/${intl}`;
+}
+
+function contactSeller(title, listingId) {
   const card = document.getElementById('modalCard');
   _buyerGateSavedHTML = card.innerHTML;
-  _buyerGateSavedWhatsapp = whatsapp;
   _buyerGateSavedTitle = title;
   _buyerGateSavedListingId = listingId;
 
@@ -852,7 +921,7 @@ function contactSeller(whatsapp, title, listingId) {
     <button class="modal-close" data-action="buyer-gate-cancel">✕</button>
     <h3 style="font-family:var(--font-display); font-size:18px; margin:0 0 12px;">Contact Seller</h3>
     ${buyerContactAcceptanceHTML()}
-    <div style="display:flex; gap:10px; margin-top:16px;">
+    <div id="buyerGateActions" style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
       <button type="button" class="btn btn-ghost" data-action="buyer-gate-cancel" style="flex:1;">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="buyer-gate-continue" style="flex:1;">Continue &amp; Contact Seller</button>
     </div>
@@ -860,12 +929,12 @@ function contactSeller(whatsapp, title, listingId) {
 }
 
 async function _handleBuyerGateContinue() {
-  const whatsapp = _buyerGateSavedWhatsapp;
   const title = _buyerGateSavedTitle;
   const listingId = _buyerGateSavedListingId;
   const continueBtn = document.querySelector('[data-action="buyer-gate-continue"]');
   if (continueBtn) { continueBtn.disabled = true; continueBtn.textContent = 'Checking…'; }
 
+  let data;
   try {
     const res = await fetch(`${API_BASE}/terms/contact-acceptance`, {
       method: 'POST',
@@ -873,11 +942,10 @@ async function _handleBuyerGateContinue() {
       body: JSON.stringify({
         acceptance: buildBuyerAcceptanceToken(),
         listingId,
-        sellerWhatsapp: whatsapp,
         listingTitle: title,
       }),
     });
-    const data = await res.json();
+    data = await res.json();
     if (!res.ok || !data.success) throw httpError(res, data);
   } catch (err) {
     showToast(friendlyFetchError(err));
@@ -885,10 +953,18 @@ async function _handleBuyerGateContinue() {
     return;
   }
 
-  const cleanNumber = whatsapp.replace(/[\s+]/g, '');
-  const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
-  window.open(`https://wa.me/${cleanNumber}?text=${message}`, '_blank');
-  _restoreBuyerGateListing();
+  // The server releases the seller number only after recording the acceptance.
+  // Present it as a real link (never window.open) so the browser shows the
+  // destination and the buyer opens WhatsApp deliberately.
+  const actions = document.getElementById('buyerGateActions');
+  if (actions && data.sellerWhatsapp) {
+    const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
+    const href = escapeAttr(`${_waMeLink(data.sellerWhatsapp)}?text=${message}`);
+    actions.innerHTML = `
+      <p class="buyer-gate-ready" style="margin:0 0 8px; flex-basis:100%;">Seller contact ready</p>
+      <a class="btn btn-primary" href="${href}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center;">Open WhatsApp</a>
+    `;
+  }
 }
 
 function boostSectionHTML(listingId) {
@@ -988,14 +1064,13 @@ async function initiateBoost(listingId) {
   }
 
   const boostType = selected.dataset.boost;
-  btn.disabled = true;
-  statusEl.textContent = 'Sending payment request…';
+  setBtnBusy(btn, true, 'Sending payment request…');
   statusEl.className = 'boost-status pending';
 
   try {
     const res = await fetch(`${API_BASE}/payments/boost`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Owner-Token': getOwnerToken(listingId) || '' },
       body: JSON.stringify({ listingId, phoneNumber: phone, boostType }),
     });
 
@@ -1008,7 +1083,7 @@ async function initiateBoost(listingId) {
   } catch (err) {
     statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'boost-status error';
-    btn.disabled = false;
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1329,8 +1404,11 @@ async function editListing(id) {
   if (!Object.keys(updates).length) { showToast('No changes made'); return; }
 
   // Disable this listing's edit/delete buttons (any instance — grid, dashboard
-  // or open modal) with a spinner while the request runs; restored in finally.
-  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  // or open modal) with a spinner while the request runs. The buttons carry
+  // data-listing-id, so target that attribute — the old data-listing selector
+  // matched nothing, so the busy state never appeared.
+  const btns = document.querySelectorAll(`.owner-btn[data-listing-id="${id}"]`);
+  const editBtns = document.querySelectorAll(`.owner-btn.edit[data-listing-id="${id}"]`);
   btns.forEach(btn => setBtnBusy(btn, true));
 
   try {
@@ -1347,11 +1425,16 @@ async function editListing(id) {
     renderListings();
     closeModal();
     showToast('✅ Listing updated');
+    btns.forEach(btn => setBtnBusy(btn, false));
+    // Brief confirmation on the (still-visible) edit button, then revert.
+    editBtns.forEach(btn => { btn.textContent = 'Saved ✓'; });
+    setTimeout(() => editBtns.forEach(btn => { btn.textContent = '✏️ Edit'; }), 2000);
   } catch (err) {
     console.error('Listing update failed:', err.message);
     showToast(friendlyFetchError(err));
-  } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
+    // Inline retry: the delegated data-action handler re-runs editListing.
+    editBtns.forEach(btn => { btn.textContent = 'Retry'; });
   }
 }
 
@@ -1361,8 +1444,10 @@ async function deleteListing(id) {
   const listing = allListings.find(l => l._id === id);
   if (!window.confirm(`Delete "${listing ? listing.title : 'this listing'}"? This cannot be undone.`)) return;
 
-  // Disable this listing's edit/delete buttons while the request runs.
-  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  // Disable this listing's edit/delete buttons while the request runs. Match
+  // the actual data-listing-id attribute (see editListing for why).
+  const btns = document.querySelectorAll(`.owner-btn[data-listing-id="${id}"]`);
+  const deleteBtns = document.querySelectorAll(`.owner-btn.delete[data-listing-id="${id}"]`);
   btns.forEach(btn => setBtnBusy(btn, true));
 
   try {
@@ -1380,11 +1465,13 @@ async function deleteListing(id) {
     renderListings();
     closeModal();
     showToast('🗑️ Listing deleted');
+    btns.forEach(btn => setBtnBusy(btn, false));
   } catch (err) {
     console.error('Listing delete failed:', err.message);
     showToast(friendlyFetchError(err));
-  } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
+    // Inline retry: the delegated data-action handler re-runs deleteListing.
+    deleteBtns.forEach(btn => { btn.textContent = 'Retry'; });
   }
 }
 
@@ -1649,8 +1736,7 @@ async function handleStorePlanSubmit(e) {
   const termsNotice = document.querySelector('#storeCreationForm .terms-acceptance[data-terms-type="store-creation"]');
   if (termsNotice) termsNotice.outerHTML = storeCreationAcceptanceHTML();
 
-  btn.disabled = true;
-  statusEl.textContent = 'Sending payment request…';
+  setBtnBusy(btn, true, 'Sending payment request…');
   statusEl.className = 'form-status';
 
   try {
@@ -1675,7 +1761,7 @@ async function handleStorePlanSubmit(e) {
   } catch (err) {
     statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'form-status error';
-    btn.disabled = false;
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1809,6 +1895,7 @@ async function openStoreEditForm(storeId) {
 
 async function saveStoreEdit(storeId) {
   const token = getStoreToken(storeId);
+  const saveBtn = document.querySelector('[data-action="save-store-edit"]');
   const updates = {
     name: document.getElementById('se-name').value.trim(),
     description: document.getElementById('se-description').value.trim(),
@@ -1816,6 +1903,8 @@ async function saveStoreEdit(storeId) {
     whatsapp: document.getElementById('se-whatsapp').value.trim(),
     location: document.getElementById('se-location').value.trim(),
   };
+
+  setBtnBusy(saveBtn, true, 'Saving…');
   try {
     const res = await fetch(`${API_BASE}/stores/${storeId}`, {
       method: 'PUT',
@@ -1824,10 +1913,20 @@ async function saveStoreEdit(storeId) {
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw httpError(res, data);
-    closeStoreModal();
+    setBtnBusy(saveBtn, false);
+    if (saveBtn) saveBtn.textContent = 'Saved ✓';
     showToast('✅ Store updated');
     renderMyStore();
+    // Keep the confirmation visible briefly, then revert the label and close.
+    setTimeout(() => {
+      if (saveBtn) saveBtn.textContent = 'Save Changes';
+      closeStoreModal();
+    }, 2000);
   } catch (err) {
+    // Keep the modal open with the form data intact; the delegated
+    // data-action handler re-runs the save when the user clicks Retry.
+    setBtnBusy(saveBtn, false);
+    if (saveBtn) saveBtn.textContent = 'Retry';
     showToast(friendlyFetchError(err));
   }
 }
@@ -1971,6 +2070,7 @@ async function openStorePage(slug) {
             ${store.pickup_available ? '<span>📦 Pickup</span>' : ''}
             ${store.whatsapp ? `<span>💬 WhatsApp</span>` : ''}
           </div>
+          <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${store._id}" style="margin-top:16px;">🚩 Report this store</button>
         </div>
       </div>
       <h3 style="font-family:var(--font-display); margin-bottom:12px;">Listings (${data.listingCount})</h3>

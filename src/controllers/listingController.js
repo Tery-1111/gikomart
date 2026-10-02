@@ -1,63 +1,15 @@
-const crypto = require('crypto');
+const mongoose = require('mongoose');
 const Listing = require('../models/Listing');
+const Store = require('../models/Store');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
-const { authenticateAdmin } = require('../middleware/adminAuth');
+const { isOwnerOrAdmin } = require('../middleware/listingAuth');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
-
-// Constant-time string comparison. Both inputs are hashed to a fixed 32-byte
-// digest first, so crypto.timingSafeEqual never throws on length mismatch and
-// the comparison time reveals nothing about content or length.
-function safeEqual(a, b) {
-  const hashA = crypto.createHash('sha256').update(String(a)).digest();
-  const hashB = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(hashA, hashB);
-}
-
-// Authorization for mutating a listing. Returns { authorized, credential, required }:
-//   - authorized: whether the request is authenticated
-//   - credential: the factor that actually granted access (for logs)
-//   - required:   the credential(s) that WOULD grant access under the current
-//                 2FA state (used only to render accurate 403 messages)
-//
-// Two acceptable factors:
-//  1) X-Owner-Token: sha256 of the provided raw token must equal the hash
-//     stored on the listing (compared with crypto.timingSafeEqual, not ===), or
-//  2) Admin auth — 2FA-aware logic consolidated in middleware/adminAuth.js
-//     (authenticateAdmin) so each mode's rules live in exactly one place:
-//     a) 2FA enabled: a valid X-Admin-Session HMAC token (issued by POST
-//        /api/admin/login after ADMIN_KEY + TOTP code) is required. The raw
-//        X-Admin-Key alone is rejected so a leaked key can't bypass 2FA.
-//     b) 2FA not enabled: the legacy X-Admin-Key is accepted as before.
-async function isOwnerOrAdmin(req, listing) {
-  // Owner path — always available regardless of 2FA state. Unchanged.
-  const ownerToken = req.get('X-Owner-Token');
-  if (ownerToken && listing.ownerTokenHash) {
-    const providedHash = crypto.createHash('sha256').update(ownerToken).digest('hex');
-    if (safeEqual(providedHash, listing.ownerTokenHash)) {
-      req.ownerTokenHash = listing.ownerTokenHash;
-      return { authorized: true, credential: 'owner' };
-    }
-  }
-
-  // Admin path — shared 2FA-aware logic from middleware/adminAuth.js.
-  const admin = await authenticateAdmin(req);
-  if (admin.payload) {
-    return {
-      authorized: true,
-      credential: admin.needs2fa ? 'admin-session' : 'admin-key',
-    };
-  }
-  return {
-    authorized: false,
-    credential: null,
-    required: admin.needs2fa
-      ? 'a valid X-Owner-Token or X-Admin-Session header.'
-      : 'a valid X-Owner-Token or X-Admin-Key header.',
-  };
-}
+const inputLimits = require('../config/inputLimits');
+const { listingView } = require('../utils/publicView');
+const { checkListing } = require('../services/moderationService');
 
 // Escape special regex characters in user input so it can be safely embedded
 // in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
@@ -74,13 +26,34 @@ exports.getListings = async (req, res, next) => {
       { featured: true, featuredUntil: { $ne: null, $lt: new Date() } },
       { $set: { featured: false, boostType: null } }
     );
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
+    // Store-scoped browsing: resolve the store's visibility BEFORE building the
+    // listing query, so the inventory of a suspended, flagged or removed store
+    // is hidden. A malformed or unknown store id returns an empty envelope (and
+    // never an error) so store existence is not revealed. Only a malformed id
+    // skips the database; a syntactically valid id is looked up.
+    if (req.query.store_id) {
+      const storeId = req.query.store_id;
+      const validStoreId = typeof storeId === 'string'
+        && mongoose.isValidObjectId(storeId)
+        && /^[0-9a-fA-F]{24}$/.test(storeId);
+      const visibleStore = validStoreId
+        ? await Store.findOne({
+            _id: storeId,
+            status: { $ne: 'suspended' },
+            moderationStatus: { $nin: ['flagged', 'removed'] },
+          })
+        : null;
+      if (!visibleStore) {
+        return res.json({ success: true, count: 0, total: 0, page: pageNum, totalPages: 0, listings: [] });
+      }
+    }
     const filter = { status: 'active', moderationStatus: 'approved' };
     if (category) filter.category = category;
     if (condition) filter.condition = condition;
     if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
     if (req.query.store_id) filter.store_id = req.query.store_id;
-    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
     const skip = (pageNum - 1) * limitNum;
     const [listings, total] = await Promise.all([
       // .lean() makes these plain objects (NOT Mongoose documents). The list
@@ -96,8 +69,8 @@ exports.getListings = async (req, res, next) => {
     // numbers are only available from the per-listing detail endpoint, which
     // is individually rate-limited and costs a request per item.
     // Also extract store info into flat fields for the frontend.
-    const sanitized = listings.map(({ sellerWhatsapp, store_id, ...rest }) => ({
-      ...rest,
+    const sanitized = listings.map(({ store_id, ...rest }) => ({
+      ...listingView(rest, { includeContact: false }),
       store_name: store_id?.name || null,
       store_slug: store_id?.slug || null,
     }));
@@ -128,9 +101,7 @@ exports.getListing = async (req, res, next) => {
     // (valid X-Owner-Token) or an authenticated admin; the public sees the
     // listing without it. The owner hash is never serialized either way.
     const authz = await isOwnerOrAdmin(req, listing);
-    const payload = typeof listing.toObject === 'function' ? listing.toObject() : { ...listing };
-    delete payload.ownerTokenHash;
-    if (!authz.authorized) delete payload.sellerWhatsapp;
+    const payload = listingView(listing, { includeContact: authz.authorized });
     res.json({ success: true, listing: payload });
   } catch (err) {
     return next(err);
@@ -164,11 +135,27 @@ exports.updateListing = async (req, res, next) => {
     if (!authz.authorized) {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
+    // A removed listing is terminal: neither its owner nor an admin may edit it.
+    if (target.moderationStatus === 'removed') {
+      return res.status(409).json({ success: false, error: 'Listing has been removed and can no longer be edited' });
+    }
     const updates = {};
     for (const field of UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
         updates[field] = req.body[field];
       }
+    }
+    // Reject oversized free-text and image arrays before any write.
+    const listingCaps = inputLimits.listing;
+    for (const [field, cap] of Object.entries(listingCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = updates[field];
+      if (typeof value === 'string' && value.trim().length > cap) {
+        return res.status(400).json({ success: false, error: `${field} exceeds the maximum length of ${cap} characters` });
+      }
+    }
+    if (Array.isArray(updates.images) && updates.images.length > listingCaps.images.maxItems) {
+      return res.status(400).json({ success: false, error: `images exceeds the maximum of ${listingCaps.images.maxItems} items` });
     }
     // Bound the two fields the UI renders into HTML elements. `condition` is a
     // finite vocabulary; image entries are media URLs the frontend feeds to
@@ -181,7 +168,41 @@ exports.updateListing = async (req, res, next) => {
       && (!Array.isArray(updates.images) || !updates.images.every(isHttpUrl))) {
       return res.status(400).json({ success: false, error: 'images must be an array of http(s) image URLs' });
     }
+    // Re-screen the effective document (stored fields + this edit) so an edit
+    // cannot smuggle prohibited content past the creation-time check. A clean
+    // edit never sets 'approved' — a flagged listing stays flagged until an
+    // admin approves it.
+    const effective = typeof target.toObject === 'function' ? target.toObject() : { ...target };
+    Object.assign(effective, updates);
+    if (!checkListing(effective).approved) {
+      updates.moderationStatus = 'flagged';
+    }
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
+    // Audit the edit by field NAME only — never a value. `moderationStatus` is
+    // reported through autoFlagged instead of the field list.
+    const actor = authz.credential === 'owner' ? ownerActor(req) : adminActor(req);
+    const autoFlagged = updates.moderationStatus === 'flagged';
+    emit({
+      actor,
+      action: 'listing.update',
+      resource: 'listing',
+      resourceId: String(req.params.id),
+      result: 'success',
+      metadata: {
+        fields: Object.keys(updates).filter((field) => field !== 'moderationStatus'),
+        autoFlagged,
+      },
+    });
+    if (autoFlagged) {
+      emit({
+        actor,
+        action: 'listing.auto_flagged',
+        resource: 'listing',
+        resourceId: String(req.params.id),
+        result: 'success',
+        metadata: { source: 'update' },
+      });
+    }
     res.json({ success: true, listing });
   } catch (err) {
     return next(err);
