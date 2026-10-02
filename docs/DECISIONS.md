@@ -275,3 +275,13 @@ new numbers; existing entries are never edited.
   script that ever runs on the origin; keeping it in memory bounds its life to
   the page. Inserting content as text removes the stored-XSS surface entirely.
 - **Alternative rejected:** Keeping the token in browser storage for convenience.
+
+## 23. The portal shows payer phone numbers masked
+
+- **Decision:** The admin portal shows payer phone numbers masked (the first 4
+  and last 2 digits). Full numbers are obtained only through the data-request
+  runbook queries.
+- **Reason:** The admin endpoint intentionally retains `phoneNumber` for dispute
+  resolution, but the portal is a read-mostly view over a shared screen; masking
+  keeps the full number out of the page while leaving the endpoint unchanged.
+- **Alternative rejected:** Showing full numbers in the portal.

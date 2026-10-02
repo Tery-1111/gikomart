@@ -303,3 +303,359 @@ describe('View failures', () => {
     expect(document.getElementById('retryBtn')).not.toBeNull();
   });
 });
+
+// ── Step 4: reports and payments tabs ──────────────────────────────────────
+
+function reportsData(reports) {
+  return { success: true, count: reports.length, reports: reports };
+}
+
+function paymentsData(payments) {
+  return { success: true, count: payments.length, payments: payments };
+}
+
+const REPORT_OPEN_LISTING = {
+  id: 'rep-1', targetType: 'listing', targetId: 'lst-1', reason: 'scam', details: 'fake details',
+  status: 'open', moderationAction: null, resolvedAt: null, resolvedBy: null, note: '',
+  createdAt: '2026-10-01T09:30:00.000Z',
+};
+const REPORT_OPEN_STORE = {
+  id: 'rep-2', targetType: 'store', targetId: 'sto-1', reason: 'prohibited_item', details: '',
+  status: 'open', moderationAction: null, resolvedAt: null, resolvedBy: null, note: '',
+  createdAt: '2026-10-01T10:00:00.000Z',
+};
+const REPORT_RESOLVED = {
+  id: 'rep-3', targetType: 'listing', targetId: 'lst-9', reason: 'other', details: 'x',
+  status: 'actioned', moderationAction: 'removed', resolvedAt: '2026-10-01T11:00:00.000Z',
+  resolvedBy: 'owner', note: 'done', createdAt: '2026-10-01T08:00:00.000Z',
+};
+const PAYMENT_PENDING = {
+  _id: 'pay-1', type: 'listing', status: 'pending', amount: 150, package: 'premium',
+  invoiceId: 'INV-1', phoneNumber: '0700000000', createdAt: '2026-10-01T09:00:00.000Z',
+};
+const PAYMENT_COMPLETED = {
+  _id: 'pay-2', type: 'store', status: 'completed', amount: 200, storePlan: 'standard_monthly',
+  invoiceId: 'INV-2', phoneNumber: 'redacted', createdAt: '2026-10-01T09:05:00.000Z',
+};
+const PAYMENT_NO_INVOICE = {
+  _id: 'pay-3', type: 'boost', status: 'pending', amount: 80, boostType: 'rush',
+  invoiceId: '', phoneNumber: '0700000000', createdAt: '2026-10-01T09:10:00.000Z',
+};
+
+async function openReportTab(handler) {
+  await signIn();
+  if (handler) fetchHandler = handler;
+  document.querySelector('.tab[data-view="reports"]').click();
+  await tick();
+}
+
+async function openPaymentsTab(handler) {
+  await signIn();
+  if (handler) fetchHandler = handler;
+  document.querySelector('.tab[data-view="payments"]').click();
+  await tick();
+}
+
+describe('Reports tab', () => {
+  it('queries status=open by default and adds targetType only when chosen', async () => {
+    const urls = [];
+    await openReportTab((url) => {
+      if (url.includes('/api/admin/reports')) { urls.push(url); return json(reportsData([REPORT_OPEN_LISTING])); }
+      return defaultHandler(url);
+    });
+
+    expect(urls[0]).toContain('/api/admin/reports?status=open');
+    expect(urls[0]).not.toContain('targetType');
+
+    const statusSel = document.getElementById('reportStatus');
+    statusSel.value = 'all';
+    statusSel.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+
+    const typeSel = document.getElementById('reportType');
+    typeSel.value = 'store';
+    typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+
+    const filtered = urls[urls.length - 1];
+    expect(filtered).toContain('status=all');
+    expect(filtered).toContain('targetType=store');
+
+    const freshType = document.getElementById('reportType');
+    freshType.value = '';
+    freshType.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(urls[urls.length - 1]).not.toContain('targetType');
+  });
+
+  it('renders one row per report with exact cells and scoped action controls', async () => {
+    await openReportTab((url) => (url.includes('/api/admin/reports')
+      ? json(reportsData([REPORT_OPEN_LISTING, REPORT_OPEN_STORE, REPORT_RESOLVED]))
+      : defaultHandler(url)));
+
+    expect(document.querySelectorAll('#reportsTable tbody tr')).toHaveLength(3);
+
+    const listingCells = [...document.querySelector('tr[data-report-id="rep-1"]').querySelectorAll('td')];
+    expect(listingCells[0].textContent).toBe('2026-10-01 09:30 UTC');
+    expect(listingCells[1].textContent).toBe('listing');
+    expect(listingCells[2].textContent).toBe('lst-1');
+    expect(listingCells[3].textContent).toBe('scam');
+    expect(listingCells[4].textContent).toBe('fake details');
+    expect(listingCells[5].textContent).toBe('open');
+
+    const listingRow = document.querySelector('tr[data-report-id="rep-1"]');
+    expect(listingRow.querySelectorAll('[data-action="moderate"]')).toHaveLength(3);
+
+    const storeRow = document.querySelector('tr[data-report-id="rep-2"]');
+    expect([...storeRow.querySelectorAll('[data-action="moderate"]')].some((b) => b.textContent === 'Suspend store')).toBe(true);
+
+    const resolvedRow = document.querySelector('tr[data-report-id="rep-3"]');
+    expect([...resolvedRow.querySelectorAll('td')][5].textContent).toBe('actioned / removed / done');
+    expect(resolvedRow.querySelector('[data-action="moderate"]')).toBeNull();
+    expect(resolvedRow.querySelector('[data-action="resolve"]')).toBeNull();
+  });
+
+  it('treats hostile details and target ids as literal text', async () => {
+    const evil = { ...REPORT_OPEN_LISTING, id: 'rep-evil', targetId: '<b>x</b>', details: '<img src=x onerror=alert(1)>' };
+    await openReportTab((url) => (url.includes('/api/admin/reports') ? json(reportsData([evil])) : defaultHandler(url)));
+
+    expect(document.querySelector('#viewBody img')).toBeNull();
+    expect(document.querySelector('#viewBody b')).toBeNull();
+    expect(document.getElementById('viewBody').textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(document.getElementById('viewBody').textContent).toContain('<b>x</b>');
+  });
+
+  it('confirms moderation with two clicks and sends the listing request', async () => {
+    const calls = [];
+    await openReportTab((url, options = {}) => {
+      if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_LISTING]));
+      if (url.includes('/moderate') || url.includes('/suspend')) { calls.push({ url, options }); return json({ success: true }); }
+      return defaultHandler(url);
+    });
+
+    const approve = document.querySelector('tr[data-report-id="rep-1"] [data-action="moderate"][data-value="approved"]');
+    const remove = document.querySelector('tr[data-report-id="rep-1"] [data-action="moderate"][data-value="removed"]');
+
+    approve.click();
+    expect(approve.textContent).toBe('Confirm?');
+    expect(calls).toHaveLength(0);
+
+    remove.click();
+    expect(remove.textContent).toBe('Confirm?');
+    expect(calls).toHaveLength(0);
+
+    remove.click();
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/listings/lst-1/moderate');
+    expect(calls[0].options.method).toBe('PUT');
+    expect(calls[0].options.headers['X-Admin-Session']).toBe('tok-abc');
+    expect(JSON.parse(calls[0].options.body)).toEqual({ action: 'removed' });
+
+    const row = document.querySelector('tr[data-report-id="rep-1"]');
+    expect(row.querySelector('[data-role="rowMsg"]').textContent).toBe('Applied: removed');
+    expect(row.querySelector('[data-field="resolution"]').value).toBe('actioned');
+    expect(row.querySelector('[data-field="moderationAction"]').value).toBe('removed');
+  });
+
+  it('sends the store moderation request for a flagged store', async () => {
+    const calls = [];
+    await openReportTab((url, options = {}) => {
+      if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_STORE]));
+      if (url.includes('/moderate')) { calls.push({ url, options }); return json({ success: true }); }
+      return defaultHandler(url);
+    });
+
+    const flag = document.querySelector('tr[data-report-id="rep-2"] [data-action="moderate"][data-value="flagged"]');
+    flag.click();
+    flag.click();
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/admin/stores/sto-1/moderate');
+    expect(JSON.parse(calls[0].options.body)).toEqual({ action: 'flagged' });
+  });
+
+  it('suspends a store with a bodyless request', async () => {
+    const calls = [];
+    await openReportTab((url, options = {}) => {
+      if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_STORE]));
+      if (url.includes('/suspend')) { calls.push({ url, options }); return json({ success: true }); }
+      return defaultHandler(url);
+    });
+
+    const suspend = document.querySelector('tr[data-report-id="rep-2"] [data-action="moderate"][data-value="suspended"]');
+    suspend.click();
+    suspend.click();
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/admin/stores/sto-1/suspend');
+    expect(calls[0].options.method).toBe('PUT');
+    expect(calls[0].options.body).toBeUndefined();
+  });
+
+  it('reverts an armed button after four seconds without a second click', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls = [];
+      fetchHandler = (url) => {
+        if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_LISTING]));
+        if (url.includes('/moderate')) { calls.push(url); return json({ success: true }); }
+        return defaultHandler(url);
+      };
+      document.getElementById('adminKey').value = 'test-key';
+      document.getElementById('totpCode').value = '123456';
+      document.getElementById('loginForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.advanceTimersByTimeAsync(60);
+      document.querySelector('.tab[data-view="reports"]').click();
+      await vi.advanceTimersByTimeAsync(60);
+
+      const approve = document.querySelector('tr[data-report-id="rep-1"] [data-action="moderate"][data-value="approved"]');
+      approve.click();
+      expect(approve.textContent).toBe('Confirm?');
+
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(approve.textContent).toBe('Approve');
+      expect(approve.dataset.armed).toBeUndefined();
+      expect(calls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends the documented resolve body and reloads', async () => {
+    const puts = [];
+    let listCalls = 0;
+    await openReportTab((url, options = {}) => {
+      if (url.includes('/resolve')) { puts.push({ url, options }); return json({ success: true }); }
+      if (url.includes('/api/admin/reports')) { listCalls += 1; return json(reportsData([REPORT_OPEN_LISTING])); }
+      return defaultHandler(url);
+    });
+
+    const row = document.querySelector('tr[data-report-id="rep-1"]');
+    row.querySelector('[data-field="resolution"]').value = 'actioned';
+    row.querySelector('[data-field="moderationAction"]').value = 'removed';
+    row.querySelector('[data-field="note"]').value = ' done ';
+    row.querySelector('[data-action="resolve"]').click();
+    await tick();
+
+    expect(puts).toHaveLength(1);
+    expect(puts[0].url).toBe('/api/admin/reports/rep-1/resolve');
+    expect(puts[0].options.method).toBe('PUT');
+    expect(JSON.parse(puts[0].options.body)).toEqual({ resolution: 'actioned', note: 'done', moderationAction: 'removed' });
+    expect(listCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('omits moderationAction for a dismissed resolution', async () => {
+    const puts = [];
+    await openReportTab((url, options = {}) => {
+      if (url.includes('/resolve')) { puts.push({ url, options }); return json({ success: true }); }
+      if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_LISTING]));
+      return defaultHandler(url);
+    });
+
+    const row = document.querySelector('tr[data-report-id="rep-1"]');
+    row.querySelector('[data-field="resolution"]').value = 'dismissed';
+    row.querySelector('[data-action="resolve"]').click();
+    await tick();
+
+    const body = JSON.parse(puts[0].options.body);
+    expect(body).toEqual({ resolution: 'dismissed', note: '' });
+    expect(Object.prototype.hasOwnProperty.call(body, 'moderationAction')).toBe(false);
+  });
+
+  it('shows a 409 resolve error in the row', async () => {
+    await openReportTab((url) => {
+      if (url.includes('/resolve')) return json({ success: false, error: 'Report already resolved' }, 409);
+      if (url.includes('/api/admin/reports')) return json(reportsData([REPORT_OPEN_LISTING]));
+      return defaultHandler(url);
+    });
+
+    const row = document.querySelector('tr[data-report-id="rep-1"]');
+    row.querySelector('[data-action="resolve"]').click();
+    await tick();
+
+    expect(row.querySelector('[data-role="rowMsg"]').textContent).toBe('Failed: Report already resolved');
+  });
+
+  it('shows the rate-limit message with Retry on a 429', async () => {
+    await signIn();
+    fetchHandler = (url) => (url.includes('/api/admin/reports') ? json({ success: false }, 429) : defaultHandler(url));
+    document.querySelector('.tab[data-view="reports"]').click();
+    await tick();
+
+    expect(document.getElementById('viewMsg').textContent).toBe('Too many requests. Wait a minute and try again.');
+    expect(document.getElementById('retryBtn')).not.toBeNull();
+  });
+});
+
+describe('Payments tab', () => {
+  it('queries without params by default and adds filters when chosen', async () => {
+    const urls = [];
+    await openPaymentsTab((url) => {
+      if (url.includes('/api/admin/payments')) { urls.push(url); return json(paymentsData([PAYMENT_PENDING])); }
+      return defaultHandler(url);
+    });
+
+    expect(urls[0]).toBe('/api/admin/payments');
+
+    const statusSel = document.getElementById('paymentStatus');
+    statusSel.value = 'failed';
+    statusSel.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+
+    const typeSel = document.getElementById('paymentType');
+    typeSel.value = 'boost';
+    typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+
+    const last = urls[urls.length - 1];
+    expect(last).toContain('status=failed');
+    expect(last).toContain('type=boost');
+  });
+
+  it('renders masked phones, amounts and replay availability', async () => {
+    await openPaymentsTab((url) => (url.includes('/api/admin/payments')
+      ? json(paymentsData([PAYMENT_PENDING, PAYMENT_COMPLETED, PAYMENT_NO_INVOICE]))
+      : defaultHandler(url)));
+
+    const pendingCells = [...document.querySelector('tr[data-payment-id="pay-1"]').querySelectorAll('td')];
+    expect(pendingCells[3].textContent).toBe('KSh 150');
+    expect(pendingCells[4].textContent).toBe('premium');
+    expect(pendingCells[5].textContent).toBe('INV-1');
+    expect(pendingCells[6].textContent).toBe('0700***00');
+    expect(document.querySelector('tr[data-payment-id="pay-1"] [data-action="replay"]')).not.toBeNull();
+
+    const completedCells = [...document.querySelector('tr[data-payment-id="pay-2"]').querySelectorAll('td')];
+    expect(completedCells[6].textContent).toBe('redacted');
+    expect(document.querySelector('tr[data-payment-id="pay-2"] [data-action="replay"]')).toBeNull();
+
+    expect(document.querySelector('tr[data-payment-id="pay-3"] [data-action="replay"]')).toBeNull();
+  });
+
+  it('confirms a replay with two clicks and reloads on success', async () => {
+    const calls = [];
+    let listCalls = 0;
+    await openPaymentsTab((url, options = {}) => {
+      if (url.includes('/replay')) { calls.push({ url, options }); return json({ success: true }); }
+      if (url.includes('/api/admin/payments')) { listCalls += 1; return json(paymentsData([PAYMENT_PENDING])); }
+      return defaultHandler(url);
+    });
+
+    const btn = document.querySelector('tr[data-payment-id="pay-1"] [data-action="replay"]');
+    btn.click();
+    expect(btn.textContent).toBe('Confirm?');
+    expect(calls).toHaveLength(0);
+
+    btn.click();
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('/api/admin/payments/INV-1/replay');
+    expect(calls[0].options.method).toBe('POST');
+    expect(calls[0].options.body).toBeUndefined();
+    expect(listCalls).toBeGreaterThanOrEqual(2);
+  });
+});

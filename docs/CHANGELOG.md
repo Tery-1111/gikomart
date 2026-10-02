@@ -419,6 +419,20 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   `tests/adminPortal.test.mjs` (new, 16 tests).
 - **Existing tests changed:** None.
 
+### Step 4 — Reports and payments tabs
+- **Behavior:** Before, the portal had only the Dashboard and Health tabs. After,
+  a **Reports** tab lists reports (filterable by status and target type, `open`
+  by default) and lets an admin apply a moderation action (two-click confirmed)
+  and then record a resolution; a **Payments** tab lists payments (filterable by
+  status and type) with payer phone numbers masked, and offers a two-click
+  replay for non-completed payments that carry an invoice id. Both tabs render
+  all values as text.
+- **Files changed:** `docs/DECISIONS.md`, `docs/runbook-admin-portal.md`,
+  `public/admin/index.html`, `public/assets/js/admin.js`,
+  `tests/adminPortal.test.mjs`.
+- **Tests added:** `tests/adminPortal.test.mjs` (14 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

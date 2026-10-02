@@ -36,4 +36,28 @@ try again." with a Retry button.
 - **Dashboard** — site totals: active/flagged listings, active/flagged/suspended
   stores, pending/completed-24h/failed-24h payments, revenue for 24h/7d/30d (and
   by type for 30 days), open reports and blocked contacts.
+- **Reports** — open reports by default, filterable by status and target type.
+- **Payments** — payments filterable by status and type, with masked phone
+  numbers and a replay action for eligible payments.
 - **Health** — MongoDB and Cloudinary status, the check time and process uptime.
+
+## Reports tab
+
+Lists reports (newest first). Filter by status (`open` by default) and target
+type. Each open report offers three or four moderation buttons (Approve, Flag,
+Remove, and Suspend store for store targets) and a resolution recorder.
+
+**Apply the moderation action first, then record the resolution.** The
+moderation buttons are two-click: the first click changes the button to
+"Confirm?" and the second click within 4 seconds sends the request. On success
+the row shows `Applied: <action>` and the resolution selects are filled in.
+Recording a resolution sends `actioned` with a moderation action, or
+`dismissed` with none.
+
+## Payments tab
+
+Lists payments (newest first), filterable by status and type. Payer phone
+numbers are masked (first 4 and last 2 digits); full numbers are obtained only
+through the data-request runbook (`docs/runbook-data-requests.md`). The replay
+action is two-click confirmed and is offered only for non-completed payments
+that carry an invoice id.
