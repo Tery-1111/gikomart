@@ -279,6 +279,37 @@
   </div>
 </div>
 
+<!-- ░░░ REPORT MODAL ░░░ -->
+<div class="modal-overlay" id="reportModalOverlay">
+  <div class="modal-card modal-sm" id="reportModalCard">
+    <h3 style="font-family:var(--font-display); margin:0 0 8px;">Report this item</h3>
+    <form id="reportForm">
+      <input type="hidden" id="report-target-type" />
+      <input type="hidden" id="report-target-id" />
+      <div class="field-group">
+        <label for="report-reason">Reason</label>
+        <select id="report-reason" required>
+          <option value="">Select a reason…</option>
+          <option value="scam">Scam or fraud</option>
+          <option value="prohibited_item">Prohibited item</option>
+          <option value="wrong_info">Misleading information</option>
+          <option value="harassment">Harassment or abuse</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label for="report-details">Details (optional)</label>
+        <textarea id="report-details" maxlength="500" rows="4" placeholder="Tell us more…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-action="close-report-modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="reportSubmitBtn">Submit Report</button>
+      </div>
+      <div id="reportFormStatus" class="form-status"></div>
+    </form>
+  </div>
+</div>
+
 <!-- ░░░ LISTING DETAIL MODAL ░░░ -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-card" id="modalCard">

@@ -206,6 +206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupForm();
   setupModal();
   setupStoreModal();
+  setupReportModal();
   setupActionDelegation();
   loadListings();
   recoverPendingTokens();
@@ -740,6 +741,7 @@ function openListingModal(id, source) {
     <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}" data-listing-id="${listing._id}">
       💬 Contact seller on WhatsApp
     </button>
+    <button class="btn btn-ghost btn-sm" data-action="report-listing" data-target-id="${listing._id}" style="margin-top:10px;">🚩 Report</button>
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
     <div class="owner-controls">
       <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${listing._id}">✏️ Edit listing</button>
@@ -766,6 +768,79 @@ function setupStoreModal() {
     if (e.target.id !== 'storeCreationForm') return;
     handleStorePlanSubmit(e);
   });
+}
+
+// ─── Report modal ───────────────────────────────────────────────────────────
+
+function setupReportModal() {
+  const overlay = document.getElementById('reportModalOverlay');
+  if (!overlay) return;
+  // Same overlay-click-to-close pattern as the listing/store modals.
+  overlay.addEventListener('click', (e) => {
+    if (e.target.id === 'reportModalOverlay') closeReportModal();
+  });
+  const form = document.getElementById('reportForm');
+  if (form) form.addEventListener('submit', handleReportSubmit);
+}
+
+function openReportModal(targetType, targetId) {
+  const typeEl = document.getElementById('report-target-type');
+  const idEl = document.getElementById('report-target-id');
+  if (!typeEl || !idEl) return;
+  typeEl.value = targetType || '';
+  idEl.value = targetId || '';
+
+  const form = document.getElementById('reportForm');
+  if (form) form.reset();
+  const statusEl = document.getElementById('reportFormStatus');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'form-status'; }
+  // A prior failed submit may have left "Retry" on the button — reset it.
+  const btn = document.getElementById('reportSubmitBtn');
+  if (btn) btn.textContent = 'Submit Report';
+
+  document.getElementById('reportModalOverlay').classList.add('open');
+}
+
+function closeReportModal() {
+  document.getElementById('reportModalOverlay').classList.remove('open');
+}
+
+async function handleReportSubmit(e) {
+  e.preventDefault();
+  const btn = document.getElementById('reportSubmitBtn');
+  const statusEl = document.getElementById('reportFormStatus');
+  const targetType = document.getElementById('report-target-type').value;
+  const targetId = document.getElementById('report-target-id').value;
+  const reason = document.getElementById('report-reason').value;
+  const details = document.getElementById('report-details').value;
+
+  // Guard the required fields client-side too: an empty select would otherwise
+  // be sent and rejected by the server as a 400.
+  if (!targetType || !targetId || !reason) {
+    if (statusEl) { statusEl.textContent = '⚠️ Please choose a reason.'; statusEl.className = 'form-status error'; }
+    return;
+  }
+
+  setBtnBusy(btn, true, 'Submitting…');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'form-status'; }
+
+  try {
+    const res = await fetch(`${API_BASE}/reports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetType, targetId, reason, details }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw httpError(res, data);
+
+    setBtnBusy(btn, false);
+    showToast('✅ Report submitted. Thank you.');
+    closeReportModal();
+  } catch (err) {
+    setBtnBusy(btn, false);
+    if (btn) btn.textContent = 'Retry';
+    if (statusEl) { statusEl.textContent = friendlyFetchError(err); statusEl.className = 'form-status error'; }
+  }
 }
 
 // Delegated click dispatch for action buttons. Inline onclick attributes are
@@ -803,6 +878,10 @@ function setupActionDelegation() {
       case 'delete-store': deleteStore(el.dataset.storeId); break;
       case 'select-store-plan': selectStorePlan(el); break;
       case 'close-store-modal': closeStoreModal(); break;
+      // ── Reporting ──
+      case 'report-listing': openReportModal('listing', el.dataset.targetId); break;
+      case 'report-store': openReportModal('store', el.dataset.targetId); break;
+      case 'close-report-modal': closeReportModal(); break;
       case 'save-store-edit': saveStoreEdit(el.dataset.storeId); break;
       case 'attach-listing-to-store': attachListingToStore(el.dataset.storeId, el.dataset.listingId); break;
       // ── Buyer contact acceptance gate ──
@@ -985,8 +1064,7 @@ async function initiateBoost(listingId) {
   }
 
   const boostType = selected.dataset.boost;
-  btn.disabled = true;
-  statusEl.textContent = 'Sending payment request…';
+  setBtnBusy(btn, true, 'Sending payment request…');
   statusEl.className = 'boost-status pending';
 
   try {
@@ -1005,7 +1083,7 @@ async function initiateBoost(listingId) {
   } catch (err) {
     statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'boost-status error';
-    btn.disabled = false;
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1326,8 +1404,11 @@ async function editListing(id) {
   if (!Object.keys(updates).length) { showToast('No changes made'); return; }
 
   // Disable this listing's edit/delete buttons (any instance — grid, dashboard
-  // or open modal) with a spinner while the request runs; restored in finally.
-  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  // or open modal) with a spinner while the request runs. The buttons carry
+  // data-listing-id, so target that attribute — the old data-listing selector
+  // matched nothing, so the busy state never appeared.
+  const btns = document.querySelectorAll(`.owner-btn[data-listing-id="${id}"]`);
+  const editBtns = document.querySelectorAll(`.owner-btn.edit[data-listing-id="${id}"]`);
   btns.forEach(btn => setBtnBusy(btn, true));
 
   try {
@@ -1344,11 +1425,16 @@ async function editListing(id) {
     renderListings();
     closeModal();
     showToast('✅ Listing updated');
+    btns.forEach(btn => setBtnBusy(btn, false));
+    // Brief confirmation on the (still-visible) edit button, then revert.
+    editBtns.forEach(btn => { btn.textContent = 'Saved ✓'; });
+    setTimeout(() => editBtns.forEach(btn => { btn.textContent = '✏️ Edit'; }), 2000);
   } catch (err) {
     console.error('Listing update failed:', err.message);
     showToast(friendlyFetchError(err));
-  } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
+    // Inline retry: the delegated data-action handler re-runs editListing.
+    editBtns.forEach(btn => { btn.textContent = 'Retry'; });
   }
 }
 
@@ -1358,8 +1444,10 @@ async function deleteListing(id) {
   const listing = allListings.find(l => l._id === id);
   if (!window.confirm(`Delete "${listing ? listing.title : 'this listing'}"? This cannot be undone.`)) return;
 
-  // Disable this listing's edit/delete buttons while the request runs.
-  const btns = document.querySelectorAll(`.owner-btn[data-listing="${id}"]`);
+  // Disable this listing's edit/delete buttons while the request runs. Match
+  // the actual data-listing-id attribute (see editListing for why).
+  const btns = document.querySelectorAll(`.owner-btn[data-listing-id="${id}"]`);
+  const deleteBtns = document.querySelectorAll(`.owner-btn.delete[data-listing-id="${id}"]`);
   btns.forEach(btn => setBtnBusy(btn, true));
 
   try {
@@ -1377,11 +1465,13 @@ async function deleteListing(id) {
     renderListings();
     closeModal();
     showToast('🗑️ Listing deleted');
+    btns.forEach(btn => setBtnBusy(btn, false));
   } catch (err) {
     console.error('Listing delete failed:', err.message);
     showToast(friendlyFetchError(err));
-  } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
+    // Inline retry: the delegated data-action handler re-runs deleteListing.
+    deleteBtns.forEach(btn => { btn.textContent = 'Retry'; });
   }
 }
 
@@ -1646,8 +1736,7 @@ async function handleStorePlanSubmit(e) {
   const termsNotice = document.querySelector('#storeCreationForm .terms-acceptance[data-terms-type="store-creation"]');
   if (termsNotice) termsNotice.outerHTML = storeCreationAcceptanceHTML();
 
-  btn.disabled = true;
-  statusEl.textContent = 'Sending payment request…';
+  setBtnBusy(btn, true, 'Sending payment request…');
   statusEl.className = 'form-status';
 
   try {
@@ -1672,7 +1761,7 @@ async function handleStorePlanSubmit(e) {
   } catch (err) {
     statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'form-status error';
-    btn.disabled = false;
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1806,6 +1895,7 @@ async function openStoreEditForm(storeId) {
 
 async function saveStoreEdit(storeId) {
   const token = getStoreToken(storeId);
+  const saveBtn = document.querySelector('[data-action="save-store-edit"]');
   const updates = {
     name: document.getElementById('se-name').value.trim(),
     description: document.getElementById('se-description').value.trim(),
@@ -1813,6 +1903,8 @@ async function saveStoreEdit(storeId) {
     whatsapp: document.getElementById('se-whatsapp').value.trim(),
     location: document.getElementById('se-location').value.trim(),
   };
+
+  setBtnBusy(saveBtn, true, 'Saving…');
   try {
     const res = await fetch(`${API_BASE}/stores/${storeId}`, {
       method: 'PUT',
@@ -1821,10 +1913,20 @@ async function saveStoreEdit(storeId) {
     });
     const data = await res.json();
     if (!res.ok || !data.success) throw httpError(res, data);
-    closeStoreModal();
+    setBtnBusy(saveBtn, false);
+    if (saveBtn) saveBtn.textContent = 'Saved ✓';
     showToast('✅ Store updated');
     renderMyStore();
+    // Keep the confirmation visible briefly, then revert the label and close.
+    setTimeout(() => {
+      if (saveBtn) saveBtn.textContent = 'Save Changes';
+      closeStoreModal();
+    }, 2000);
   } catch (err) {
+    // Keep the modal open with the form data intact; the delegated
+    // data-action handler re-runs the save when the user clicks Retry.
+    setBtnBusy(saveBtn, false);
+    if (saveBtn) saveBtn.textContent = 'Retry';
     showToast(friendlyFetchError(err));
   }
 }
@@ -1968,6 +2070,7 @@ async function openStorePage(slug) {
             ${store.pickup_available ? '<span>📦 Pickup</span>' : ''}
             ${store.whatsapp ? `<span>💬 WhatsApp</span>` : ''}
           </div>
+          <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${store._id}" style="margin-top:16px;">🚩 Report this store</button>
         </div>
       </div>
       <h3 style="font-family:var(--font-display); margin-bottom:12px;">Listings (${data.listingCount})</h3>
