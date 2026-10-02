@@ -710,7 +710,7 @@ function setupModal() {
     }
     const btn = e.target.closest('.contact-btn');
     if (!btn) return;
-    contactSeller(btn.dataset.whatsapp || '', btn.dataset.title || '', btn.dataset.listingId || '');
+    contactSeller(btn.dataset.title || '', btn.dataset.listingId || '');
   });
 }
 
@@ -748,21 +748,6 @@ function openListingModal(id, source) {
     ${listing.featured || usingDemoData || !hasOwnerToken(listing._id) ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
-
-  if (!usingDemoData && !id.startsWith('demo')) {
-    // List responses intentionally omit sellerWhatsapp (anti-scraping); the
-    // per-listing detail endpoint is the only source of the contact number.
-    // Fetch it and backfill the contact button once it arrives.
-    fetch(`${API_BASE}/listings/${id}`)
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => {
-        if (data && data.success && data.listing && data.listing.sellerWhatsapp) {
-          const btn = card.querySelector('.contact-btn');
-          if (btn) btn.dataset.whatsapp = data.listing.sellerWhatsapp;
-        }
-      })
-      .catch(() => {});
-  }
 }
 
 function closeModal() {
@@ -828,7 +813,6 @@ function setupActionDelegation() {
 }
 
 let _buyerGateSavedHTML = null;
-let _buyerGateSavedWhatsapp = '';
 let _buyerGateSavedTitle = '';
 let _buyerGateSavedListingId = '';
 
@@ -840,11 +824,17 @@ function _restoreBuyerGateListing() {
   }
 }
 
-function contactSeller(whatsapp, title, listingId) {
-  if (!whatsapp) { showToast('⏳ Loading contact details…'); return; }
+// Build a wa.me link that always uses the international form. Kenyan numbers
+// arrive as 07XXXXXXXX / 01XXXXXXXX, or already prefixed with 254.
+function _waMeLink(rawNumber) {
+  const digits = String(rawNumber || '').replace(/\D/g, '');
+  const intl = digits.startsWith('254') ? digits : `254${digits.replace(/^0/, '')}`;
+  return `https://wa.me/${intl}`;
+}
+
+function contactSeller(title, listingId) {
   const card = document.getElementById('modalCard');
   _buyerGateSavedHTML = card.innerHTML;
-  _buyerGateSavedWhatsapp = whatsapp;
   _buyerGateSavedTitle = title;
   _buyerGateSavedListingId = listingId;
 
@@ -852,7 +842,7 @@ function contactSeller(whatsapp, title, listingId) {
     <button class="modal-close" data-action="buyer-gate-cancel">✕</button>
     <h3 style="font-family:var(--font-display); font-size:18px; margin:0 0 12px;">Contact Seller</h3>
     ${buyerContactAcceptanceHTML()}
-    <div style="display:flex; gap:10px; margin-top:16px;">
+    <div id="buyerGateActions" style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
       <button type="button" class="btn btn-ghost" data-action="buyer-gate-cancel" style="flex:1;">Cancel</button>
       <button type="button" class="btn btn-primary" data-action="buyer-gate-continue" style="flex:1;">Continue &amp; Contact Seller</button>
     </div>
@@ -860,12 +850,12 @@ function contactSeller(whatsapp, title, listingId) {
 }
 
 async function _handleBuyerGateContinue() {
-  const whatsapp = _buyerGateSavedWhatsapp;
   const title = _buyerGateSavedTitle;
   const listingId = _buyerGateSavedListingId;
   const continueBtn = document.querySelector('[data-action="buyer-gate-continue"]');
   if (continueBtn) { continueBtn.disabled = true; continueBtn.textContent = 'Checking…'; }
 
+  let data;
   try {
     const res = await fetch(`${API_BASE}/terms/contact-acceptance`, {
       method: 'POST',
@@ -873,11 +863,10 @@ async function _handleBuyerGateContinue() {
       body: JSON.stringify({
         acceptance: buildBuyerAcceptanceToken(),
         listingId,
-        sellerWhatsapp: whatsapp,
         listingTitle: title,
       }),
     });
-    const data = await res.json();
+    data = await res.json();
     if (!res.ok || !data.success) throw httpError(res, data);
   } catch (err) {
     showToast(friendlyFetchError(err));
@@ -885,10 +874,18 @@ async function _handleBuyerGateContinue() {
     return;
   }
 
-  const cleanNumber = whatsapp.replace(/[\s+]/g, '');
-  const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
-  window.open(`https://wa.me/${cleanNumber}?text=${message}`, '_blank');
-  _restoreBuyerGateListing();
+  // The server releases the seller number only after recording the acceptance.
+  // Present it as a real link (never window.open) so the browser shows the
+  // destination and the buyer opens WhatsApp deliberately.
+  const actions = document.getElementById('buyerGateActions');
+  if (actions && data.sellerWhatsapp) {
+    const message = encodeURIComponent(`Hi! I saw your listing "${title}" on GikoMart. Is it still available?`);
+    const href = escapeAttr(`${_waMeLink(data.sellerWhatsapp)}?text=${message}`);
+    actions.innerHTML = `
+      <p class="buyer-gate-ready" style="margin:0 0 8px; flex-basis:100%;">Seller contact ready</p>
+      <a class="btn btn-primary" href="${href}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center;">Open WhatsApp</a>
+    `;
+  }
 }
 
 function boostSectionHTML(listingId) {
