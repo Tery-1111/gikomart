@@ -11,7 +11,7 @@ require('dotenv').config();
 // Fail fast on insecure production secrets BEFORE any route module is required
 // (adminAuth reads ADMIN_SESSION_SECRET at module load). Development/test are
 // exempt — see src/config/envGuard.js.
-const { assertProductionSecrets } = require('./src/config/envGuard');
+const { assertProductionSecrets, assertStartupConfig } = require('./src/config/envGuard');
 assertProductionSecrets();
 
 const { startCleanupScheduler } = require('./src/services/cleanupService');
@@ -125,6 +125,9 @@ app.use('/health', require('./src/routes/health'));
 app.use(require('./src/middleware/errorHandler'));
 
 if (require.main === module) {
+  // Fail fast when the database is not configured — the API is useless without
+  // it, and a silent start would leave the health check flapping forever.
+  assertStartupConfig();
   mongoose.connect(process.env.MONGO_URI)
     .then(() => {
       logger.info('MongoDB connected');
