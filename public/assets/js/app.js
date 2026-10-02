@@ -15,8 +15,14 @@ const API_BASE = '/api';
 // re-keyed to the listing id once the status poll reveals it.
 const OWNER_TOKEN_PREFIX = 'gikomart_ownerToken:';
 const PENDING_TOKEN_PREFIX = 'gikomart_pendingToken:';
-const STATUS_POLL_INTERVAL_MS = 3000;
-const STATUS_POLL_MAX_ATTEMPTS = 100; // ~5 minutes
+// Exponential backoff for payment-status polling: the first check runs
+// immediately, then these delays separate the remaining attempts (2+4+8+16+32
+// = 62s). Once the sequence is exhausted the flow hands off to a manual
+// Recovery state instead of continuing to hammer the endpoint.
+const STATUS_POLL_BACKOFF_MS = [2000, 4000, 8000, 16000, 32000];
+const STATUS_POLL_MAX_ATTEMPTS = STATUS_POLL_BACKOFF_MS.length; // 5
+// Transient-failure backoff for the Cloudinary upload (network / 5xx / timeout).
+const UPLOAD_RETRY_DELAYS_MS = [1000, 2000, 4000];
 
 const CATEGORIES = [
   { id: 'elec',  name: 'Electronics',     icon: '📱' },
@@ -85,9 +91,12 @@ let activeCategory = '';
 let usingDemoData = false;
 let uploadedImageUrl = null;
 let browseFetchFailed = false;   // last /listings fetch failed → show retry banner
+let browseFetchErrorMsg = '';    // friendly message for that failure
 let gridRequestId = 0;           // increments per fetch; stale responses are dropped
 let isUploading = false;         // a Cloudinary upload is in flight
 let isPaymentInFlight = false;   // an M-Pesa initiate/poll is in progress
+let listingPollTimer = null;     // pending listing-status poll retry timer
+let storePollTimer = null;       // pending store-status poll retry timer
 
 let TERMS_VERSIONS = null;
 
@@ -200,6 +209,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupActionDelegation();
   loadListings();
   recoverPendingTokens();
+  // Abort any in-flight status poll when the page is torn down (tab close or
+  // navigation) so a stale timer can't fire against a gone page.
+  window.addEventListener('pagehide', () => { clearListingPoll(); clearStorePoll(); });
 });
 
 function setupNav() {
@@ -331,10 +343,15 @@ function adoptPendingToken(invoiceId, listingId) {
 // saved token so edit/delete controls appear for that listing.
 function pollListingStatus(invoiceId, attempt = 0) {
   if (attempt >= STATUS_POLL_MAX_ATTEMPTS) {
-    showToast('⏳ Still waiting for payment confirmation — your listing will appear after a refresh');
-    // Don't leave the publish button disabled forever: release it so the user
-    // can retry, and say why.
-    if (isPaymentInFlight) endPaymentWait(false, '⏳ M-Pesa confirmation is taking longer than expected. Check your phone, then try again.');
+    // The automatic polling window is exhausted, but the webhook can still land
+    // later. Release the publish button (don't leave it disabled forever) and
+    // switch to a persistent Recovery state that shows the invoice reference and
+    // offers a manual re-check.
+    if (isPaymentInFlight) {
+      isPaymentInFlight = false;
+      setBtnBusy(document.getElementById('submitBtn'), false);
+    }
+    showPaymentRecovery(document.getElementById('formStatus'), invoiceId, () => checkListingStatusManually(invoiceId));
     return;
   }
   fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
@@ -353,9 +370,84 @@ function pollListingStatus(invoiceId, attempt = 0) {
         if (isPaymentInFlight) endPaymentWait(false, '❌ Payment failed — nothing was listed. Try again.');
         return;
       }
-      setTimeout(() => pollListingStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS);
+      listingPollTimer = setTimeout(() => pollListingStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
     })
-    .catch(() => setTimeout(() => pollListingStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS));
+    .catch(() => {
+      listingPollTimer = setTimeout(() => pollListingStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
+    });
+}
+
+// Delay before the next poll attempt: walk the backoff sequence, capping at
+// its last entry so a mis-set attempt can never index past the array.
+function pollBackoffDelay(attempt) {
+  return STATUS_POLL_BACKOFF_MS[Math.min(attempt, STATUS_POLL_BACKOFF_MS.length - 1)];
+}
+
+// Cancel a scheduled status-poll retry. Each flow keeps a single timer, so a
+// closed modal (store) or a torn-down page never leaves one running.
+function clearListingPoll() {
+  if (listingPollTimer) { clearTimeout(listingPollTimer); listingPollTimer = null; }
+}
+function clearStorePoll() {
+  if (storePollTimer) { clearTimeout(storePollTimer); storePollTimer = null; }
+}
+
+// Persistent Recovery state for a payment whose automatic poll window expired.
+// Shows the invoiceId — the only reference the client can quote to support —
+// and a button that runs ONE manual status check, because the webhook may
+// still land after the polls stop.
+function showPaymentRecovery(statusEl, invoiceId, onManualCheck) {
+  if (!statusEl) return;
+  statusEl.className = 'form-status';
+  statusEl.innerHTML =
+    `⏳ Payment is still processing. Reference: <strong>${escapeHTML(invoiceId)}</strong>. ` +
+    `If it doesn't appear in 2 minutes, click below to check again.` +
+    `<button type="button" class="btn btn-primary" data-manual-check style="margin-top:8px;">Check Status Now</button>`;
+  const btn = statusEl.querySelector('[data-manual-check]');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      onManualCheck();
+    });
+  }
+}
+
+// One manual status check for a listing payment in Recovery. Confirmation
+// transitions to the Success state; still-pending points the user at support
+// with the reference.
+async function checkListingStatusManually(invoiceId) {
+  const statusEl = document.getElementById('formStatus');
+  let data;
+  try {
+    const res = await fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`);
+    if (!res.ok) throw httpError(res, null);
+    data = await res.json();
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'form-status error';
+      statusEl.textContent = friendlyFetchError(err);
+    }
+    return;
+  }
+
+  if (data && data.success && data.listingId) {
+    adoptPendingToken(invoiceId, data.listingId);
+    showToast('✅ Payment confirmed — your listing is live!');
+    endPaymentWait(true, '✅ Payment confirmed — your listing is live!');
+    loadListings();
+    return;
+  }
+  if (data && data.success && data.status === 'failed') {
+    try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+    showToast('❌ Payment failed — nothing was listed');
+    endPaymentWait(false, '❌ Payment failed — nothing was listed. Try again.');
+    return;
+  }
+  if (statusEl) {
+    statusEl.className = 'form-status error';
+    statusEl.textContent = `Still processing. Please contact support with reference: ${invoiceId}.`;
+  }
 }
 
 // One-time recovery for tokens left pending by a closed tab (e.g. the user
@@ -396,7 +488,7 @@ async function loadListings() {
   try {
     const res = await fetch(`${API_BASE}/listings`);
     if (requestId !== gridRequestId) return; // superseded by a newer fetch
-    if (!res.ok) throw new Error('API not reachable');
+    if (!res.ok) throw httpError(res, null);
     const data = await res.json();
     allListings = data.listings.map(l => ({
       ...l,
@@ -410,6 +502,7 @@ async function loadListings() {
     allListings = DEMO_LISTINGS;
     usingDemoData = true;
     browseFetchFailed = true;
+    browseFetchErrorMsg = friendlyFetchError(err);
   }
   myListings = allListings.filter(l => hasOwnerToken(l._id));
   document.getElementById('statListings').textContent = allListings.length;
@@ -419,8 +512,8 @@ async function loadListings() {
 // Render a row of shimmer skeleton cards matching the real card layout
 // (image block, title line, price line, meta line) so nothing shifts when
 // the actual listings load in. Used for the initial fetch and any re-fetch.
-function showGridSkeleton(grid) {
-  const placeholders = Array.from({ length: 8 }, () => `
+function showGridSkeleton(grid, count = 8) {
+  const placeholders = Array.from({ length: count }, () => `
     <div class="skeleton-card" aria-hidden="true">
       <div class="skeleton sk-img"></div>
       <div class="sk-body">
@@ -456,6 +549,65 @@ function setBtnBusy(btn, busy, busyLabel) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Upload the image with exponential backoff on TRANSIENT failures only — a
+// network error (fetch rejects), a 5xx, or a timeout. A 4xx is a file/input
+// problem, so it is returned at once (retrying cannot help). The caller's
+// status line shows the transient message the moment a retryable failure is
+// seen, so the user is not left on a blank "Uploading…" for the whole window;
+// a later success overwrites it.
+async function fetchUploadWithRetry(formData, statusEl) {
+  for (let attempt = 0; ; attempt++) {
+    let res = null;
+    let networkErr = null;
+    try {
+      res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData });
+    } catch (err) {
+      networkErr = err;
+    }
+    const retryable = networkErr !== null || (res && res.status >= 500);
+    if (!retryable) return res;
+    if (attempt >= UPLOAD_RETRY_DELAYS_MS.length) {
+      if (networkErr) throw networkErr;
+      return res;
+    }
+    if (statusEl) {
+      statusEl.textContent = networkErr
+        ? "📡 Couldn't connect. Retrying…"
+        : 'Server is busy — please try again in a moment';
+      statusEl.className = 'image-upload-status error';
+    }
+    await sleep(UPLOAD_RETRY_DELAYS_MS[attempt]);
+  }
+}
+
+// Map a failed fetch to a friendly, scenario-specific message. The HTTP status
+// is attached to the thrown Error by the call site (httpError); an Error with
+// no status means the request never reached the server (offline/DNS/CORS).
+function friendlyFetchError(err) {
+  const status = err && typeof err.status === 'number' ? err.status : null;
+  if (status === null) return "📡 Couldn't connect. Check your internet and try again.";
+  if (status === 503) return '⏳ Server is busy. Please wait a moment and try again.';
+  if (status === 400 || status === 422) return '⚠️ Please check your input and try again.';
+  if (status >= 500) return '⚠️ Something went wrong on our end. Please try again in a minute.';
+  // Any other status whose response carried a server message: that message is
+  // already specific and actionable, so surface it rather than a catch-all.
+  if (err.serverError) return `⚠️ ${err.serverError}`;
+  return '⚠️ Unexpected error. Please refresh the page and try again.';
+}
+
+// Wrap a non-2xx Response in an Error carrying the status (and the server's own
+// message) so friendlyFetchError can pick the right string at the catch site.
+function httpError(res, data) {
+  const err = new Error((data && data.error) || `Request failed (HTTP ${res.status})`);
+  err.status = res.status;
+  err.serverError = data && data.error ? data.error : '';
+  return err;
+}
+
 function renderListings() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const filtered = allListings.filter(l => {
@@ -475,7 +627,7 @@ function renderListings() {
   // but make the failure obvious and let the user retry the real fetch.
   if (!filtered.length) {
     const errorBanner = browseFetchFailed
-      ? `<div class="grid-error"><span>⚠️ Couldn't reach the server — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
+      ? `<div class="grid-error"><span>${escapeHTML(browseFetchErrorMsg)} — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
       : '';
     grid.innerHTML = errorBanner + `
       <div class="empty-state">
@@ -487,7 +639,7 @@ function renderListings() {
   }
 
   const errorBanner = browseFetchFailed
-    ? `<div class="grid-error"><span>⚠️ Couldn't reach the server — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
+    ? `<div class="grid-error"><span>${escapeHTML(browseFetchErrorMsg)} — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
     : '';
 
   grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('');
@@ -726,9 +878,9 @@ async function _handleBuyerGateContinue() {
       }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Could not proceed');
+    if (!res.ok || !data.success) throw httpError(res, data);
   } catch (err) {
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
     if (continueBtn) { continueBtn.disabled = false; continueBtn.textContent = 'Continue & Contact Seller'; }
     return;
   }
@@ -848,13 +1000,13 @@ async function initiateBoost(listingId) {
     });
 
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Payment failed');
+    if (!res.ok || !data.success) throw httpError(res, data);
 
     statusEl.textContent = '📲 Check your phone for the M-Pesa prompt to complete payment.';
     statusEl.className = 'boost-status success';
     btn.textContent = 'Request sent';
   } catch (err) {
-    statusEl.textContent = `⚠️ ${err.message}`;
+    statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'boost-status error';
     btn.disabled = false;
   }
@@ -943,10 +1095,7 @@ function setupImageUpload() {
       const formData = new FormData();
       formData.append('image', file);
 
-      const res = await fetch(`${API_BASE}/upload`, {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetchUploadWithRetry(formData, status);
 
       // Surface the server's actual rejection instead of a generic status. upload.js
       // answers 400/429 with { success:false, error }, and that message is the only
@@ -986,10 +1135,10 @@ function setupImageUpload() {
         console.warn(`Image upload failed: HTTP ${err.status} — ${err.body}`);
         status.textContent = err.serverError
           ? `⚠️ ${err.serverError} — listing will be posted without it`
-          : `⚠️ Upload failed (HTTP ${err.status}) — listing will be posted without it`;
+          : `${friendlyFetchError(err)} — listing will be posted without it`;
       } else {
         console.warn('Image upload failed:', (err && err.message) || 'unknown error');
-        status.textContent = '⚠️ Could not upload photo — listing will be posted without it';
+        status.textContent = `${friendlyFetchError(err)} — listing will be posted without it`;
       }
       status.className = 'image-upload-status error';
     } finally {
@@ -1113,7 +1262,7 @@ async function handleSubmit(e) {
     });
 
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Payment request failed');
+    if (!res.ok || !data.success) throw httpError(res, data);
 
     // Save the one-time owner token immediately, keyed by invoiceId (the only
     // id the client has at this point). Once the status poll reports the
@@ -1139,7 +1288,7 @@ async function handleSubmit(e) {
 
   } catch (err) {
     console.error('Listing payment failed:', err.message);
-    endPaymentWait(false, `⚠️ ${err.message}. Please try again.`);
+    endPaymentWait(false, friendlyFetchError(err));
     showToast('⚠️ Payment request failed');
   }
 }
@@ -1191,7 +1340,7 @@ async function editListing(id) {
       body: JSON.stringify(updates),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Update failed');
+    if (!res.ok || !data.success) throw httpError(res, data);
 
     const idx = allListings.findIndex(l => l._id === id);
     if (idx !== -1) allListings[idx] = { ...allListings[idx], ...data.listing, icon: CATEGORY_ICONS[data.listing.category] || allListings[idx].icon };
@@ -1200,7 +1349,7 @@ async function editListing(id) {
     showToast('✅ Listing updated');
   } catch (err) {
     console.error('Listing update failed:', err.message);
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
   }
@@ -1222,7 +1371,7 @@ async function deleteListing(id) {
       headers: { 'X-Owner-Token': token },
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Delete failed');
+    if (!res.ok || !data.success) throw httpError(res, data);
 
     allListings = allListings.filter(l => l._id !== id);
     myListings = myListings.filter(l => l._id !== id);
@@ -1233,7 +1382,7 @@ async function deleteListing(id) {
     showToast('🗑️ Listing deleted');
   } catch (err) {
     console.error('Listing delete failed:', err.message);
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   } finally {
     btns.forEach(btn => setBtnBusy(btn, false));
   }
@@ -1327,11 +1476,11 @@ async function renderMyStore() {
       headers: { 'X-Store-Owner-Token': getStoreToken(storeId) }
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    if (!data.success) throw httpError(res, data);
 
     container.innerHTML = renderStoreManagementPanel(data.store, data.listingCount);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${escapeHTML(err.message)}</p>
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">⚠️</span><p>${escapeHTML(friendlyFetchError(err))}</p>
       <button class="btn btn-primary" data-action="open-store-creation" style="margin-top:16px;">Open a Store →</button></div>`;
   }
 }
@@ -1461,6 +1610,9 @@ function selectStorePlan(el) {
 
 function closeStoreModal() {
   document.getElementById('storeModalOverlay').classList.remove('open');
+  // The modal hosts the store-payment flow; abort its pending poll so a closed
+  // modal cannot keep scheduling background timers.
+  clearStorePoll();
 }
 
 async function handleStorePlanSubmit(e) {
@@ -1508,7 +1660,7 @@ async function handleStorePlanSubmit(e) {
       body: JSON.stringify({ phoneNumber, storePlan, storeData, acceptance: buildStoreAcceptanceToken() }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Payment failed');
+    if (!res.ok || !data.success) throw httpError(res, data);
 
     // Save pending store token
     if (data.ownerToken && data.invoiceId) {
@@ -1521,7 +1673,7 @@ async function handleStorePlanSubmit(e) {
     showToast('📲 Store payment request sent');
     btn.textContent = 'Request sent';
   } catch (err) {
-    statusEl.textContent = `⚠️ ${err.message}`;
+    statusEl.textContent = friendlyFetchError(err);
     statusEl.className = 'form-status error';
     btn.disabled = false;
   }
@@ -1529,7 +1681,11 @@ async function handleStorePlanSubmit(e) {
 
 function pollStoreStatus(invoiceId, attempt = 0) {
   if (attempt >= STATUS_POLL_MAX_ATTEMPTS) {
-    showToast('⏳ Still waiting — your store will appear after a refresh');
+    // Same Recovery hand-off as the listing poller: release the submit button
+    // and offer a single manual status check instead of a vanishing toast.
+    const btn = document.getElementById('storeSubmitBtn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Pay & Open Store'; }
+    showPaymentRecovery(document.getElementById('storeFormStatus'), invoiceId, () => checkStoreStatusManually(invoiceId));
     return;
   }
   fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`)
@@ -1553,12 +1709,57 @@ function pollStoreStatus(invoiceId, attempt = 0) {
         showToast('❌ Store payment failed');
         return;
       }
-      setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS);
+      storePollTimer = setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
     })
-    .catch(() => setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), STATUS_POLL_INTERVAL_MS));
+    .catch(() => {
+      storePollTimer = setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
+    });
 }
 
 // ─── Store management ───────────────────────────────────────────────────────
+
+// Manual status check for a store-plan payment in Recovery (store modal).
+async function checkStoreStatusManually(invoiceId) {
+  const statusEl = document.getElementById('storeFormStatus');
+  let data;
+  try {
+    const res = await fetch(`${API_BASE}/payments/status/${encodeURIComponent(invoiceId)}`);
+    if (!res.ok) throw httpError(res, null);
+    data = await res.json();
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'form-status error';
+      statusEl.textContent = friendlyFetchError(err);
+    }
+    return;
+  }
+
+  if (data && data.success && data.storeId) {
+    let token = null;
+    try { token = localStorage.getItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+    if (token) {
+      saveStoreToken(data.storeId, token);
+      try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+    }
+    closeStoreModal();
+    showToast('✅ Store created!');
+    renderMyStore();
+    return;
+  }
+  if (data && data.success && data.status === 'failed') {
+    try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
+    showToast('❌ Store payment failed');
+    if (statusEl) {
+      statusEl.className = 'form-status error';
+      statusEl.textContent = '❌ Store payment failed. Please try again.';
+    }
+    return;
+  }
+  if (statusEl) {
+    statusEl.className = 'form-status error';
+    statusEl.textContent = `Still processing. Please contact support with reference: ${invoiceId}.`;
+  }
+}
 
 async function openStoreEditForm(storeId) {
   const token = getStoreToken(storeId);
@@ -1569,7 +1770,7 @@ async function openStoreEditForm(storeId) {
       headers: { 'X-Store-Owner-Token': token }
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    if (!data.success) throw httpError(res, data);
     const store = data.store;
 
     const card = document.getElementById('storeModalCard');
@@ -1602,7 +1803,7 @@ async function openStoreEditForm(storeId) {
     `;
     document.getElementById('storeModalOverlay').classList.add('open');
   } catch (err) {
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   }
 }
 
@@ -1622,12 +1823,12 @@ async function saveStoreEdit(storeId) {
       body: JSON.stringify(updates),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error);
+    if (!res.ok || !data.success) throw httpError(res, data);
     closeStoreModal();
     showToast('✅ Store updated');
     renderMyStore();
   } catch (err) {
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   }
 }
 
@@ -1640,13 +1841,13 @@ async function deleteStore(storeId) {
       headers: { 'X-Store-Owner-Token': token },
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error);
+    if (!res.ok || !data.success) throw httpError(res, data);
     try { localStorage.removeItem(STORE_OWNER_TOKEN_PREFIX + storeId); } catch (err) {}
     showToast('🗑️ Store deleted');
     renderMyStore();
     loadListings(); // refresh browse to remove deleted listings
   } catch (err) {
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   }
 }
 
@@ -1693,25 +1894,27 @@ async function attachListingToStore(storeId, listingId) {
       body: JSON.stringify({ listingId }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error);
+    if (!res.ok || !data.success) throw httpError(res, data);
     closeStoreModal();
     showToast('✅ Listing attached to store');
     loadListings();
     renderMyStore();
   } catch (err) {
-    showToast(`⚠️ ${err.message}`);
+    showToast(friendlyFetchError(err));
   }
 }
 
 async function openStoreListings(storeId) {
   const section = document.getElementById('storeListingsSection');
   if (!section) return;
-  section.innerHTML = '<div class="empty-state">Loading store listings…</div>';
+  section.innerHTML = '<div class="listing-grid" id="storeListingsGrid"></div>';
+  const grid = document.getElementById('storeListingsGrid');
+  showGridSkeleton(grid, 4);
 
   try {
     const res = await fetch(`${API_BASE}/listings?store_id=${storeId}`);
     const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    if (!data.success) throw httpError(res, data);
 
     if (!data.listings.length) {
       section.innerHTML = '<div class="empty-state"><p>No listings in this store yet.</p></div>';
@@ -1724,7 +1927,7 @@ async function openStoreListings(storeId) {
       card.addEventListener('click', () => openListingModal(card.dataset.id, data.listings));
     });
   } catch (err) {
-    section.innerHTML = `<div class="empty-state"><p>⚠️ ${escapeHTML(err.message)}</p></div>`;
+    section.innerHTML = `<div class="empty-state"><p>${escapeHTML(friendlyFetchError(err))}</p></div>`;
   }
 }
 
@@ -1733,12 +1936,15 @@ async function openStoreListings(storeId) {
 async function openStorePage(slug) {
   switchView('storepage');
   const container = document.getElementById('storePageContent');
-  container.innerHTML = '<div class="empty-state">Loading store…</div>';
+  // Skeleton cards, not a text placeholder, while the store + its listings
+  // load — matches the browse grid's loading affordance.
+  container.innerHTML = '<div class="listing-grid" id="storePageListings"></div>';
+  showGridSkeleton(document.getElementById('storePageListings'), 4);
 
   try {
     const res = await fetch(`${API_BASE}/stores/slug/${encodeURIComponent(slug)}`);
     const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    if (!data.success) throw httpError(res, data);
 
     const store = data.store;
     container.innerHTML = `
@@ -1771,10 +1977,12 @@ async function openStorePage(slug) {
       <div class="listing-grid" id="storePageListings"></div>
     `;
 
-    // Load store listings
+    // Load store listings: keep skeletons in the grid until they arrive.
+    const grid = document.getElementById('storePageListings');
+    showGridSkeleton(grid, 4);
     const listRes = await fetch(`${API_BASE}/listings?store_id=${store._id}`);
     const listData = await listRes.json();
-    const grid = document.getElementById('storePageListings');
+    grid.removeAttribute('aria-busy');
     if (listData.success && listData.listings.length) {
       grid.innerHTML = listData.listings.map(l => listingCardHTML(l)).join('');
       grid.querySelectorAll('.listing-card').forEach(card => {
@@ -1784,6 +1992,6 @@ async function openStorePage(slug) {
       grid.innerHTML = '<div class="empty-state"><p>No active listings in this store.</p></div>';
     }
   } catch (err) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span><p>${escapeHTML(err.message)}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span><p>${escapeHTML(friendlyFetchError(err))}</p></div>`;
   }
 }
