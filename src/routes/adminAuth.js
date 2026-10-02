@@ -10,7 +10,7 @@ const {
 } = require('../controllers/adminAuthController');
 const adminAuth = require('../middleware/adminAuth');
 const { moderateStore, suspendStore } = require('../controllers/storeController');
-const { getAuditLogs, listPayments, getHealth } = require('../controllers/adminController');
+const { getAuditLogs, listPayments, getHealth, getMetrics } = require('../controllers/adminController');
 const { addBlock, listBlocks, removeBlock } = require('../controllers/blockController');
 const { listReports, resolveReport } = require('../controllers/reportController');
 
@@ -61,5 +61,6 @@ router.get('/reports', requireAdminSession, listReports);
 router.put('/reports/:id/resolve', requireAdminSession, resolveReport);
 
 router.get('/health', requireAdminSession, getHealth);
+router.get('/metrics', requireAdminSession, getMetrics);
 
 module.exports = router;

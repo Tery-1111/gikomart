@@ -379,6 +379,26 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   `tests/wiring.test.mjs` (1 test).
 - **Existing tests changed:** None.
 
+### Step 2 — Admin metrics endpoint
+- **Behavior:** Before, there was no way to see site totals. After, a new
+  session-gated `GET /api/admin/metrics` returns counts and revenue: active and
+  flagged listings, active/flagged/suspended stores, pending/completed-24h/
+  failed-24h payments, revenue totals for 24h/7d/30d (labelled `KSh`, split by
+  payment type for 30 days), open reports and total blocks. The computation lives
+  in `src/services/metricsService.js`; it performs ten `countDocuments` calls and
+  one `Payment.aggregate` pipeline in a single `Promise.all`, coerces every
+  number to a finite value, and ignores aggregate rows whose type is unknown.
+  Metrics contain no personal data, so no audit event is emitted.
+- **Files changed:** `docs/API_AND_CONFIG.md`, `docs/DECISIONS.md`,
+  `src/controllers/adminController.js`, `src/routes/adminAuth.js`,
+  `src/services/metricsService.js` (new), `tests/adminMetrics.test.mjs` (new),
+  `tests/wiring.test.mjs`.
+- **Tests added:** `tests/adminMetrics.test.mjs` (new, 7 tests);
+  `tests/wiring.test.mjs` (2 tests).
+- **Existing tests changed:** `tests/wiring.test.mjs` — Authorization A fake
+  additions only (`countDocuments` on the Store, Payment, Report and
+  BlockedContact fakes; `aggregate` on the Payment fake).
+
 ## Phase 5 and later
 
 Not documented here until built.

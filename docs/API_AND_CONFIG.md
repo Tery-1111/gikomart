@@ -34,6 +34,7 @@ route-specific limiter.
 | GET | `/api/admin/reports` | `X-Admin-Session` | globalLimiter + adminLimiter | List reports (open by default; reporter IP never returned) |
 | PUT | `/api/admin/reports/:id/resolve` | `X-Admin-Session` | globalLimiter + adminLimiter | Resolve an open report (records the action; does not moderate) |
 | GET | `/api/admin/health` | `X-Admin-Session` | globalLimiter + adminLimiter | Detailed health (MongoDB + Cloudinary with a 5s timeout); always HTTP 200 |
+| GET | `/api/admin/metrics` | `X-Admin-Session` | globalLimiter + adminLimiter | Counts and revenue totals (no personal data) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |

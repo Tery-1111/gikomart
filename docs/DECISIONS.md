@@ -239,3 +239,17 @@ new numbers; existing entries are never edited.
   detailed view stays available to operators and needs no database query.
 - **Alternative rejected:** Locking `/health` behind admin auth, which would
   break uptime monitors.
+
+## 20. Admin metrics are counts and sums only
+
+- **Decision:** Admin metrics (`GET /api/admin/metrics`) are counts and sums of
+  `Payment.amount` for completed payments, grouped by `createdAt` windows of 24
+  hours, 7 days and 30 days, and labelled `KSh`. Listing and store counts use the
+  same visibility rules as the public site (e.g. active listings are `active`,
+  `approved` and not expired).
+- **Reason:** The metrics contain no personal data. The `Payment` schema has no
+  currency field and the site prices are in KSh, so `KSh` is a label, not a
+  stored value. Reusing the public visibility rules keeps the counts consistent
+  with what shoppers actually see.
+- **Alternative rejected:** Caching metric results, which is not needed at this
+  size.

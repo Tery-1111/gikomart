@@ -292,6 +292,7 @@ const fakeStoreModel = {
     return doc;
   },
   deleteOne: (filter) => chainableResult({ deletedCount: h.stores.delete(String(filter._id)) ? 1 : 0 }),
+  countDocuments: async () => 0,
 };
 
 // ── Payment fake (findOneAndUpdate emulates the webhook's atomic claim) ──
@@ -328,6 +329,8 @@ const fakePaymentModel = {
     Object.assign(p, update);
     return p;
   },
+  countDocuments: async () => 0,
+  aggregate: async () => [],
 };
 
 // ── Remaining fakes ──
@@ -441,6 +444,7 @@ const fakeBlockedContactModel = {
     if (i === -1) return null;
     return h.blocks.splice(i, 1)[0];
   },
+  countDocuments: async () => 0,
 };
 
 // ── Reports (Phase 5B) — create / findOne / find / findById / findByIdAndUpdate ──
@@ -491,6 +495,7 @@ const fakeReportModel = {
     Object.assign(doc, update);
     return doc;
   },
+  countDocuments: async () => 0,
 };
 
 // ── require.cache injection (must precede importing server.js) ──
@@ -1216,6 +1221,27 @@ describe('Admin health route', () => {
     const res = await request(app).get('/api/admin/health');
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ success: false, error: 'Admin 2FA required' });
+  });
+});
+
+// ─── Admin metrics route ────────────────────────────────────────────────────
+describe('Admin metrics route', () => {
+  const { signSession } = require('../src/middleware/adminAuth');
+  const session = () => signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+
+  it('GET /api/admin/metrics without a session → 401 Admin 2FA required', async () => {
+    const res = await request(app).get('/api/admin/metrics');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ success: false, error: 'Admin 2FA required' });
+  });
+
+  it('GET /api/admin/metrics with a session → 200 with the metric groups', async () => {
+    const res = await request(app).get('/api/admin/metrics').set('X-Admin-Session', session());
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    for (const key of ['generatedAt', 'listings', 'stores', 'payments', 'revenue', 'reports', 'blocks']) {
+      expect(res.body).toHaveProperty(key);
+    }
   });
 });
 

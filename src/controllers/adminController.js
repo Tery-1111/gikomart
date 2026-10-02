@@ -1,10 +1,15 @@
 const mongoose = require('mongoose');
 const AuditEvent = require('../models/AuditEvent');
 const Payment = require('../models/Payment');
+const Listing = require('../models/Listing');
+const Store = require('../models/Store');
+const Report = require('../models/Report');
+const BlockedContact = require('../models/BlockedContact');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { redact } = require('../utils/redact');
 const { emit, adminActor } = require('../services/auditService');
+const { computeMetrics } = require('../services/metricsService');
 
 // Hard cap on any admin listing, regardless of ?limit.
 const MAX_LIMIT = 50;
@@ -127,4 +132,16 @@ exports.getHealth = async (req, res) => {
     timestamp: new Date().toISOString(),
     uptimeSec: Math.round(process.uptime()),
   });
+};
+
+// GET /api/admin/metrics — session-gated. Counts and sums only, no personal
+// data, so no audit event is emitted.
+exports.getMetrics = async (req, res) => {
+  try {
+    const result = await computeMetrics({ Listing, Store, Payment, Report, BlockedContact });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error('Admin metrics error', { error: err.message });
+    res.status(500).json({ success: false, error: 'Failed to compute metrics' });
+  }
 };
