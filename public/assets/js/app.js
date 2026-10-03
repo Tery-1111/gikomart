@@ -1162,6 +1162,12 @@ function setupImageUpload() {
       return;
     }
 
+    // Snapshot the confirmed photo (its URL and the preview source) before this
+    // replacement starts, so a failed upload can be rolled back instead of
+    // silently dropping the photo the seller had already confirmed.
+    const previousUrl = uploadedImageUrl;
+    const previousPreview = previewImg.src;
+
     // Cloudinary upload can take several seconds on a slow connection. Show a
     // busy spinner over the drop-zone and disable the publish button so the
     // listing can't be submitted mid-upload or double-submitted before it ends.
@@ -1221,17 +1227,26 @@ function setupImageUpload() {
       status.textContent = '✅ Photo uploaded';
       status.className = 'image-upload-status success';
     } catch (err) {
-      uploadedImageUrl = null;
-      // err.status is set only when the request reached the server and it answered
-      // non-2xx; without it the failure was client-side (network/CSP/CORS) and only
-      // err.message is meaningful. Log the real evidence and surface the server's
-      // own wording in the UI instead of a generic catchall.
-      if (err && err.status) {
+      // Roll the confirmed photo back rather than dropping it: restore the URL
+      // handleSubmit reads and the preview. With no previous photo the old
+      // behavior stands (no image, the plain error), so the message only changes
+      // when a photo was actually kept.
+      const keptPrevious = !!previousUrl;
+      uploadedImageUrl = previousUrl;
+      if (keptPrevious) previewImg.src = previousPreview;
+      if (keptPrevious) {
+        console.warn('Image upload failed:', (err && err.message) || 'unknown error');
+        status.textContent = `${friendlyFetchError(err)} Your previous photo was kept.`;
+      } else if (err && err.status) {
+        // err.status is set only when the request reached the server and it
+        // answered non-2xx; surface the server's own wording instead of a
+        // generic catchall.
         console.warn(`Image upload failed: HTTP ${err.status} — ${err.body}`);
         status.textContent = err.serverError
           ? `⚠️ ${err.serverError} — listing will be posted without it`
           : `${friendlyFetchError(err)} — listing will be posted without it`;
       } else {
+        // No status means the request never reached the server (network/CSP/CORS).
         console.warn('Image upload failed:', (err && err.message) || 'unknown error');
         status.textContent = `${friendlyFetchError(err)} — listing will be posted without it`;
       }

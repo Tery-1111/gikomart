@@ -526,6 +526,59 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/cardIdEscape.test.mjs` (1 test).
 - **Existing tests changed:** None.
 
+## Phase 8b — Upload retention, moderation matching, backup runbook
+
+### fix(ui): keep the previous photo when a replacement upload fails
+- **Behavior:** Before, a failed replacement photo upload cleared
+  `uploadedImageUrl`, so the listing was submitted with no image even though a
+  photo had already been confirmed, and the preview stayed on the rejected
+  pick. After, `setupImageUpload` snapshots the confirmed URL and preview when a
+  new upload starts and restores both on failure, and the status line appends
+  " Your previous photo was kept." when a previous photo was restored. With no
+  previous photo the behavior is unchanged (no image, the same error text).
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `public/assets/js/app.js`, `tests/imageUploadRetention.test.mjs`.
+- **Tests added:** `tests/imageUploadRetention.test.mjs` (4 tests).
+- **Existing tests changed:** None.
+
+### feat(moderation): match normalized and de-spaced text
+- **Behavior:** Before, moderation tested only the haystack as written, so
+  look-alike digits ("c4s1n0"), single-letter spacing ("c a s i n o"),
+  zero-width characters and full-width letters slipped past the blocklist.
+  After, `runPatterns` tests three variants — the text as written, its
+  normalized form, and its normalized-and-de-spaced form — and flags if any
+  variant matches. Look-alike digits/symbols are converted only when they touch
+  a letter, so numbers and prices are never altered; a clean, untriggered input
+  returns the same shape as before. No pattern text was added.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `src/services/moderationService.js`, `tests/moderationEvasion.test.mjs`.
+- **Tests added:** `tests/moderationEvasion.test.mjs` (9 tests).
+- **Existing tests changed:** None.
+
+### test(ops): backup script safety tests and restore runbook
+- **Behavior:** Before, `scripts/backup.js` had no test proving it fails safely
+  or that it never prints the connection string or its credentials, and there
+  was no restore runbook. After, `tests/backupScript.test.mjs` runs the script
+  as a real child process (explicit env, scratch cwd so no `.env` is read) and
+  asserts a non-zero exit with no `mongodb` string when `MONGO_URI` is unset,
+  no credential leak when `mongodump` is missing, that `backups/` is ignored by
+  git, and that the source does not log the URI variable or the whole
+  `process.env`. `docs/runbook-backup-restore.md` documents the backup, the
+  Atlas continuous-backup manual step, a scratch-namespace restore drill, the
+  post-drill cleanup, and the out-of-repo schedule. The script itself needed no
+  change — every safety case already passed.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `docs/runbook-backup-restore.md`, `tests/backupScript.test.mjs`.
+- **Tests added:** `tests/backupScript.test.mjs` (4 tests).
+- **Existing tests changed:** None.
+
+### docs: lost authenticator recovery runbook
+- **Behavior:** Added a "Lost authenticator (recovery)" section to
+  `docs/runbook-admin-portal.md` covering database recovery of the enrolled
+  authenticator.
+- **Step 4: lost authenticator recovery runbook. Docs only. Tests added: none.
+  Existing tests changed: none.**
+
 ## Phase 5 and later
 
 Not documented here until built.

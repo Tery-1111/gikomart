@@ -317,3 +317,40 @@ new numbers; existing entries are never edited.
   that means a second STK push. Restoring the original label forces the seller to
   make a deliberate action, and the recovery affordance is offered separately.
 - **Alternative rejected:** A Retry label on payment buttons.
+
+## 26. A failed replacement photo upload restores the previously confirmed photo
+
+- **Decision:** A failed replacement photo upload restores the previously
+  confirmed photo; there is no automatic retry button, the seller picks the file
+  again.
+- **Reason:** Clearing the photo on failure silently submits a listing without an
+  image the seller had already chosen, and the rejected pick is not what they
+  confirmed. Restoring the confirmed photo keeps the listing publishable as-is,
+  and the status line names the outcome (" Your previous photo was kept.").
+- **Alternative rejected:** Clearing the photo on failure.
+
+## 27. Moderation matches normalized and de-spaced text
+
+- **Decision:** Moderation matching also tests a normalized copy of the text
+  (look-alike digits and symbols next to letters, zero-width characters,
+  full-width letters) and a copy with single-letter spacing removed. Digits and
+  symbols are only converted when they touch a letter, so numbers and prices are
+  never altered. This raises the bar; it does not stop a determined evader, and
+  reports remain the main safety net.
+- **Reason:** A plain substring filter is trivially defeated by "c4s1n0" or
+  "c a s i n o"; testing a normalized and de-spaced variant of the same text
+  catches the common cosmetic evasions without changing any existing pattern.
+- **Alternative rejected:** Matching with all non-letters removed (causes false
+  positives); an external moderation service.
+
+## 28. Backups run through mongodump; scheduling and Atlas backup are outside the repository
+
+- **Decision:** Backups are taken with `mongodump` through `npm run backup`;
+  scheduling and Atlas continuous backup are configured outside the repository.
+  The restore drill restores into a scratch database namespace.
+- **Reason:** `mongodump` writes a portable dump that can be restored into any
+  scratch cluster, which is the only way to prove a backup is usable. The
+  scheduler and Atlas continuous backup live in the host and the Atlas dashboard,
+  which this repository cannot reach, so they stay manual, documented steps.
+- **Alternative rejected:** An in-process scheduled backup (cannot protect
+  against loss of the host).
