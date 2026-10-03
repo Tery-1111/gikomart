@@ -502,6 +502,16 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/prohibitedReport.test.mjs` (2 tests).
 - **Existing tests changed:** None.
 
+### fix(ui): escape listing card data-id
+- **Behavior:** `listingCardHTML` now writes the listing id into the card's
+  `data-id` attribute with `escapeAttr(l._id)`. A hostile id (e.g. one
+  containing a quote) round-trips exactly through `dataset.id` instead of
+  truncating at the quote.
+- **Files changed:** `docs/CHANGELOG.md`, `public/assets/js/app.js`,
+  `tests/cardIdEscape.test.mjs`.
+- **Tests added:** `tests/cardIdEscape.test.mjs` (1 test).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

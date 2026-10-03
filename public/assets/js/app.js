@@ -670,7 +670,7 @@ function listingCardHTML(l) {
           <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${l._id}" data-stop="1">🗑️ Delete</button>
         </div>` : '';
   return `
-    <div class="listing-card" data-id="${l._id}">
+    <div class="listing-card" data-id="${escapeAttr(l._id)}">
       <div class="listing-image">
         ${imageContent}
         ${badgeHTML}
