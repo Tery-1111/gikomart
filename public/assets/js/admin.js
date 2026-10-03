@@ -791,6 +791,78 @@
     },
   };
 
+  // ── Grant free access (mock payment) ─────────────────────────────────────
+  // Completes a pending listing/store payment without a real IntaSend webhook.
+  // Exactly one identifier is required; the server rejects a request with none.
+  views.grant = {
+    load: async function () {
+      const body = document.getElementById('viewBody');
+      const viewMsg = document.getElementById('viewMsg');
+      clear(body);
+      viewMsg.className = '';
+      viewMsg.textContent = '';
+
+      const form = el('form', { id: 'grantForm' });
+      form.setAttribute('novalidate', '');
+      form.setAttribute('autocomplete', 'off');
+
+      const phoneInput = el('input', { id: 'grantPhone', type: 'tel' });
+      phoneInput.placeholder = 'Phone number';
+      phoneInput.setAttribute('autocomplete', 'off');
+
+      const paymentInput = el('input', { id: 'grantPaymentId' });
+      paymentInput.placeholder = 'Payment ID';
+      paymentInput.setAttribute('autocomplete', 'off');
+
+      const invoiceInput = el('input', { id: 'grantInvoiceId' });
+      invoiceInput.placeholder = 'Invoice ID';
+      invoiceInput.setAttribute('autocomplete', 'off');
+
+      const submit = el('button', { id: 'grantSubmit', type: 'submit' }, 'Grant access');
+      const grantMsg = el('p', { id: 'grantMsg' });
+      grantMsg.setAttribute('role', 'status');
+
+      form.appendChild(phoneInput);
+      form.appendChild(paymentInput);
+      form.appendChild(invoiceInput);
+      form.appendChild(submit);
+      form.appendChild(grantMsg);
+      body.appendChild(form);
+      body.appendChild(el('p', null, 'Provide any one of phone number, payment ID, or invoice ID. The most recent pending payment wins.'));
+
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        const payload = {};
+        const phone = phoneInput.value.trim();
+        const paymentId = paymentInput.value.trim();
+        const invoiceId = invoiceInput.value.trim();
+        // Send exactly one identifier, matching the server's precedence.
+        if (paymentId) payload.paymentId = paymentId;
+        else if (invoiceId) payload.invoiceId = invoiceId;
+        else payload.phoneNumber = phone;
+        grantMsg.textContent = '';
+        if (!phone && !paymentId && !invoiceId) {
+          grantMsg.textContent = 'Enter one of: phone number, payment ID, or invoice ID.';
+          return;
+        }
+        api('POST', '/api/admin/grant-free-access', payload).then(function (outcome) {
+          if (outcome.status === 200) {
+            const data = outcome.data || {};
+            const resource = data.resource || {};
+            grantMsg.textContent = 'Free access granted: ' + String(resource.type) + ' ' + String(resource.id);
+            phoneInput.value = '';
+            paymentInput.value = '';
+            invoiceInput.value = '';
+          } else {
+            grantMsg.textContent = 'Failed: ' + errorText(outcome.data);
+          }
+        }, function () {
+          grantMsg.textContent = 'Failed: error';
+        });
+      });
+    },
+  };
+
   // ── Two-click confirmation ───────────────────────────────────────────────
   // First click arms the button ("Confirm?"); a second click within 4 seconds
   // runs the action. Used by the destructive actions (moderation, replay,
