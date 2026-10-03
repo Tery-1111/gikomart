@@ -449,6 +449,21 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/adminPortal.test.mjs` (13 tests).
 - **Existing tests changed:** None.
 
+## Phase 9 — fixes
+
+### fix(admin): never replace an enrolled 2FA factor
+- **Behavior:** Before, a caller holding the admin key and a valid TOTP code
+  could re-run `POST /api/admin/setup-2fa` and overwrite the enrolled admin's
+  TOTP secret. After, the secret-storing `findOneAndUpdate` filter excludes an
+  account with `totpEnabled: true`, so the unique `username` index makes the
+  write fail with a duplicate-key error (`11000`), which is returned as
+  **409 `{ success: false, error: '2FA is already enabled' }`**. The enrolled
+  secret is left byte-identical.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `src/controllers/adminAuthController.js`, `tests/setup2faGuard.test.mjs`.
+- **Tests added:** `tests/setup2faGuard.test.mjs` (3 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

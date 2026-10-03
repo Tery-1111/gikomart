@@ -285,3 +285,15 @@ new numbers; existing entries are never edited.
   resolution, but the portal is a read-mostly view over a shared screen; masking
   keeps the full number out of the page while leaving the endpoint unchanged.
 - **Alternative rejected:** Showing full numbers in the portal.
+
+## 24. The 2FA setup write is conditional on the account not being enrolled
+
+- **Decision:** The 2FA setup write is conditional on the account not being
+  enrolled, so an enrolled factor can never be replaced even if an
+  application-level check were bypassed.
+- **Reason:** The `findOneAndUpdate` that stores a fresh seed filters on
+  `{ username, totpEnabled: { $ne: true } }`, so an upsert against an enabled
+  account cannot insert a duplicate `username` and the unique index rejects it
+  with a duplicate-key error. That makes the protection structural rather than a
+  single application check that a future refactor could drop.
+- **Alternative rejected:** relying on the application check alone.

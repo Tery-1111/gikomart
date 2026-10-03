@@ -118,10 +118,10 @@ exports.setup2FA = async (req, res) => {
       name: `GikoMart Admin`,
     });
 
-    // Upserting the secret before verification means a partial setup can't
-    // lock out the single admin — verification just overwrites it.
+    // Never replace an enrolled factor. The unique username index makes an upsert against an enabled account fail
+    // rather than resetting its secret.
     await Admin.findOneAndUpdate(
-      { username: ADMIN_USERNAME },
+      { username: ADMIN_USERNAME, totpEnabled: { $ne: true } },
       {
         username: ADMIN_USERNAME,
         totpSecret: secret.base32,
@@ -158,6 +158,9 @@ exports.setup2FA = async (req, res) => {
       secret: secret.base32,
     });
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ success: false, error: '2FA is already enabled' });
+    }
     logger.error('2FA setup error', { error: err.message });
     res.status(500).json({ success: false, error: '2FA setup failed' });
   }
