@@ -527,6 +527,20 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/imageUploadRetention.test.mjs` (4 tests).
 - **Existing tests changed:** None.
 
+### feat(moderation): match normalized and de-spaced text
+- **Behavior:** Before, moderation tested only the haystack as written, so
+  look-alike digits ("c4s1n0"), single-letter spacing ("c a s i n o"),
+  zero-width characters and full-width letters slipped past the blocklist.
+  After, `runPatterns` tests three variants — the text as written, its
+  normalized form, and its normalized-and-de-spaced form — and flags if any
+  variant matches. Look-alike digits/symbols are converted only when they touch
+  a letter, so numbers and prices are never altered; a clean, untriggered input
+  returns the same shape as before. No pattern text was added.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `src/services/moderationService.js`, `tests/moderationEvasion.test.mjs`.
+- **Tests added:** `tests/moderationEvasion.test.mjs` (9 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
