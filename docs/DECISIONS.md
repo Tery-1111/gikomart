@@ -297,3 +297,23 @@ new numbers; existing entries are never edited.
   with a duplicate-key error. That makes the protection structural rather than a
   single application check that a future refactor could drop.
 - **Alternative rejected:** relying on the application check alone.
+
+## 24. The Escape key closes the listing and report modals but not the store modal
+
+- **Decision:** The Escape key closes the listing and report modals but
+  deliberately not the store modal, because closing the store modal aborts a
+  pending payment poll and an accidental keypress must not do that.
+- **Reason:** The store modal hosts the store-payment flow; `closeStoreModal()`
+  calls `clearStorePoll()` to abort its pending status poll. Binding Escape to
+  it would let a stray keypress silently cancel an in-flight payment check.
+- **Alternative rejected:** Escape closing every modal.
+
+## 25. Payment-initiation buttons restore their label, they do not relabel to Retry
+
+- **Decision:** Payment-initiation buttons (store plan, boost) do not relabel to
+  Retry after a failure; they restore their original label. A one-click retry
+  after a network failure could start a second payment request.
+- **Reason:** A retry button invites an immediate second submit; for a payment
+  that means a second STK push. Restoring the original label forces the seller to
+  make a deliberate action, and the recovery affordance is offered separately.
+- **Alternative rejected:** A Retry label on payment buttons.

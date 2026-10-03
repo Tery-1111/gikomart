@@ -462,6 +462,68 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
   `src/controllers/adminAuthController.js`, `tests/setup2faGuard.test.mjs`.
 - **Tests added:** `tests/setup2faGuard.test.mjs` (3 tests).
+
+## Phase 8 — Report and save/retry frontend hardening
+
+### Earlier commit db7f145 (retroactive)
+- **Behavior:** Added the report affordance and save/retry button states to the
+  frontend. In `public/assets/js/app.js` the store edit flow gained
+  `Saving…` → `Saved ✓` → `Save Changes` (and `Retry` on failure) button states,
+  the store-plan and boost flows gained a `Sending payment request…` busy state,
+  and the report modal (`setupReportModal`, `openReportModal`,
+  `closeReportModal`, `handleReportSubmit`) was added, wired to
+  `POST /api/reports` through the existing `data-action` delegation. In
+  `public/index.html` the report modal markup was added. In
+  `public/assets/css/style.css` the report-modal, `.modal-sm`, `.modal-actions`
+  and `.btn-sm` styles were added.
+- **Files changed:** `public/assets/css/style.css`,
+  `public/assets/js/app.js`, `public/index.html`.
+- **Tests added:** None at the time (added in Phase 8).
+
+### fix(ui): harden report entry points and add tests
+- **Behavior:** The listing detail Report button now renders only when the app
+  is not in demo mode, and both Report buttons escape the target id into the
+  `data-target-id` attribute with `escapeAttr` (a hostile id can no longer break
+  out of the attribute). A successful report submission now clears the reason
+  and details fields and resets the submit button to `Submit Report`. A single
+  document-level `keydown` listener closes the report modal on Escape when it is
+  open, otherwise closes the listing modal; the store modal is deliberately
+  left open.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `public/assets/js/app.js`, `tests/reportModal.test.mjs`.
+- **Tests added:** `tests/reportModal.test.mjs` (15 tests).
+- **Existing tests changed:** None.
+
+### test(ui): cover store save and retry states
+- **Behavior:** No source change. Adds coverage for the store edit save flow
+  that already existed: the `Saving…` disabled state while the PUT is pending,
+  the `Saved ✓` → `Save Changes` success transition and modal close after
+  2000 ms, the `Retry` failure state (modal open, typed values kept, friendly
+  500 toast), the second PUT from Retry with the owner-token header, and the
+  offline message on a rejected fetch.
+- **Files changed:** `docs/CHANGELOG.md`, `tests/storeSave.test.mjs`.
+- **Tests added:** 5; source changed: none.
+- **Existing tests changed:** None.
+
+### docs(legal): prohibited items page reflects the Report button
+- **Behavior:** Section 3 of `public/legal/prohibited-items.html` now points at
+  the in-page Report button ("Use the Report button on any listing or store
+  page and choose a reason…") instead of saying the button is not yet
+  available. The matching row in `docs/LEGAL_FACTS.md` was re-sourced to the
+  report buttons and the `POST /reports` call in `public/assets/js/app.js`.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/LEGAL_FACTS.md`,
+  `public/legal/prohibited-items.html`, `tests/prohibitedReport.test.mjs`.
+- **Tests added:** `tests/prohibitedReport.test.mjs` (2 tests).
+- **Existing tests changed:** None.
+
+### fix(ui): escape listing card data-id
+- **Behavior:** `listingCardHTML` now writes the listing id into the card's
+  `data-id` attribute with `escapeAttr(l._id)`. A hostile id (e.g. one
+  containing a quote) round-trips exactly through `dataset.id` instead of
+  truncating at the quote.
+- **Files changed:** `docs/CHANGELOG.md`, `public/assets/js/app.js`,
+  `tests/cardIdEscape.test.mjs`.
+- **Tests added:** `tests/cardIdEscape.test.mjs` (1 test).
 - **Existing tests changed:** None.
 
 ## Phase 5 and later

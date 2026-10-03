@@ -670,7 +670,7 @@ function listingCardHTML(l) {
           <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${l._id}" data-stop="1">🗑️ Delete</button>
         </div>` : '';
   return `
-    <div class="listing-card" data-id="${l._id}">
+    <div class="listing-card" data-id="${escapeAttr(l._id)}">
       <div class="listing-image">
         ${imageContent}
         ${badgeHTML}
@@ -741,7 +741,7 @@ function openListingModal(id, source) {
     <button class="contact-btn" data-whatsapp="${escapeAttr(listing.sellerWhatsapp)}" data-title="${escapeAttr(listing.title)}" data-listing-id="${listing._id}">
       💬 Contact seller on WhatsApp
     </button>
-    <button class="btn btn-ghost btn-sm" data-action="report-listing" data-target-id="${listing._id}" style="margin-top:10px;">🚩 Report</button>
+    ${usingDemoData ? '' : `<button class="btn btn-ghost btn-sm" data-action="report-listing" data-target-id="${escapeAttr(listing._id)}" style="margin-top:10px;">🚩 Report</button>`}
     ${!usingDemoData && hasOwnerToken(listing._id) ? `
     <div class="owner-controls">
       <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${listing._id}">✏️ Edit listing</button>
@@ -836,6 +836,10 @@ async function handleReportSubmit(e) {
     setBtnBusy(btn, false);
     showToast('✅ Report submitted. Thank you.');
     closeReportModal();
+    document.getElementById('report-reason').value = '';
+    document.getElementById('report-details').value = '';
+    if (statusEl) { statusEl.textContent = ''; statusEl.className = 'form-status'; }
+    if (btn) { btn.textContent = 'Submit Report'; btn.disabled = false; }
   } catch (err) {
     setBtnBusy(btn, false);
     if (btn) btn.textContent = 'Retry';
@@ -889,6 +893,22 @@ function setupActionDelegation() {
       case 'buyer-gate-continue': _handleBuyerGateContinue(); break;
     }
   }, true);
+
+  // Escape closes the topmost dismissible modal. The store modal is
+  // deliberately excluded: closing it aborts a pending payment poll, which an
+  // accidental keypress must not do.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const reportOverlay = document.getElementById('reportModalOverlay');
+    if (reportOverlay && reportOverlay.classList.contains('open')) {
+      closeReportModal();
+      return;
+    }
+    const listingOverlay = document.getElementById('modalOverlay');
+    if (listingOverlay && listingOverlay.classList.contains('open')) {
+      closeModal();
+    }
+  });
 }
 
 let _buyerGateSavedHTML = null;
@@ -2070,7 +2090,7 @@ async function openStorePage(slug) {
             ${store.pickup_available ? '<span>📦 Pickup</span>' : ''}
             ${store.whatsapp ? `<span>💬 WhatsApp</span>` : ''}
           </div>
-          <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${store._id}" style="margin-top:16px;">🚩 Report this store</button>
+          <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${escapeAttr(store._id)}" style="margin-top:16px;">🚩 Report this store</button>
         </div>
       </div>
       <h3 style="font-family:var(--font-display); margin-bottom:12px;">Listings (${data.listingCount})</h3>

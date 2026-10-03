@@ -62,7 +62,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | Removing a listing is permanent, and a removed listing cannot be edited or attached to a store. | `src/controllers/listingController.js` (deleteListing, updateListing 409), `src/controllers/storeController.js` (attachListing 409) | Prohibited Items §2 |
 | The automatic filter is a first pass, not a human review of every listing, and no response time is promised. | `src/services/moderationService.js:1-9` | Prohibited Items §2 |
 | Fees are governed by the Fees & Payments section of the Terms of Service. | `public/legal/terms-of-service.html:63-64` | Prohibited Items §2 |
-| Reports can be sent by WhatsApp or email until an in-page Report button exists. | Operator commitment; placeholders `[SUPPORT_WHATSAPP]`, `[SUPPORT_EMAIL]` | Prohibited Items §3 |
+| Use the Report button on any listing or store page and choose a reason. You can also send the listing title and a short reason to [SUPPORT_WHATSAPP] or [SUPPORT_EMAIL]. | `public/assets/js/app.js:744,2093` (report buttons), `public/assets/js/app.js:828` (POST /reports) | prohibited-items.html |
 | The effective date is a placeholder shown at the top of the page. | `public/legal/prohibited-items.html` (`[EFFECTIVE_DATE]`) | Prohibited Items (header) |
 | GikoMart has no user accounts; browsing needs no registration. | `public/legal/terms-of-service.html:49` | Data Requests §1 |
 | Sellers and store owners receive a one-time ownership token as their credential. | `public/legal/terms-of-service.html:49`, `public/assets/js/app.js:12-16` | Data Requests §1 |
