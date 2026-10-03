@@ -22,6 +22,11 @@ const paymentSchema = new mongoose.Schema({
   // response. The raw token is NEVER stored server-side.
   ownerTokenHash: { type: String },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+  // Set only when an admin grants free access through the admin portal. A real
+  // payment completes via the webhook and leaves both null, so the two paths can
+  // be told apart (revenue excludes grants; metrics counts them separately).
+  grantedBy: { type: String, default: null },
+  grantedAt: { type: Date, default: null },
   // Set by the retention job once the payer number and the payload's contact
   // copies are redacted. Doubles as the idempotency guard so a payment is never
   // stripped twice.

@@ -354,3 +354,17 @@ new numbers; existing entries are never edited.
   which this repository cannot reach, so they stay manual, documented steps.
 - **Alternative rejected:** An in-process scheduled backup (cannot protect
   against loss of the host).
+
+## 29. Payments completed by an admin grant are marked with grantedBy and grantedAt so they can be told apart from real payments.
+
+- **Decision:** Payments completed by an admin grant are marked with grantedBy
+  and grantedAt so they can be told apart from real payments.
+- **Reason:** An admin grant produces the same `status: 'completed'` as a real
+  IntaSend webhook, so without a marker a granted payment is indistinguishable
+  from a paid one — it would inflate revenue totals and could not be audited or
+  counted separately. Stamping `grantedBy` and `grantedAt` in the same atomic
+  write as the status transition keeps the two paths distinguishable at the
+  database level.
+- **Alternative rejected:** Inferring grants from the audit log at read time
+  (the audit write is fire-and-forget, so a payment could complete without a
+  readable event).

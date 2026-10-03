@@ -449,6 +449,23 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/adminPortal.test.mjs` (13 tests).
 - **Existing tests changed:** None.
 
+## Phase 9b — Grant accounting
+
+### feat(admin): mark payments completed by an admin grant
+- **Behavior:** Before, a payment completed by `POST /api/admin/grant-free-access`
+  was indistinguishable from one completed by a real IntaSend webhook — both just
+  had `status: 'completed'`. After, the `Payment` schema carries two new fields,
+  `grantedBy` (String, default null) and `grantedAt` (Date, default null). The
+  grant route's atomic claim now writes `grantedBy: adminActor(req)` and
+  `grantedAt` in the same `$set`, so a granted payment is stamped with the acting
+  admin and the time. Webhook-completed payments leave both null. The
+  `admin.grant_free_access` audit event also gains a `grantedAt` ISO string in its
+  metadata (the actor is already recorded as `actor`).
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `src/models/Payment.js`, `src/routes/adminGrant.js`, `tests/grantMarking.test.mjs`.
+- **Tests added:** `tests/grantMarking.test.mjs` (3 tests).
+- **Existing tests changed:** None.
+
 ## Phase 9 — fixes
 
 ### fix(admin): never replace an enrolled 2FA factor

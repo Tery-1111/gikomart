@@ -67,10 +67,13 @@ router.post('/grant-free-access', requireAdminSession, async (req, res) => {
     };
 
     // Atomic claim: only the first request that observes 'pending' transitions
-    // it, so concurrent/double submits cannot create two resources.
+    // it, so concurrent/double submits cannot create two resources. The grant is
+    // stamped in the same write so a granted payment is never mistaken for a
+    // real (webhook-completed) one.
+    const grantedAt = new Date();
     const payment = await Payment.findOneAndUpdate(
       query,
-      { $set: { status: 'completed' } },
+      { $set: { status: 'completed', grantedBy: adminActor(req), grantedAt } },
       { new: true, sort: { createdAt: -1 } },
     );
 
@@ -96,6 +99,7 @@ router.post('/grant-free-access', requireAdminSession, async (req, res) => {
           type: payment.type,
           package: payment.package || null,
           storePlan: payment.storePlan || null,
+          grantedAt: grantedAt.toISOString(),
         },
       });
     } catch (auditErr) {
