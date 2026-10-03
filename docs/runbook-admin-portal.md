@@ -84,3 +84,22 @@ requests the next page using the last row's timestamp as `before`.
 - Sessions last 24 hours and are memory-only.
 - The admin rate limit applies to every portal request.
 - The portal requires 2FA to be enrolled before sign-in works.
+
+## Lost authenticator (recovery)
+
+This applies once the 2FA setup guard is deployed.
+
+Once 2FA is enrolled, the API refuses to replace the authenticator: `setup-2fa`
+will not overwrite the enrolled factor. Recovery is therefore done in the
+database, then re-enrolled from the API.
+
+1. Take a backup first, so the change can be reversed — see
+   `docs/runbook-backup-restore.md`.
+2. In the Atlas Data Explorer, open the `admins` collection and delete only the
+   document whose `username` equals `owner`.
+3. Run `setup-2fa` again with only the admin key (with the enrolled document
+   gone, first-time setup is key-only again), scan the new QR code, then run
+   `verify-2fa` and sign in to the portal.
+4. Change `ADMIN_KEY` in the host environment afterwards.
+
+Do not delete any other document in this collection.

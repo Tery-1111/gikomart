@@ -558,6 +558,13 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/backupScript.test.mjs` (4 tests).
 - **Existing tests changed:** None.
 
+### docs: lost authenticator recovery runbook
+- **Behavior:** Added a "Lost authenticator (recovery)" section to
+  `docs/runbook-admin-portal.md` covering database recovery of the enrolled
+  authenticator.
+- **Step 4: lost authenticator recovery runbook. Docs only. Tests added: none.
+  Existing tests changed: none.**
+
 ## Phase 5 and later
 
 Not documented here until built.
