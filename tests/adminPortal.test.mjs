@@ -700,7 +700,7 @@ async function openAuditTab(handler) {
 describe('Tabs', () => {
   it('shows all six tabs in the documented order', () => {
     const labels = [...document.querySelectorAll('#tabs .tab')].map((t) => t.textContent);
-    expect(labels).toEqual(['Dashboard', 'Reports', 'Payments', 'Blocks', 'Audit log', 'Health']);
+    expect(labels).toEqual(['Dashboard', 'Reports', 'Payments', 'Blocks', 'Audit log', 'Health', 'Grant']);
   });
 
   it('keeps admin.js free of the forbidden constructs', async () => {

@@ -35,6 +35,7 @@ route-specific limiter.
 | PUT | `/api/admin/reports/:id/resolve` | `X-Admin-Session` | globalLimiter + adminLimiter | Resolve an open report (records the action; does not moderate) |
 | GET | `/api/admin/health` | `X-Admin-Session` | globalLimiter + adminLimiter | Detailed health (MongoDB + Cloudinary with a 5s timeout); always HTTP 200 |
 | GET | `/api/admin/metrics` | `X-Admin-Session` | globalLimiter + adminLimiter | Counts and revenue totals (no personal data) |
+| POST | `/api/admin/grant-free-access` | Admin auth (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter + adminLimiter | Complete a pending listing/store payment without a webhook (mock payment) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -165,3 +166,53 @@ assets (`public/assets/js/admin.js`, `public/assets/css/admin.css`) are served
 with `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`. Everything
 else is unchanged: other assets keep `max-age=604800`, and every other `.html`
 file keeps `Cache-Control: public, max-age=0`.
+
+## h) Grant free access (admin mock payment)
+
+`POST /api/admin/grant-free-access` completes a **pending** `listing` or `store`
+payment without a real IntaSend webhook, then creates the resource it would have
+produced. It is the manual escape hatch for a payment the payer made (or that an
+admin is mocking) whose webhook never arrived. It is deliberately narrower than
+the replay endpoint: `boost` payments are excluded (they have no resource), and
+the payment must still be `pending`.
+
+- **Auth headers:** `X-Admin-Session` (preferred once 2FA is enabled) or the
+  legacy `X-Admin-Key`. Rate-limited by `adminLimiter` (10/min/IP).
+- **Body:** exactly one of `paymentId`, `invoiceId`, `phoneNumber` is required.
+  When several are sent the precedence is `paymentId` > `invoiceId` >
+  `phoneNumber`. A `phoneNumber` lookup takes the **most recent** matching
+  pending payment (`sort: { createdAt: -1 }`).
+- **Idempotency:** the claim atomically filters on `status: 'pending'`, so a
+  double submit creates exactly one resource — the second call finds nothing
+  pending and returns 404.
+
+**Responses**
+
+| Status | Body |
+|---|---|
+| 200 | `{ success: true, message: 'Free access granted', paymentId, resource: { type, id } }` |
+| 400 | `{ success: false, error: 'Provide one of: paymentId, invoiceId, phoneNumber' }` |
+| 401/403 | `{ success: false, error: 'Admin 2FA required' }` / `{ success: false, error: 'Admin authorization required' }` |
+| 404 | `{ success: false, error: 'No matching pending payment found' }` |
+| 500 | `{ success: false, error: 'Grant free access failed' }` |
+
+On success a `admin.grant_free_access` audit event is emitted
+(`actor: admin:<username>`, `result: 'success'`).
+
+**Example**
+
+```bash
+curl -X POST https://gikomart.onrender.com/api/admin/grant-free-access \
+  -H 'Content-Type: application/json' \
+  -H "X-Admin-Session: <session-token>" \
+  -d '{"invoiceId":"INV-EXAMPLE-1"}'
+```
+
+```json
+{
+  "success": true,
+  "message": "Free access granted",
+  "paymentId": "65f...",
+  "resource": { "type": "listing", "id": "65f..." }
+}
+```
