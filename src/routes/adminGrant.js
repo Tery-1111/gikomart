@@ -38,10 +38,19 @@ router.post('/grant-free-access', requireAdminSession, async (req, res) => {
   const invoiceId = typeof body.invoiceId === 'string' ? body.invoiceId.trim() : '';
   const phoneNumber = typeof body.phoneNumber === 'string' ? body.phoneNumber.trim() : '';
 
-  if (!paymentId && !invoiceId && !phoneNumber) {
+  const provided = [paymentId, invoiceId, phoneNumber].filter(Boolean).length;
+  if (provided === 0) {
     return res.status(400).json({
       success: false,
       error: 'Provide one of: paymentId, invoiceId, phoneNumber',
+    });
+  }
+  // Exactly one selector: silently picking a winner from an ambiguous body could
+  // grant access to a different payment than the caller intended.
+  if (provided > 1) {
+    return res.status(400).json({
+      success: false,
+      error: 'Provide exactly one of: paymentId, invoiceId, phoneNumber',
     });
   }
 

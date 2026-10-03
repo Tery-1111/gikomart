@@ -312,6 +312,40 @@ describe('POST /api/admin/grant-free-access — selector validation', () => {
     expect(res.body).toEqual({ success: false, error: 'Provide one of: paymentId, invoiceId, phoneNumber' });
     expect(createResourceSpy).not.toHaveBeenCalled();
   });
+
+  it('400 when more than one selector is provided, with no mutation', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+
+    const res = await request(app)
+      .post(URL)
+      .set('X-Admin-Session', session())
+      .send({ paymentId: 'pay-1', phoneNumber: '254700000001' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ success: false, error: 'Provide exactly one of: paymentId, invoiceId, phoneNumber' });
+    expect(h.payments[0].status).toBe('pending');
+    expect(h.listings).toHaveLength(0);
+    expect(createResourceSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/admin/grant-free-access — zero amount is not validated', () => {
+  it('grants a pending payment whose amount is 0 (locks the no-amount-check behavior)', async () => {
+    const stored = makeDoc(listingPayment({ amount: 0, expectedAmount: 0 }));
+    h.payments.push(stored);
+
+    const res = await request(app)
+      .post(URL)
+      .set('X-Admin-Session', session())
+      .send({ invoiceId: 'INV-GRANT-1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.resource.type).toBe('listing');
+    expect(stored.status).toBe('completed');
+    expect(String(stored.listingId)).toBe(String(res.body.resource.id));
+    expect(h.listings).toHaveLength(1);
+  });
 });
 
 describe('POST /api/admin/grant-free-access — type restriction', () => {
