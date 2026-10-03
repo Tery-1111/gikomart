@@ -234,3 +234,13 @@ curl -X POST https://gikomart.onrender.com/api/admin/grant-free-access \
   "resource": { "type": "listing", "id": "65f..." }
 }
 ```
+
+## i) Default location values (institution-neutral)
+
+No route, environment variable or rate limiter changed as part of the
+institution-neutral cleanup. The only API-visible change is the value that new
+records carry by default: `Store.campus` now defaults to `'Njoro'` (the field is
+still returned by the public store endpoints), `Listing.location` defaults to
+`'Njoro'`, and the store-creation fallback in
+`src/controllers/paymentController.js` is `'Njoro'`. Existing records are
+unchanged.

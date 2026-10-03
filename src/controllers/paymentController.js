@@ -425,7 +425,7 @@ async function createResourceForPayment(payment) {
         phone: payment.storeData.phone || '',
         whatsapp: payment.storeData.whatsapp || '',
         email: payment.storeData.email || '',
-        campus: payment.storeData.campus || 'Egerton University',
+        campus: payment.storeData.campus || 'Njoro',
         location: payment.storeData.location || '',
         pickup_location: payment.storeData.pickup_location || '',
         ownerTokenHash: payment.ownerTokenHash,

@@ -655,7 +655,7 @@ function listingPayment(overrides = {}) {
       description: 'Lightly used camera body',
       sellerName: 'Jane',
       sellerWhatsapp: '0711111111',
-      location: 'Egerton',
+      location: 'Njoro',
       images: [],
     },
     ...overrides,
@@ -869,7 +869,7 @@ describe('Webhook COMPLETE (store) → Store created', () => {
   it('creates the store from payment.storeData with plan pricing', async () => {
     h.payments.push(makeDoc({
       type: 'store', status: 'pending', amount: 150, expectedAmount: 150, invoiceId: 'INV-STORE-1', storePlan: 'starter_weekly',
-      storeData: { name: 'Test Shop', slug: 'test-shop', category: 'Books', phone: '07', whatsapp: '07', email: '', location: 'Egerton' },
+      storeData: { name: 'Test Shop', slug: 'test-shop', category: 'Books', phone: '07', whatsapp: '07', email: '', location: 'Njoro' },
       ownerTokenHash: 'b'.repeat(64),
     }));
 
@@ -1510,7 +1510,7 @@ describe('Payment error UX (Task 2)', () => {
         description: 'Used calc textbook',
         sellerName: 'Jane',
         sellerWhatsapp: '0711111111',
-        location: 'Egerton',
+        location: 'Njoro',
         images: [],
       },
       acceptance: listingAcceptance,
@@ -1532,7 +1532,7 @@ describe('Payment error UX (Task 2)', () => {
         phone: '0700000000',
         whatsapp: '0711111111',
         email: '',
-        location: 'Egerton',
+        location: 'Njoro',
       },
       acceptance: storeAcceptance,
     });
@@ -2065,7 +2065,7 @@ describe('Input length caps — server-side enforcement', () => {
       description: 'Used calc textbook',
       sellerName: 'Jane',
       sellerWhatsapp: '0711111111',
-      location: 'Egerton',
+      location: 'Njoro',
       images: [],
       ...overrides,
     },
@@ -2147,7 +2147,7 @@ describe('initiate-listing rejects store_id (attach after publish)', () => {
       description: 'Used calc textbook',
       sellerName: 'Jane',
       sellerWhatsapp: '0711111111',
-      location: 'Egerton',
+      location: 'Njoro',
       images: [],
       ...listingData,
     },
@@ -2746,7 +2746,7 @@ describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () =>
     listingData: {
       title: 'Test Book', category: 'Books', condition: 'Good', price: 500,
       description: 'Used calc textbook', sellerName: 'Jane',
-      sellerWhatsapp: '0711111111', location: 'Egerton', images: [],
+      sellerWhatsapp: '0711111111', location: 'Njoro', images: [],
       ...overrides,
     },
   });
@@ -2758,7 +2758,7 @@ describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () =>
     website: '',
     storeData: {
       name: 'Shop1', category: 'Books', description: '', phone: '0700000000',
-      whatsapp: '0711111111', email: '', location: 'Egerton',
+      whatsapp: '0711111111', email: '', location: 'Njoro',
       ...overrides,
     },
   });

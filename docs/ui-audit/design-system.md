@@ -15,7 +15,7 @@ GikoMart's UI bridges two mental models:
 1. **Buy & sell marketplace** — familiar to anyone who has used Jiji/Facebook Marketplace: a hero, category pills, a card grid, a sell form, a detail modal.
 2. **Live campus broadcast** — the signature that sets it apart: a scrolling *pulse ticker* under the nav, a phone mock styled as a **WhatsApp channel message**, and "sent to WhatsApp group →" language throughout. The product's core claim ("Post once, reach the whole campus") is dramatized as a live message being pushed to a phone.
 
-**Voice:** energetic, friendly, transactionally clear. Copy is short, emoji-forward (📱 📢 🏪 📩), and localized to Egerton University (Njoro, Hostel C, Nairobi CBD, KSh pricing).
+**Voice:** energetic, friendly, transactionally clear. Copy is short, emoji-forward (📱 📢 🏪 📩), and localized to Njoro (Hostel C, Nairobi CBD, KSh pricing).
 
 **Visual language:**
 - **Warm cream ground** (`--cream #FFF8EE`) with **marigold orange** as the primary action color — reads as affordable, lively, student-market.
@@ -119,7 +119,7 @@ GikoMart's UI bridges two mental models:
 ### Navigation (topbar + pulse ticker)
 - Sticky white topbar, 38px gradient logo tile (marigold→coral), Space Grotesk wordmark "Giko**Mart**" (teal accented).
 - Nav = segmented pill control on cream track; active link is a **filled ink pill** (white text). Links: Browse / Sell / My Listings / My Store. Buttons, not anchors — view switching is JS.
-- Campus tag "📍 Egerton University" — teal text on teal-light pill (hidden ≤640px).
+- Campus tag "📍 Njoro" — teal text on teal-light pill (hidden ≤640px).
 - **Pulse ticker**: full-width ink bar, 34px tall, 28s marquee of `pulse-item`s (green pulse-dot + "📢 Just posted: X → sent to group"). Content is static/demo text in JS.
 
 ### Buttons

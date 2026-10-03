@@ -270,7 +270,7 @@ describe('Payment initiation — server validates acceptance (frontend not trust
       description: 'Used calc textbook',
       sellerName: 'Jane',
       sellerWhatsapp: '0711111111',
-      location: 'Egerton',
+      location: 'Njoro',
       images: [],
     },
     website: '',
@@ -323,7 +323,7 @@ describe('Payment initiation — server validates acceptance (frontend not trust
         storeData: {
           name: 'Shop1', category: 'Books', description: '',
           phone: '0700000000', whatsapp: '0711111111',
-          email: '', location: 'Egerton',
+          email: '', location: 'Njoro',
         },
       });
     expect(res.status).toBe(400);
@@ -339,7 +339,7 @@ describe('Payment initiation — server validates acceptance (frontend not trust
         storeData: {
           name: 'Shop1', category: 'Books', description: '',
           phone: '0700000000', whatsapp: '0711111111',
-          email: '', location: 'Egerton',
+          email: '', location: 'Njoro',
         },
         acceptance: {
           accepted: true,

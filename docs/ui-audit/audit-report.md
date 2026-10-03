@@ -20,7 +20,7 @@
 
 ## 2. The design, in one paragraph
 
-GikoMart is a **warm campus noticeboard fused with a live WhatsApp broadcast**. The signature is the tension between a familiar marketplace UI (hero, category pills, card grid, sell form, detail modal) and a live-broadcast layer (the scrolling pulse ticker, a phone mock styled as a WhatsApp channel message, "sent to the group →" language, KSh/local prices). The visual language is coherent: a **cream ground** (`#FFF8EE`), **marigold** as the action color, **deep teal** borrowing WhatsApp's trust signal, **ink** for active/dark moments, and pill geometry almost everywhere. Voice is energetic and campus-localized to Egerton (Njoro, Hostel C). This is a genuinely distinctive, well-executed direction for the audience.
+GikoMart is a **warm campus noticeboard fused with a live WhatsApp broadcast**. The signature is the tension between a familiar marketplace UI (hero, category pills, card grid, sell form, detail modal) and a live-broadcast layer (the scrolling pulse ticker, a phone mock styled as a WhatsApp channel message, "sent to the group →" language, KSh/local prices). The visual language is coherent: a **cream ground** (`#FFF8EE`), **marigold** as the action color, **deep teal** borrowing WhatsApp's trust signal, **ink** for active/dark moments, and pill geometry almost everywhere. Voice is energetic and campus-localized to Njoro (Hostel C). This is a genuinely distinctive, well-executed direction for the audience.
 
 ---
 

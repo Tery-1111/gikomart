@@ -9,7 +9,7 @@ const listingSchema = new mongoose.Schema({
   images: [{ type: String }],
   sellerName: { type: String, required: true, maxlength: 80 },
   sellerWhatsapp: { type: String, required: true, maxlength: 20 },
-  location: { type: String, default: 'Egerton University, Njoro', maxlength: 120 },
+  location: { type: String, default: 'Njoro', maxlength: 120 },
   status: { type: String, enum: ['active', 'sold', 'deleted'], default: 'active' },
   // Content moderation: flagged/removed listings are hidden from public queries
   // until an admin resolves them. Defaults to 'approved' so existing listings

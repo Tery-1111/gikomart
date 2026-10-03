@@ -1,7 +1,7 @@
 {
   "name": "gikomart",
   "version": "1.0.0",
-  "description": "Campus marketplace and distribution network for Egerton University",
+  "description": "Local marketplace and distribution network for students, residents, and communities",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -15,8 +15,7 @@
   "keywords": [
     "marketplace",
     "campus",
-    "whatsapp",
-    "egerton"
+    "whatsapp"
   ],
   "author": "Teryl",
   "license": "ISC",

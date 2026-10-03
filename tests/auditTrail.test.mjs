@@ -227,7 +227,7 @@ function listingPayment(overrides = {}) {
     listingData: {
       title: 'Vintage Lens Camera', category: 'Electronics', condition: 'Good', price: 500,
       description: 'Lightly used camera body', sellerName: 'Jane', sellerWhatsapp: '0711111111',
-      location: 'Egerton', images: [],
+      location: 'Njoro', images: [],
     },
     ...overrides,
   };

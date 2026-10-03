@@ -27,12 +27,13 @@ const ALLOWED_PLACEHOLDERS = [
   '[OPERATOR_NAME]', '[OPERATOR_ADDRESS]', '[SUPPORT_EMAIL]', '[SUPPORT_WHATSAPP]', '[EFFECTIVE_DATE]',
 ];
 
-// Hashes of the four versioned legal pages as committed on phase-5b-reports.
+// Hashes of the four versioned legal pages as of the institution-neutral baseline
+// (updated when the pages' institution-specific branding/scope wording was removed).
 const EXISTING_LEGAL_HASHES = {
-  'legal/terms-of-service.html': '5555f97c9d148dbfe070b4447cc75ed22fffb213b3a103cdecf984a5da2bc55b',
-  'legal/store-owner-terms.html': '29820e0ea7596a45feb8cdb7a7e684591ec5266b27394729d8828c0f97731c82',
-  'legal/seller-terms.html': 'ef08c02ea3d8770464845bb73abf0223ba4a7cad25cf60a5471515b04e42697e',
-  'legal/buyer-terms.html': '748931bb9fdf5490613c2a17026301e9edd6e95182c0337caeec08118298dd27',
+  'legal/terms-of-service.html': 'c1083065629a554d1a83fef5fc0811c2abff0779b5cbf0f8e6bce9c4afb8ac1d',
+  'legal/store-owner-terms.html': 'a7b906d59bf282e5fbe44d8038b065bd64211ecab043569e2ed5fba53d0ee2d7',
+  'legal/seller-terms.html': '882af638ec673755829c173a1a77945d9c7a525c8d82f1886234f22f0074d7b9',
+  'legal/buyer-terms.html': 'a7bfc7b71e4a47099c250e90600b3bc83c301813c22564f425f9fe99bc0028a2',
 };
 
 describe('New legal pages are served and well-formed', () => {

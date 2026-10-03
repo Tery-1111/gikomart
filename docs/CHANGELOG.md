@@ -636,6 +636,44 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Step 4: lost authenticator recovery runbook. Docs only. Tests added: none.
   Existing tests changed: none.**
 
+## Institution neutrality
+
+### feat(branding): remove institution-specific branding, copy and defaults
+- **Behavior:** Before, GikoMart presented itself as a marketplace for a named
+  university: the homepage and all seven legal pages carried an institutional
+  location tag, the hero and footer copy named the university, the Terms of
+  Service scoped the service to that university and its neighbouring communities,
+  restricted use to members of its community, and gave a contact address at the
+  university's town, the npm description and a keyword named the university, and
+  new Store records defaulted `campus` to the university while new Listing
+  records defaulted `location` to the university's town (the `campus` field is
+  returned by the public store API). After, no page or metadata names an
+  institution: the location tags and copy use **Njoro** or neutral local wording
+  ("local WhatsApp groups", "local marketplace … for students, residents, and
+  surrounding communities"), the Terms audience is institution-neutral, the ToS
+  contact address is the `[OPERATOR_ADDRESS]` placeholder, the npm metadata is
+  neutral, and the location defaults are `campus: 'Njoro'` and `location: 'Njoro'`.
+  No route, environment variable, limiter, schema shape, payment/store/listing
+  flow or admin behavior changed; the `campus` field is retained (compatibility)
+  with a neutral default. Git-ignored generated browser artifacts that reproduced
+  the old branding (`.playwright-mcp/`, `ui-preview-top.png`) were removed.
+- **Files changed:** `package.json`, `public/index.html`,
+  `public/ui-preview/index.html`, `public/legal/{terms-of-service,privacy-policy,
+  buyer-terms,seller-terms,store-owner-terms,prohibited-items,data-requests}.html`,
+  `public/assets/js/app.js`, `src/models/Store.js`, `src/models/Listing.js`,
+  `src/controllers/paymentController.js`, `docs/LEGAL_FACTS.md`,
+  `docs/ui-audit/audit-report.md`, `docs/ui-audit/design-system.md`,
+  `tests/{auditTrail,termsAcceptance,wiring,xssEscaping}.test.mjs`,
+  `tests/legalPages.test.mjs`.
+- **Tests added:** None.
+- **Existing tests changed:** `tests/auditTrail.test.mjs`,
+  `tests/termsAcceptance.test.mjs`, `tests/wiring.test.mjs`,
+  `tests/xssEscaping.test.mjs` — inert sample location fixture values → `'Njoro'`
+  (no assertion, status or test name changed).
+  `tests/legalPages.test.mjs` — the four pinned SHA-256 hashes of the versioned
+  legal pages were recomputed for the intentional copy change (and the comment
+  updated); no assertion was weakened, skipped or removed.
+
 ## Phase 5 and later
 
 Not documented here until built.

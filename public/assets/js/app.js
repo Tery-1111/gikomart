@@ -40,10 +40,10 @@ const CATEGORIES = [
 const DEMO_LISTINGS = [
   { _id: 'demo1', title: 'Samsung Galaxy S22', category: 'Electronics', condition: 'Excellent', price: 38000, description: '128GB, no cracks, charger included.', location: 'Njoro', sellerName: 'Brian', sellerWhatsapp: '+254712345678', views: 42, icon: '📱', broadcastSent: true },
   { _id: 'demo2', title: 'Study Desk + Chair', category: 'Furniture', condition: 'Good', price: 6500, description: 'Wooden desk, adjustable chair. Minor scratches.', location: 'Nakuru CBD', sellerName: 'Grace', sellerWhatsapp: '+254723456789', views: 19, icon: '🛋️', broadcastSent: true },
-  { _id: 'demo3', title: 'Calculus Textbook Bundle', category: 'Student Essentials', condition: 'Good', price: 1200, description: 'MATH 111 + 112 textbooks plus past papers.', location: 'Egerton Uni', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '📚', broadcastSent: true },
+  { _id: 'demo3', title: 'Calculus Textbook Bundle', category: 'Student Essentials', condition: 'Good', price: 1200, description: 'MATH 111 + 112 textbooks plus past papers.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '📚', broadcastSent: true },
   { _id: 'demo4', title: 'Mattress — 4x6', category: 'Hostel Living', condition: 'Like New', price: 3500, description: 'Used one semester only, no stains.', location: 'Hostel C', sellerName: 'James', sellerWhatsapp: '+254745678901', views: 88, icon: '🛏️', broadcastSent: true },
   { _id: 'demo5', title: 'Maize — 2 bags 90kg', category: 'Agriculture', condition: 'New', price: 9000, description: 'Freshly harvested, dry. Ready for collection.', location: 'Njoro', sellerName: 'Wanjiru', sellerWhatsapp: '+254756789012', views: 14, icon: '🌾', broadcastSent: false },
-  { _id: 'demo6', title: 'Leather Jacket', category: 'Clothing', condition: 'Like New', price: 2800, description: 'Medium size, worn twice only.', location: 'Egerton Uni', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '👕', broadcastSent: true },
+  { _id: 'demo6', title: 'Leather Jacket', category: 'Clothing', condition: 'Like New', price: 2800, description: 'Medium size, worn twice only.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '👕', broadcastSent: true },
 ];
 
 const CATEGORY_ICONS = {
@@ -681,7 +681,7 @@ function listingCardHTML(l) {
         <div class="listing-title">${escapeHTML(l.title)}</div>
         <div class="listing-price">KSh ${Number(l.price).toLocaleString()}</div>
         <div class="listing-meta">
-          <span>📍 ${escapeHTML(l.location || 'Egerton')}</span>
+          <span>📍 ${escapeHTML(l.location || 'Njoro')}</span>
           ${l.broadcastSent ? '<span class="broadcast-chip">📢 Broadcast</span>' : `<span>👁️ ${l.views || 0}</span>`}
         </div>
         ${ownerControlsHTML}
@@ -733,7 +733,7 @@ function openListingModal(id, source) {
     <div class="modal-price">KSh ${Number(listing.price).toLocaleString()}</div>
     <div class="modal-meta-row">
       <span>📂 ${escapeHTML(listing.category)}</span>
-      <span>📍 ${escapeHTML(listing.location || 'Egerton')}</span>
+      <span>📍 ${escapeHTML(listing.location || 'Njoro')}</span>
       <span>👤 ${escapeHTML(listing.sellerName)}</span>
       <span>👁️ ${listing.views || 0} views</span>
     </div>
@@ -1305,7 +1305,7 @@ function updatePreview() {
   const category = document.getElementById('f-category').value || 'Category';
   const price = document.getElementById('f-price').value || '0';
   const desc = document.getElementById('f-description').value;
-  const location = document.getElementById('f-location').value || 'Egerton University, Njoro';
+  const location = document.getElementById('f-location').value || 'Njoro';
 
   document.getElementById('prev-title').textContent = title;
   document.getElementById('prev-price').textContent = Number(price).toLocaleString();
@@ -1330,7 +1330,7 @@ async function handleSubmit(e) {
     description: document.getElementById('f-description').value.trim(),
     sellerName: document.getElementById('f-seller').value.trim(),
     sellerWhatsapp: document.getElementById('f-whatsapp').value.trim(),
-    location: document.getElementById('f-location').value.trim() || 'Egerton University, Njoro',
+    location: document.getElementById('f-location').value.trim() || 'Njoro',
     images: uploadedImageUrl ? [uploadedImageUrl] : [],
   };
 

@@ -383,3 +383,21 @@ new numbers; existing entries are never edited.
   current inputs, and any edit invalidates it.
 - **Alternative rejected:** Granting directly from the phone number and trusting
   the server's most-recent choice.
+
+## 32. GikoMart is institution-neutral; location defaults are local (Njoro)
+
+- **Decision:** GikoMart names no university or educational institution in its
+  UI, legal pages, package metadata or defaults. Where a geographic location is
+  useful the value is **Njoro**; where it is not, the institution reference is
+  removed rather than swapped for another institution. `Store.campus` keeps its
+  field (for compatibility — it is returned by the public store API) but defaults
+  to `'Njoro'`, `Listing.location` defaults to `'Njoro'`, and the
+  `paymentController` store-creation fallback is `'Njoro'`.
+- **Reason:** The product is a local marketplace for students, residents and
+  communities, not an institutional service; presenting an institution implies an
+  affiliation, ownership or endorsement the operator does not have. Keeping the
+  `campus` field with a neutral default avoids a schema/API change while stopping
+  new records from carrying the institution.
+- **Alternative rejected:** Removing the `campus` field outright (unnecessary API
+  and schema churn) and replacing the institution with another institution
+  (merely moves the same false association).

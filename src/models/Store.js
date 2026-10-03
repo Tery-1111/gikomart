@@ -18,7 +18,7 @@ const storeSchema = new mongoose.Schema({
   email:         { type: String, default: '', maxlength: 100 },
 
   // Location
-  campus:           { type: String, default: 'Egerton University' },
+  campus:           { type: String, default: 'Njoro' },
   location:         { type: String, default: '', maxlength: 120 },
   pickup_location:  { type: String, default: '', maxlength: 120 },
 

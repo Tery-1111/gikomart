@@ -7,7 +7,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 
 | Claim | Source (file path and line number) | Page |
 |---|---|---|
-| GikoMart operates a campus marketplace and introduction platform for Egerton University and neighbouring communities. | `public/legal/terms-of-service.html:35` | Privacy Policy §1 |
+| GikoMart operates a local marketplace and introduction platform for students, residents, and surrounding communities. | `public/legal/terms-of-service.html:35` | Privacy Policy §1 |
 | GikoMart is an introduction platform only and is not a party to user transactions. | `public/legal/terms-of-service.html:36` | Privacy Policy §1 |
 | The minimum age to use GikoMart is 18, or the age of majority in your jurisdiction. | `public/legal/terms-of-service.html:43` | Privacy Policy §1 |
 | The operator name and address are placeholders. | `public/legal/privacy-policy.html` (`[OPERATOR_NAME]`, `[OPERATOR_ADDRESS]`) | Privacy Policy §1 |

@@ -20,7 +20,7 @@ const MALICIOUS = {
   price: 10,
   sellerName: 'Attacker',
   sellerWhatsapp: '0700000000',
-  location: 'Egerton',
+  location: 'Njoro',
   images: ['" ' + PAYLOAD],
   featured: false,
   views: 0,
@@ -35,7 +35,7 @@ const BENIGN = {
   price: 500,
   sellerName: 'Jane',
   sellerWhatsapp: '0711111111',
-  location: 'Egerton',
+  location: 'Njoro',
   images: [],
   featured: false,
   views: 3,
@@ -49,7 +49,7 @@ const MALICIOUS_STORE = {
   slug: 'evil-store',
   category: 'Books',
   description: 'desc',
-  location: 'Egerton',
+  location: 'Njoro',
   // Well-formed attribute-injection probes: no angle brackets, so an unescaped
   // interpolation injects an attribute on the existing <img>/style rather than
   // breaking the document structure (which would render an error state and mask
