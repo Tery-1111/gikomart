@@ -221,6 +221,7 @@
         ['payments.pending', 'Pending payments', fmtNum(payments.pending)],
         ['payments.completed24h', 'Completed payments (24h)', fmtNum(payments.completed24h)],
         ['payments.failed24h', 'Failed payments (24h)', fmtNum(payments.failed24h)],
+        ['payments.granted30d', 'Free grants (30 days)', fmtNum(payments.granted30d)],
         ['revenue.last24h', 'Revenue (24h)', fmtMoney(revenue.last24h)],
         ['revenue.last7d', 'Revenue (7 days)', fmtMoney(revenue.last7d)],
         ['revenue.last30d', 'Revenue (30 days)', fmtMoney(revenue.last30d)],

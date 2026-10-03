@@ -29,7 +29,7 @@ function makeModels() {
 }
 
 const EXPECTED_PIPELINE = [
-  { $match: { status: 'completed', createdAt: { $gte: SINCE30 } } },
+  { $match: { status: 'completed', grantedAt: null, createdAt: { $gte: SINCE30 } } },
   {
     $group: {
       _id: '$type',
@@ -41,7 +41,7 @@ const EXPECTED_PIPELINE = [
 ];
 
 describe('computeMetrics — query shapes', () => {
-  it('sends exactly the ten countDocuments filters and the aggregate pipeline', async () => {
+  it('sends exactly the eleven countDocuments filters and the aggregate pipeline', async () => {
     const { models, Listing, Store, Payment, Report, BlockedContact } = makeModels();
 
     await computeMetrics(models, NOW);
@@ -59,13 +59,14 @@ describe('computeMetrics — query shapes', () => {
       { status: 'pending' },
       { status: 'completed', createdAt: { $gte: SINCE24 } },
       { status: 'failed', createdAt: { $gte: SINCE24 } },
+      { status: 'completed', grantedAt: { $ne: null }, createdAt: { $gte: SINCE30 } },
     ]);
     expect(Report.countCalls).toEqual([{ status: 'open' }]);
     expect(BlockedContact.countCalls).toEqual([{}]);
 
     const totalCountCalls = Listing.countCalls.length + Store.countCalls.length + Payment.countCalls.length
       + Report.countCalls.length + BlockedContact.countCalls.length;
-    expect(totalCountCalls).toBe(10);
+    expect(totalCountCalls).toBe(11);
 
     expect(Payment.aggCalls).toEqual([EXPECTED_PIPELINE]);
   });
@@ -127,7 +128,7 @@ describe('computeMetrics — result shape', () => {
     expect(Object.keys(r)).toEqual(['generatedAt', 'listings', 'stores', 'payments', 'revenue', 'reports', 'blocks']);
     expect(Object.keys(r.listings)).toEqual(['active', 'flagged']);
     expect(Object.keys(r.stores)).toEqual(['active', 'flagged', 'suspended']);
-    expect(Object.keys(r.payments)).toEqual(['pending', 'completed24h', 'failed24h']);
+    expect(Object.keys(r.payments)).toEqual(['pending', 'completed24h', 'failed24h', 'granted30d']);
     expect(Object.keys(r.revenue)).toEqual(['currency', 'last24h', 'last7d', 'last30d', 'byType30d']);
     expect(Object.keys(r.revenue.byType30d)).toEqual(['listing', 'boost', 'store']);
     expect(Object.keys(r.reports)).toEqual(['open']);
@@ -137,7 +138,7 @@ describe('computeMetrics — result shape', () => {
     expect(r.revenue.currency).toBe('KSh');
     expect(r.listings).toEqual({ active: 11, flagged: 11 });
     expect(r.stores).toEqual({ active: 3, flagged: 3, suspended: 3 });
-    expect(r.payments).toEqual({ pending: 2, completed24h: 2, failed24h: 2 });
+    expect(r.payments).toEqual({ pending: 2, completed24h: 2, failed24h: 2, granted30d: 2 });
     expect(r.reports).toEqual({ open: 4 });
     expect(r.blocks).toEqual({ total: 5 });
   });

@@ -451,6 +451,22 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 
 ## Phase 9b — Grant accounting
 
+### feat(metrics): exclude admin grants from revenue and count them separately
+- **Behavior:** Before, revenue was the sum of `Payment.amount` for every
+  `status: 'completed'` payment, so an admin grant (which produces the same
+  `completed` status) inflated the revenue totals. After, `computeMetrics`'s
+  revenue aggregate matches on `grantedAt: null`, so only genuinely paid
+  payments count toward revenue, and a new `payments.granted30d` count
+  (`status: 'completed', grantedAt: { $ne: null }`, last 30 days) reports grants
+  separately. The admin dashboard renders that count as a **Free grants
+  (30 days)** metric directly after **Failed payments (24h)**. No other metric key
+  changed.
+- **Files changed:** `docs/CHANGELOG.md`, `public/assets/js/admin.js`,
+  `src/services/metricsService.js`, `tests/adminMetricsGrants.test.mjs`.
+- **Tests added:** `tests/adminMetricsGrants.test.mjs` (4 tests).
+- **Existing tests changed:** `tests/adminMetrics.test.mjs` and
+  `tests/adminPortal.test.mjs`, assertions updated for the new metric (approved).
+
 ### feat(admin): mark payments completed by an admin grant
 - **Behavior:** Before, a payment completed by `POST /api/admin/grant-free-access`
   was indistinguishable from one completed by a real IntaSend webhook — both just

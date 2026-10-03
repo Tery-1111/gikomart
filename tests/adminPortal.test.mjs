@@ -21,7 +21,7 @@ function metricsData() {
     generatedAt: '2026-10-02T12:00:00.000Z',
     listings: { active: 11, flagged: 2 },
     stores: { active: 3, flagged: 1, suspended: 1 },
-    payments: { pending: 4, completed24h: 5, failed24h: 6 },
+    payments: { pending: 4, completed24h: 5, failed24h: 6, granted30d: 3 },
     revenue: { currency: 'KSh', last24h: 0, last7d: 500, last30d: 1250, byType30d: { listing: 700, boost: 300, store: 250 } },
     reports: { open: 7 },
     blocks: { total: 8 },
@@ -54,6 +54,7 @@ const EXPECTED_METRICS = [
   ['payments.pending', 'Pending payments', '4'],
   ['payments.completed24h', 'Completed payments (24h)', '5'],
   ['payments.failed24h', 'Failed payments (24h)', '6'],
+  ['payments.granted30d', 'Free grants (30 days)', '3'],
   ['revenue.last24h', 'Revenue (24h)', 'KSh 0'],
   ['revenue.last7d', 'Revenue (7 days)', 'KSh 500'],
   ['revenue.last30d', 'Revenue (30 days)', 'KSh 1,250'],
@@ -241,7 +242,7 @@ describe('Sign out', () => {
 });
 
 describe('Dashboard', () => {
-  it('renders all sixteen metrics in order with exact labels and values', async () => {
+  it('renders all seventeen metrics in order with exact labels and values', async () => {
     await signIn();
     const cards = [...document.querySelectorAll('#metrics [data-metric]')];
     expect(cards.map((c) => c.dataset.metric)).toEqual(EXPECTED_METRICS.map((m) => m[0]));
