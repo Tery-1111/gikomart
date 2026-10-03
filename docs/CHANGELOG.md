@@ -480,6 +480,17 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/reportModal.test.mjs` (15 tests).
 - **Existing tests changed:** None.
 
+### test(ui): cover store save and retry states
+- **Behavior:** No source change. Adds coverage for the store edit save flow
+  that already existed: the `Saving…` disabled state while the PUT is pending,
+  the `Saved ✓` → `Save Changes` success transition and modal close after
+  2000 ms, the `Retry` failure state (modal open, typed values kept, friendly
+  500 toast), the second PUT from Retry with the owner-token header, and the
+  offline message on a rejected fetch.
+- **Files changed:** `docs/CHANGELOG.md`, `tests/storeSave.test.mjs`.
+- **Tests added:** 5; source changed: none.
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
