@@ -491,6 +491,17 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** 5; source changed: none.
 - **Existing tests changed:** None.
 
+### docs(legal): prohibited items page reflects the Report button
+- **Behavior:** Section 3 of `public/legal/prohibited-items.html` now points at
+  the in-page Report button ("Use the Report button on any listing or store
+  page and choose a reason…") instead of saying the button is not yet
+  available. The matching row in `docs/LEGAL_FACTS.md` was re-sourced to the
+  report buttons and the `POST /reports` call in `public/assets/js/app.js`.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/LEGAL_FACTS.md`,
+  `public/legal/prohibited-items.html`, `tests/prohibitedReport.test.mjs`.
+- **Tests added:** `tests/prohibitedReport.test.mjs` (2 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
