@@ -512,6 +512,21 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/cardIdEscape.test.mjs` (1 test).
 - **Existing tests changed:** None.
 
+## Phase 8b — Upload retention, moderation matching, backup runbook
+
+### fix(ui): keep the previous photo when a replacement upload fails
+- **Behavior:** Before, a failed replacement photo upload cleared
+  `uploadedImageUrl`, so the listing was submitted with no image even though a
+  photo had already been confirmed, and the preview stayed on the rejected
+  pick. After, `setupImageUpload` snapshots the confirmed URL and preview when a
+  new upload starts and restores both on failure, and the status line appends
+  " Your previous photo was kept." when a previous photo was restored. With no
+  previous photo the behavior is unchanged (no image, the same error text).
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `public/assets/js/app.js`, `tests/imageUploadRetention.test.mjs`.
+- **Tests added:** `tests/imageUploadRetention.test.mjs` (4 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

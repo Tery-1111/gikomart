@@ -305,3 +305,14 @@ new numbers; existing entries are never edited.
   that means a second STK push. Restoring the original label forces the seller to
   make a deliberate action, and the recovery affordance is offered separately.
 - **Alternative rejected:** A Retry label on payment buttons.
+
+## 26. A failed replacement photo upload restores the previously confirmed photo
+
+- **Decision:** A failed replacement photo upload restores the previously
+  confirmed photo; there is no automatic retry button, the seller picks the file
+  again.
+- **Reason:** Clearing the photo on failure silently submits a listing without an
+  image the seller had already chosen, and the rejected pick is not what they
+  confirmed. Restoring the confirmed photo keeps the listing publishable as-is,
+  and the status line names the outcome (" Your previous photo was kept.").
+- **Alternative rejected:** Clearing the photo on failure.
