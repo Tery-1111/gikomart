@@ -541,6 +541,23 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/moderationEvasion.test.mjs` (9 tests).
 - **Existing tests changed:** None.
 
+### test(ops): backup script safety tests and restore runbook
+- **Behavior:** Before, `scripts/backup.js` had no test proving it fails safely
+  or that it never prints the connection string or its credentials, and there
+  was no restore runbook. After, `tests/backupScript.test.mjs` runs the script
+  as a real child process (explicit env, scratch cwd so no `.env` is read) and
+  asserts a non-zero exit with no `mongodb` string when `MONGO_URI` is unset,
+  no credential leak when `mongodump` is missing, that `backups/` is ignored by
+  git, and that the source does not log the URI variable or the whole
+  `process.env`. `docs/runbook-backup-restore.md` documents the backup, the
+  Atlas continuous-backup manual step, a scratch-namespace restore drill, the
+  post-drill cleanup, and the out-of-repo schedule. The script itself needed no
+  change — every safety case already passed.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `docs/runbook-backup-restore.md`, `tests/backupScript.test.mjs`.
+- **Tests added:** `tests/backupScript.test.mjs` (4 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.

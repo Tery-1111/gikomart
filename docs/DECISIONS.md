@@ -330,3 +330,15 @@ new numbers; existing entries are never edited.
   catches the common cosmetic evasions without changing any existing pattern.
 - **Alternative rejected:** Matching with all non-letters removed (causes false
   positives); an external moderation service.
+
+## 28. Backups run through mongodump; scheduling and Atlas backup are outside the repository
+
+- **Decision:** Backups are taken with `mongodump` through `npm run backup`;
+  scheduling and Atlas continuous backup are configured outside the repository.
+  The restore drill restores into a scratch database namespace.
+- **Reason:** `mongodump` writes a portable dump that can be restored into any
+  scratch cluster, which is the only way to prove a backup is usable. The
+  scheduler and Atlas continuous backup live in the host and the Atlas dashboard,
+  which this repository cannot reach, so they stay manual, documented steps.
+- **Alternative rejected:** An in-process scheduled backup (cannot protect
+  against loss of the host).
