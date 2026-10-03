@@ -368,3 +368,18 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** Inferring grants from the audit log at read time
   (the audit write is fire-and-forget, so a payment could complete without a
   readable event).
+
+## 30. The grant tab previews the payment before granting and grants only the previewed payment id, so a phone number with several pending payments can never grant the wrong one.
+
+- **Decision:** The grant tab previews the payment before granting and grants
+  only the previewed payment id, so a phone number with several pending payments
+  can never grant the wrong one.
+- **Reason:** A `phoneNumber` selector resolves to the most recent pending
+  payment, which is invisible to the admin at grant time; the same number can
+  have several pending rows. Previewing first shows exactly which payment will be
+  granted (type, name, plan, created time, masked phone), and sending the
+  previewed id back as `paymentId` makes the granted record provably the one that
+  was shown. The Grant button stays disabled until a preview succeeds for the
+  current inputs, and any edit invalidates it.
+- **Alternative rejected:** Granting directly from the phone number and trusting
+  the server's most-recent choice.

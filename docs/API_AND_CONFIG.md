@@ -36,6 +36,7 @@ route-specific limiter.
 | GET | `/api/admin/health` | `X-Admin-Session` | globalLimiter + adminLimiter | Detailed health (MongoDB + Cloudinary with a 5s timeout); always HTTP 200 |
 | GET | `/api/admin/metrics` | `X-Admin-Session` | globalLimiter + adminLimiter | Counts and revenue totals (no personal data) |
 | POST | `/api/admin/grant-free-access` | Admin auth (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter + adminLimiter | Complete a pending listing/store payment without a webhook (mock payment) |
+| POST | `/api/admin/grant-preview` | Admin auth (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter + adminLimiter | Preview the pending payment a grant would claim (read-only) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -181,20 +182,37 @@ the payment must still be `pending`.
 - **Body:** exactly one of `paymentId`, `invoiceId`, `phoneNumber` is required.
   When several are sent the precedence is `paymentId` > `invoiceId` >
   `phoneNumber`. A `phoneNumber` lookup takes the **most recent** matching
-  pending payment (`sort: { createdAt: -1 }`).
+  pending payment (`sort: { createdAt: -1 }`). Selector length caps:
+  `paymentId` 24, `invoiceId` 64, `phoneNumber` 20 characters.
 - **Idempotency:** the claim atomically filters on `status: 'pending'`, so a
   double submit creates exactly one resource — the second call finds nothing
   pending and returns 404.
+- **Marking:** the claim also sets `grantedBy` (the admin actor) and `grantedAt`
+  on the payment, so a granted payment is distinguishable from a real one and is
+  excluded from revenue.
+- **Preview:** `POST /api/admin/grant-preview` takes the same body and validation
+  but reads the matching payment (`Payment.findOne`, no update) and returns
+  `{ success: true, payment: { id, type, package, storePlan, amount, createdAt,
+  title, storeName, phoneMasked } }`. `title` (from `listingData.title`) and
+  `storeName` (from `storeData.name`) are capped at 80 characters and null when
+  absent; `phoneMasked` is first 4 + `***` + last 2 for a plain digit number,
+  otherwise the stored value unchanged. The portal previews first and grants only
+  the previewed id.
 
 **Responses**
 
 | Status | Body |
 |---|---|
 | 200 | `{ success: true, message: 'Free access granted', paymentId, resource: { type, id } }` |
-| 400 | `{ success: false, error: 'Provide one of: paymentId, invoiceId, phoneNumber' }` |
+| 400 | `{ success: false, error: 'Provide one of: paymentId, invoiceId, phoneNumber' }` / `{ success: false, error: 'Invalid selector' }` |
 | 401/403 | `{ success: false, error: 'Admin 2FA required' }` / `{ success: false, error: 'Admin authorization required' }` |
 | 404 | `{ success: false, error: 'No matching pending payment found' }` |
 | 500 | `{ success: false, error: 'Grant free access failed' }` |
+
+`POST /api/admin/grant-preview` responds `200 { success: true, payment }`, the
+same `400` bodies, and `404 { success: false, error: 'No matching pending payment
+found' }`; it never mutates the payment.
+
 
 On success a `admin.grant_free_access` audit event is emitted
 (`actor: admin:<username>`, `result: 'success'`).
