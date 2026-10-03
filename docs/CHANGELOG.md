@@ -449,6 +449,63 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/adminPortal.test.mjs` (13 tests).
 - **Existing tests changed:** None.
 
+## Phase 9b — Grant accounting
+
+### feat(admin): preview before granting and cap grant selectors
+- **Behavior:** Before, the Grant tab granted whichever pending payment matched a
+  selector, with no way to see which payment that would be. After, a new
+  `POST /api/admin/grant-preview` (same session gate and selector validation,
+  read-only) returns the payment that a grant would claim. Both grant routes now
+  cap their selectors — `paymentId` 24, `invoiceId` 64, `phoneNumber` 20
+  characters — and return **400 `{ success: false, error: 'Invalid selector' }`**
+  when a cap is exceeded. The preview response carries `{ id, type, package,
+  storePlan, amount, createdAt, title, storeName, phoneMasked }`, where `title`
+  (from `listingData.title`) and `storeName` (from `storeData.name`) are capped at
+  80 characters and null when absent, and `phoneMasked` masks a plain digit
+  number as first 4 + `***` + last 2 (unchanged otherwise). In the portal the
+  Grant tab gains a **Preview** button; the Grant button stays disabled until a
+  preview succeeds for the current input values and is disabled again on any
+  edit, and the grant request sends only the previewed payment's id as
+  `paymentId`.
+- **Files changed:** `docs/API_AND_CONFIG.md`, `docs/CHANGELOG.md`,
+  `docs/DECISIONS.md`, `public/assets/js/admin.js`, `src/routes/adminGrant.js`,
+  `tests/grantPortal.test.mjs`, `tests/grantPreview.test.mjs`.
+- **Tests added:** `tests/grantPreview.test.mjs` (13 tests),
+  `tests/grantPortal.test.mjs` (5 tests).
+- **Existing tests changed:** `tests/adminGrant.test.mjs`, one UI case updated for
+  the preview-then-grant flow (approved).
+
+### feat(metrics): exclude admin grants from revenue and count them separately
+- **Behavior:** Before, revenue was the sum of `Payment.amount` for every
+  `status: 'completed'` payment, so an admin grant (which produces the same
+  `completed` status) inflated the revenue totals. After, `computeMetrics`'s
+  revenue aggregate matches on `grantedAt: null`, so only genuinely paid
+  payments count toward revenue, and a new `payments.granted30d` count
+  (`status: 'completed', grantedAt: { $ne: null }`, last 30 days) reports grants
+  separately. The admin dashboard renders that count as a **Free grants
+  (30 days)** metric directly after **Failed payments (24h)**. No other metric key
+  changed.
+- **Files changed:** `docs/CHANGELOG.md`, `public/assets/js/admin.js`,
+  `src/services/metricsService.js`, `tests/adminMetricsGrants.test.mjs`.
+- **Tests added:** `tests/adminMetricsGrants.test.mjs` (4 tests).
+- **Existing tests changed:** `tests/adminMetrics.test.mjs` and
+  `tests/adminPortal.test.mjs`, assertions updated for the new metric (approved).
+
+### feat(admin): mark payments completed by an admin grant
+- **Behavior:** Before, a payment completed by `POST /api/admin/grant-free-access`
+  was indistinguishable from one completed by a real IntaSend webhook — both just
+  had `status: 'completed'`. After, the `Payment` schema carries two new fields,
+  `grantedBy` (String, default null) and `grantedAt` (Date, default null). The
+  grant route's atomic claim now writes `grantedBy: adminActor(req)` and
+  `grantedAt` in the same `$set`, so a granted payment is stamped with the acting
+  admin and the time. Webhook-completed payments leave both null. The
+  `admin.grant_free_access` audit event also gains a `grantedAt` ISO string in its
+  metadata (the actor is already recorded as `actor`).
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `src/models/Payment.js`, `src/routes/adminGrant.js`, `tests/grantMarking.test.mjs`.
+- **Tests added:** `tests/grantMarking.test.mjs` (3 tests).
+- **Existing tests changed:** None.
+
 ## Phase 9 — fixes
 
 ### fix(admin): never replace an enrolled 2FA factor

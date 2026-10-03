@@ -486,6 +486,9 @@ describe('POST /api/admin/grant-free-access — admin UI (JSDOM)', () => {
       if (String(url).includes('/api/admin/metrics')) {
         return { ok: true, status: 200, json: async () => ({}) };
       }
+      if (String(url).includes('/api/admin/grant-preview')) {
+        return { ok: true, status: 200, json: async () => ({ success: true, payment: { id: 'pay-ui', type: 'listing', package: 'standard', storePlan: null, amount: 50, createdAt: '2026-10-02T12:00:00.000Z', title: 'Textbook for sale', storeName: null, phoneMasked: '2547***01' } }) };
+      }
       if (String(url).includes('/api/admin/grant-free-access')) {
         return { ok: true, status: 200, json: async () => ({ success: true, message: 'Free access granted', paymentId: 'pay-ui', resource: { type: 'listing', id: 'lst-ui' } }) };
       }
@@ -514,12 +517,17 @@ describe('POST /api/admin/grant-free-access — admin UI (JSDOM)', () => {
       const invoiceInput = dom.window.document.getElementById('grantInvoiceId');
       expect(invoiceInput).toBeTruthy();
       invoiceInput.value = 'INV-GRANT-1';
+      // Step 3: preview first; the grant button stays disabled until the
+      // preview succeeds for the current inputs.
+      dom.window.document.getElementById('grantPreviewBtn').click();
+      await new Promise((r) => setTimeout(r, 40));
       form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
       await new Promise((r) => setTimeout(r, 40));
 
       const grantCall = calls.find((c) => c.url.includes('/api/admin/grant-free-access'));
       expect(grantCall).toBeTruthy();
-      expect(JSON.parse(grantCall.options.body)).toEqual({ invoiceId: 'INV-GRANT-1' });
+      expect(JSON.parse(grantCall.options.body)).toEqual({ paymentId: 'pay-ui' });
+      expect(Object.keys(JSON.parse(grantCall.options.body))).toEqual(['paymentId']);
 
       const msg = dom.window.document.getElementById('grantMsg');
       expect(msg.textContent).toContain('Free access granted');

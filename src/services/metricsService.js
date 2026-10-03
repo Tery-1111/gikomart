@@ -31,6 +31,7 @@ async function computeMetrics(models, now = new Date()) {
     completed24h,
     failed24h,
     revenueRows,
+    granted30d,
     openReports,
     totalBlocks,
   ] = await Promise.all([
@@ -42,8 +43,11 @@ async function computeMetrics(models, now = new Date()) {
     models.Payment.countDocuments({ status: 'pending' }),
     models.Payment.countDocuments({ status: 'completed', createdAt: { $gte: since24 } }),
     models.Payment.countDocuments({ status: 'failed', createdAt: { $gte: since24 } }),
+    // Revenue excludes admin grants: a granted payment is completed but was not
+    // paid, so summing it would overstate revenue. Grants are counted separately
+    // below (payments.granted30d).
     models.Payment.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: since30 } } },
+      { $match: { status: 'completed', grantedAt: null, createdAt: { $gte: since30 } } },
       {
         $group: {
           _id: '$type',
@@ -53,6 +57,7 @@ async function computeMetrics(models, now = new Date()) {
         },
       },
     ]),
+    models.Payment.countDocuments({ status: 'completed', grantedAt: { $ne: null }, createdAt: { $gte: since30 } }),
     models.Report.countDocuments({ status: 'open' }),
     models.BlockedContact.countDocuments({}),
   ]);
@@ -76,7 +81,7 @@ async function computeMetrics(models, now = new Date()) {
     generatedAt: now.toISOString(),
     listings: { active: num(activeListings), flagged: num(flaggedListings) },
     stores: { active: num(activeStores), flagged: num(flaggedStores), suspended: num(suspendedStores) },
-    payments: { pending: num(pendingPayments), completed24h: num(completed24h), failed24h: num(failed24h) },
+    payments: { pending: num(pendingPayments), completed24h: num(completed24h), failed24h: num(failed24h), granted30d: num(granted30d) },
     revenue: {
       currency: 'KSh',
       last24h,

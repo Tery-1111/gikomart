@@ -221,6 +221,7 @@
         ['payments.pending', 'Pending payments', fmtNum(payments.pending)],
         ['payments.completed24h', 'Completed payments (24h)', fmtNum(payments.completed24h)],
         ['payments.failed24h', 'Failed payments (24h)', fmtNum(payments.failed24h)],
+        ['payments.granted30d', 'Free grants (30 days)', fmtNum(payments.granted30d)],
         ['revenue.last24h', 'Revenue (24h)', fmtMoney(revenue.last24h)],
         ['revenue.last7d', 'Revenue (7 days)', fmtMoney(revenue.last7d)],
         ['revenue.last30d', 'Revenue (30 days)', fmtMoney(revenue.last30d)],
@@ -818,34 +819,95 @@
       invoiceInput.placeholder = 'Invoice ID';
       invoiceInput.setAttribute('autocomplete', 'off');
 
+      const previewBtn = el('button', { id: 'grantPreviewBtn', type: 'button' }, 'Preview');
       const submit = el('button', { id: 'grantSubmit', type: 'submit' }, 'Grant access');
+      const previewMsg = el('p', { id: 'grantPreviewMsg' });
+      previewMsg.setAttribute('role', 'status');
       const grantMsg = el('p', { id: 'grantMsg' });
       grantMsg.setAttribute('role', 'status');
 
       form.appendChild(phoneInput);
       form.appendChild(paymentInput);
       form.appendChild(invoiceInput);
+      form.appendChild(previewBtn);
       form.appendChild(submit);
+      form.appendChild(previewMsg);
       form.appendChild(grantMsg);
       body.appendChild(form);
-      body.appendChild(el('p', null, 'Provide any one of phone number, payment ID, or invoice ID. The most recent pending payment wins.'));
+      body.appendChild(el('p', null, 'Provide any one of phone number, payment ID, or invoice ID. Preview first, then grant the previewed payment.'));
 
-      form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        const payload = {};
+      // The grant button is only enabled once a preview has succeeded for the
+      // CURRENT input values. Any edit invalidates it, so the granted payment is
+      // always exactly the one the admin saw previewed.
+      let previewedId = null;
+      let previewedKey = null;
+
+      function currentSelector() {
         const phone = phoneInput.value.trim();
         const paymentId = paymentInput.value.trim();
         const invoiceId = invoiceInput.value.trim();
-        // Send exactly one identifier, matching the server's precedence.
-        if (paymentId) payload.paymentId = paymentId;
-        else if (invoiceId) payload.invoiceId = invoiceId;
-        else payload.phoneNumber = phone;
-        grantMsg.textContent = '';
-        if (!phone && !paymentId && !invoiceId) {
-          grantMsg.textContent = 'Enter one of: phone number, payment ID, or invoice ID.';
+        if (paymentId) return { paymentId: paymentId };
+        if (invoiceId) return { invoiceId: invoiceId };
+        if (phone) return { phoneNumber: phone };
+        return null;
+      }
+
+      function currentKey() {
+        const sel = currentSelector();
+        return sel ? JSON.stringify(sel) : '';
+      }
+
+      function invalidate() {
+        previewedId = null;
+        previewedKey = null;
+        submit.disabled = true;
+      }
+
+      submit.disabled = true;
+
+      [phoneInput, paymentInput, invoiceInput].forEach(function (input) {
+        input.addEventListener('input', function () {
+          invalidate();
+          previewMsg.textContent = '';
+        });
+      });
+
+      previewBtn.addEventListener('click', function () {
+        const selector = currentSelector();
+        previewMsg.textContent = '';
+        invalidate();
+        if (!selector) {
+          previewMsg.textContent = 'Enter one of: phone number, payment ID, or invoice ID.';
           return;
         }
-        api('POST', '/api/admin/grant-free-access', payload).then(function (outcome) {
+        api('POST', '/api/admin/grant-preview', selector).then(function (outcome) {
+          if (outcome.status === 200) {
+            const p = (outcome.data || {}).payment || {};
+            const name = p.title || p.storeName || '(no name)';
+            const plan = p.package || p.storePlan || '(no plan)';
+            previewMsg.textContent = 'Will grant: ' + String(p.type) + ' ' + String(name)
+              + ' (' + String(plan) + '), created ' + fmtTime(p.createdAt)
+              + ', phone ' + String(p.phoneMasked);
+            previewedId = p.id;
+            previewedKey = currentKey();
+            submit.disabled = false;
+          } else {
+            previewMsg.textContent = 'Failed: ' + errorText(outcome.data);
+          }
+        }, function () {
+          previewMsg.textContent = 'Failed: error';
+        });
+      });
+
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        grantMsg.textContent = '';
+        // Grant exactly the previewed payment id, and no other selector.
+        if (!previewedId || previewedKey !== currentKey()) {
+          grantMsg.textContent = 'Preview the payment first.';
+          return;
+        }
+        api('POST', '/api/admin/grant-free-access', { paymentId: previewedId }).then(function (outcome) {
           if (outcome.status === 200) {
             const data = outcome.data || {};
             const resource = data.resource || {};
@@ -853,6 +915,7 @@
             phoneInput.value = '';
             paymentInput.value = '';
             invoiceInput.value = '';
+            invalidate();
           } else {
             grantMsg.textContent = 'Failed: ' + errorText(outcome.data);
           }
