@@ -1,11 +1,29 @@
 const express = require('express');
 const router = express.Router();
 const { adminLimiter } = require('../middleware/rateLimiter');
-const adminAuth = require('../middleware/adminAuth');
+const { verifySession } = require('../middleware/adminAuth');
 const Payment = require('../models/Payment');
 const { createResourceForPayment } = require('../controllers/paymentController');
 const { emit, adminActor } = require('../services/auditService');
 const logger = require('../config/logger');
+
+// Session-only gate for this route: the raw X-Admin-Key is deliberately NOT
+// accepted, matching the replay endpoint. Mirrors requireAdminSession in
+// src/routes/adminAuth.js (which is not exported) and must be kept in sync with
+// it. The security-critical logic (signature, TTL, decode) lives in the shared
+// verifySession; only the header read and 401 response are duplicated here.
+function requireAdminSession(req, res, next) {
+  const raw = req.headers['x-admin-session'];
+  if (!raw) {
+    return res.status(401).json({ success: false, error: 'Admin session required' });
+  }
+  const payload = verifySession(raw);
+  if (!payload) {
+    return res.status(401).json({ success: false, error: 'Invalid admin session' });
+  }
+  req.admin = payload;
+  next();
+}
 
 // Admin mock-payment: grant free access to a pending listing/store payment
 // without a real IntaSend webhook. The payment must still be 'pending' and of a
@@ -14,7 +32,7 @@ const logger = require('../config/logger');
 // pending and returns 404 rather than creating a second resource.
 router.use(adminLimiter);
 
-router.post('/grant-free-access', adminAuth, async (req, res) => {
+router.post('/grant-free-access', requireAdminSession, async (req, res) => {
   const body = req.body || {};
   const paymentId = typeof body.paymentId === 'string' ? body.paymentId.trim() : '';
   const invoiceId = typeof body.invoiceId === 'string' ? body.invoiceId.trim() : '';

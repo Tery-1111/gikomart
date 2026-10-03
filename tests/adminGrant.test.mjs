@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
+import speakeasy from 'speakeasy';
 import { createRequire } from 'node:module';
 
 // Env fixtures — BEFORE any server import (CI has no .env).
@@ -242,22 +243,70 @@ const URL = '/api/admin/grant-free-access';
 // Flush fire-and-forget audit writes (emit is not awaited by the route).
 const flush = () => new Promise((r) => setImmediate(r));
 
-describe('POST /api/admin/grant-free-access — auth', () => {
-  it('rejects a request with no admin credentials and mutates nothing', async () => {
+// Mint a valid X-Admin-Session token. The route is session-only, so every
+// non-auth test must present one (same helper the wiring suite uses for its
+// session-gated admin routes).
+function session() {
+  const { signSession } = require('../src/middleware/adminAuth');
+  return signSession({ username: 'owner', role: 'admin', exp: Date.now() + 60_000 });
+}
+
+describe('POST /api/admin/grant-free-access — auth (session-only)', () => {
+  it('rejects X-Admin-Key alone and mutates nothing', async () => {
     h.payments.push(makeDoc(listingPayment()));
 
-    const res = await request(app).post(URL).send({ invoiceId: 'INV-GRANT-1' });
+    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-GRANT-1' });
 
     expect([401, 403]).toContain(res.status);
     expect(h.payments[0].status).toBe('pending');
     expect(h.listings).toHaveLength(0);
     expect(createResourceSpy).not.toHaveBeenCalled();
   });
+
+  it('rejects a request with no credentials and mutates nothing', async () => {
+    h.payments.push(makeDoc(listingPayment()));
+
+    const res = await request(app).post(URL).send({ invoiceId: 'INV-GRANT-1' });
+
+    expect(res.status).toBe(401);
+    expect(h.payments[0].status).toBe('pending');
+    expect(h.listings).toHaveLength(0);
+    expect(createResourceSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts a session minted by the real setup→verify→login flow', async () => {
+    const setup = await request(app).post('/api/admin/setup-2fa').set('X-Admin-Key', TEST_ADMIN_KEY);
+    expect(setup.status).toBe(200);
+    const secret = setup.body.secret;
+
+    const verifyCode = speakeasy.totp({ secret, encoding: 'base32' });
+    const verify = await request(app).post('/api/admin/verify-2fa').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code: verifyCode });
+    expect(verify.status).toBe(200);
+
+    const loginCode = speakeasy.totp({ secret, encoding: 'base32' });
+    const login = await request(app).post('/api/admin/login').set('X-Admin-Key', TEST_ADMIN_KEY).send({ code: loginCode });
+    expect(login.status).toBe(200);
+    expect(login.body.token).toBeTruthy();
+
+    const stored = makeDoc(listingPayment());
+    h.payments.push(stored);
+    const res = await request(app).post(URL)
+      .set('X-Admin-Session', login.body.token)
+      .send({ invoiceId: 'INV-GRANT-1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.resource.type).toBe('listing');
+    expect(stored.status).toBe('completed');
+    await flush();
+    const grants = h.auditEvents.filter((e) => e.action === 'admin.grant_free_access');
+    expect(grants).toHaveLength(1);
+    expect(grants[0].actor).toBe('admin:owner');
+  });
 });
 
 describe('POST /api/admin/grant-free-access — selector validation', () => {
   it('400 when no selector is provided', async () => {
-    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({});
+    const res = await request(app).post(URL).set('X-Admin-Session', session()).send({});
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ success: false, error: 'Provide one of: paymentId, invoiceId, phoneNumber' });
@@ -269,7 +318,7 @@ describe('POST /api/admin/grant-free-access — type restriction', () => {
   it('404 for a pending boost payment and never calls createResourceForPayment', async () => {
     h.payments.push(makeDoc({ type: 'boost', status: 'pending', boostType: 'featured', phoneNumber: '254700000003', amount: 50, invoiceId: 'INV-BOOST' }));
 
-    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-BOOST' });
+    const res = await request(app).post(URL).set('X-Admin-Session', session()).send({ invoiceId: 'INV-BOOST' });
 
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ success: false, error: 'No matching pending payment found' });
@@ -284,7 +333,7 @@ describe('POST /api/admin/grant-free-access — listing happy path', () => {
     h.payments.push(stored);
 
     const before = Date.now();
-    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-GRANT-1' });
+    const res = await request(app).post(URL).set('X-Admin-Session', session()).send({ invoiceId: 'INV-GRANT-1' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -317,7 +366,7 @@ describe('POST /api/admin/grant-free-access — store happy path', () => {
     const stored = makeDoc(storePayment());
     h.payments.push(stored);
 
-    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-GRANT-STORE' });
+    const res = await request(app).post(URL).set('X-Admin-Session', session()).send({ invoiceId: 'INV-GRANT-STORE' });
 
     expect(res.status).toBe(200);
     expect(res.body.resource.type).toBe('store');
@@ -344,11 +393,11 @@ describe('POST /api/admin/grant-free-access — idempotency', () => {
   it('grants once; the second call 404s and creates no second resource or audit event', async () => {
     h.payments.push(makeDoc(listingPayment()));
 
-    const first = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-GRANT-1' });
+    const first = await request(app).post(URL).set('X-Admin-Session', session()).send({ invoiceId: 'INV-GRANT-1' });
     expect(first.status).toBe(200);
     expect(first.body.resource.type).toBe('listing');
 
-    const second = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ invoiceId: 'INV-GRANT-1' });
+    const second = await request(app).post(URL).set('X-Admin-Session', session()).send({ invoiceId: 'INV-GRANT-1' });
     expect(second.status).toBe(404);
     expect(second.body).toEqual({ success: false, error: 'No matching pending payment found' });
 
@@ -364,7 +413,7 @@ describe('POST /api/admin/grant-free-access — phone lookup ordering', () => {
     const newer = makeDoc(listingPayment({ _id: 'pay-new', invoiceId: 'INV-NEW', createdAt: new Date() }));
     h.payments.push(older, newer);
 
-    const res = await request(app).post(URL).set('X-Admin-Key', TEST_ADMIN_KEY).send({ phoneNumber: '254700000001' });
+    const res = await request(app).post(URL).set('X-Admin-Session', session()).send({ phoneNumber: '254700000001' });
 
     expect(res.status).toBe(200);
     expect(String(res.body.paymentId)).toBe('pay-new');
