@@ -449,6 +449,37 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Tests added:** `tests/adminPortal.test.mjs` (13 tests).
 - **Existing tests changed:** None.
 
+## Phase 8 — Report and save/retry frontend hardening
+
+### Earlier commit db7f145 (retroactive)
+- **Behavior:** Added the report affordance and save/retry button states to the
+  frontend. In `public/assets/js/app.js` the store edit flow gained
+  `Saving…` → `Saved ✓` → `Save Changes` (and `Retry` on failure) button states,
+  the store-plan and boost flows gained a `Sending payment request…` busy state,
+  and the report modal (`setupReportModal`, `openReportModal`,
+  `closeReportModal`, `handleReportSubmit`) was added, wired to
+  `POST /api/reports` through the existing `data-action` delegation. In
+  `public/index.html` the report modal markup was added. In
+  `public/assets/css/style.css` the report-modal, `.modal-sm`, `.modal-actions`
+  and `.btn-sm` styles were added.
+- **Files changed:** `public/assets/css/style.css`,
+  `public/assets/js/app.js`, `public/index.html`.
+- **Tests added:** None at the time (added in Phase 8).
+
+### fix(ui): harden report entry points and add tests
+- **Behavior:** The listing detail Report button now renders only when the app
+  is not in demo mode, and both Report buttons escape the target id into the
+  `data-target-id` attribute with `escapeAttr` (a hostile id can no longer break
+  out of the attribute). A successful report submission now clears the reason
+  and details fields and resets the submit button to `Submit Report`. A single
+  document-level `keydown` listener closes the report modal on Escape when it is
+  open, otherwise closes the listing modal; the store modal is deliberately
+  left open.
+- **Files changed:** `docs/CHANGELOG.md`, `docs/DECISIONS.md`,
+  `public/assets/js/app.js`, `tests/reportModal.test.mjs`.
+- **Tests added:** `tests/reportModal.test.mjs` (15 tests).
+- **Existing tests changed:** None.
+
 ## Phase 5 and later
 
 Not documented here until built.
