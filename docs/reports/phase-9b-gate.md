@@ -77,7 +77,7 @@ Every other existing test file is unchanged.
   (`grantedAt: null`); new `payments.granted30d` count.
 - **`public/assets/js/admin.js`** — dashboard "Free grants (30 days)" metric;
   Grant tab gains a Preview button with preview-gated Grant.
-- **`docs/CHANGELOG.md`, `docs/DECISIONS.md` (29, 30), `docs/API_AND_CONFIG.md`.**
+- **`docs/CHANGELOG.md`, `docs/DECISIONS.md` (30, 31), `docs/API_AND_CONFIG.md`.**
 
 ## Failures encountered and how they were handled
 

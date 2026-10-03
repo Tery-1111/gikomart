@@ -298,7 +298,7 @@ new numbers; existing entries are never edited.
   single application check that a future refactor could drop.
 - **Alternative rejected:** relying on the application check alone.
 
-## 24. The Escape key closes the listing and report modals but not the store modal
+## 25. The Escape key closes the listing and report modals but not the store modal
 
 - **Decision:** The Escape key closes the listing and report modals but
   deliberately not the store modal, because closing the store modal aborts a
@@ -308,7 +308,7 @@ new numbers; existing entries are never edited.
   it would let a stray keypress silently cancel an in-flight payment check.
 - **Alternative rejected:** Escape closing every modal.
 
-## 25. Payment-initiation buttons restore their label, they do not relabel to Retry
+## 26. Payment-initiation buttons restore their label, they do not relabel to Retry
 
 - **Decision:** Payment-initiation buttons (store plan, boost) do not relabel to
   Retry after a failure; they restore their original label. A one-click retry
@@ -318,7 +318,7 @@ new numbers; existing entries are never edited.
   make a deliberate action, and the recovery affordance is offered separately.
 - **Alternative rejected:** A Retry label on payment buttons.
 
-## 26. A failed replacement photo upload restores the previously confirmed photo
+## 27. A failed replacement photo upload restores the previously confirmed photo
 
 - **Decision:** A failed replacement photo upload restores the previously
   confirmed photo; there is no automatic retry button, the seller picks the file
@@ -329,7 +329,7 @@ new numbers; existing entries are never edited.
   and the status line names the outcome (" Your previous photo was kept.").
 - **Alternative rejected:** Clearing the photo on failure.
 
-## 27. Moderation matches normalized and de-spaced text
+## 28. Moderation matches normalized and de-spaced text
 
 - **Decision:** Moderation matching also tests a normalized copy of the text
   (look-alike digits and symbols next to letters, zero-width characters,
@@ -343,7 +343,7 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** Matching with all non-letters removed (causes false
   positives); an external moderation service.
 
-## 28. Backups run through mongodump; scheduling and Atlas backup are outside the repository
+## 29. Backups run through mongodump; scheduling and Atlas backup are outside the repository
 
 - **Decision:** Backups are taken with `mongodump` through `npm run backup`;
   scheduling and Atlas continuous backup are configured outside the repository.
@@ -355,7 +355,7 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** An in-process scheduled backup (cannot protect
   against loss of the host).
 
-## 29. Payments completed by an admin grant are marked with grantedBy and grantedAt so they can be told apart from real payments.
+## 30. Payments completed by an admin grant are marked with grantedBy and grantedAt so they can be told apart from real payments.
 
 - **Decision:** Payments completed by an admin grant are marked with grantedBy
   and grantedAt so they can be told apart from real payments.
@@ -369,7 +369,7 @@ new numbers; existing entries are never edited.
   (the audit write is fire-and-forget, so a payment could complete without a
   readable event).
 
-## 30. The grant tab previews the payment before granting and grants only the previewed payment id, so a phone number with several pending payments can never grant the wrong one.
+## 31. The grant tab previews the payment before granting and grants only the previewed payment id, so a phone number with several pending payments can never grant the wrong one.
 
 - **Decision:** The grant tab previews the payment before granting and grants
   only the previewed payment id, so a phone number with several pending payments
