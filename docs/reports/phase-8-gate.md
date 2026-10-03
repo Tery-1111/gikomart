@@ -5,12 +5,12 @@ Baseline: `main` @ `950995d` — 26 test files / 409 tests passing.
 
 ## 1. Test suite
 
-`npm test` → **29 test files passed (29) · 431 tests passed (431)**, duration
-**34.23s** (`vitest run`). No `beforeAll`/hook timeouts were observed in any run.
+`npm test` → **30 test files passed (30) · 432 tests passed (432)**, duration
+**32.71s** (`vitest run`). No `beforeAll`/hook timeouts were observed in any run.
 
-Delta vs baseline: **+3 files**, **+22 tests** (409 → 431), in the three new
-files `tests/reportModal.test.mjs` (15), `tests/storeSave.test.mjs` (5) and
-`tests/prohibitedReport.test.mjs` (2).
+Delta vs baseline: **+4 files**, **+23 tests** (409 → 432), in the four new
+files `tests/reportModal.test.mjs` (15), `tests/storeSave.test.mjs` (5),
+`tests/prohibitedReport.test.mjs` (2) and `tests/cardIdEscape.test.mjs` (1).
 
 Per-step runs (all green):
 
@@ -19,7 +19,8 @@ Per-step runs (all green):
 | Baseline (`950995d`) | 26 | 409 | 25.93s |
 | Step 1 | 27 | 424 | 26.11s |
 | Step 2 | 28 | 429 | 29.44s |
-| Step 3 (final) | 29 | 431 | 34.23s |
+| Step 3 | 29 | 431 | 34.23s |
+| Step 5 (final) | 30 | 432 | 32.71s |
 
 ## 2. Fail-first evidence (E3)
 
@@ -36,6 +37,9 @@ source:
   5 passed again.
 - **Step 3** — the `prohibitedReport` content test failed ("Until the in-page
   Report button" still present); the placeholder test passed.
+- **Step 5** — the `cardIdEscape` test failed against the unmodified source
+  (`expected 'a' to be 'a"b<c'` — the unescaped `data-id` truncated at the
+  quote); after escaping it passed, and `reportModal` still passed 15/15.
 
 ## 3. Lint and whitespace
 
@@ -48,25 +52,29 @@ source:
 ## 4. Diff stat (`main..phase-8-polish`)
 
 ```
- docs/CHANGELOG.md                  |  53 ++++++
+ docs/CHANGELOG.md                  |  61 ++++++
  docs/DECISIONS.md                  |  20 +++
  docs/LEGAL_FACTS.md                |   2 +-
- public/assets/js/app.js            |  24 ++-
+ public/assets/js/app.js            |  26 ++-
  public/legal/prohibited-items.html |   2 +-
+ tests/cardIdEscape.test.mjs        |  85 +++++
  tests/prohibitedReport.test.mjs    |  27 +++
  tests/reportModal.test.mjs         | 328 +++++++++++++++++++++++++++++++++++++
  tests/storeSave.test.mjs           | 204 +++++++++++++++++++++++
- 8 files changed, 656 insertions(+), 4 deletions(-)
+ 9 files changed, 755 insertions(+), 5 deletions(-)
 ```
 
 ## 5. Commits
 
 ```
+709a4fa fix(ui): escape listing card data-id
 ff1a9cb docs(legal): prohibited items page reflects the Report button
 bdb8d2a test(ui): cover store save and retry states
 e9aa834 fix(ui): harden report entry points and add tests
 ```
-Exactly three commits on top of `main` (this report is the fourth).
+Four step commits on top of `main`, plus the earlier gate-report commit
+(`d2f803d`) — five commits on top of `main` — and this updated report commit is
+the sixth.
 
 ## 6. Scope checks
 
@@ -87,6 +95,12 @@ Final Report button lines (`public/assets/js/app.js`):
 
 // line 2093 (store page)
           <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${escapeAttr(store._id)}" style="margin-top:16px;">🚩 Report this store</button>
+```
+
+The listing card id line (`public/assets/js/app.js:673`, Step 5):
+
+```js
+    <div class="listing-card" data-id="${escapeAttr(l._id)}">
 ```
 
 The keydown listener (registered once, inside `setupActionDelegation`):
@@ -131,6 +145,8 @@ The `handleReportSubmit` success branch:
   PUT with owner-token header, offline message).
 - `tests/prohibitedReport.test.mjs` — **2 passed** (new paragraph present / old
   sentence absent; placeholders within the five allowed).
+- `tests/cardIdEscape.test.mjs` — **1 passed** (a hostile id round-trips through
+  `dataset.id` with only `class` and `data-id` on the card).
 
 ## 9. Confirmation lines
 
@@ -138,7 +154,8 @@ The `handleReportSubmit` success branch:
   Step 2 work is tests only, and `src/` is unchanged).
 - (b) The store modal and payment-flow code are unchanged: the diff to
   `public/assets/js/app.js` is limited to the two report-button lines, the
-  `handleReportSubmit` success branch, and the new keydown listener.
+  `handleReportSubmit` success branch, the new keydown listener, and the
+  `listingCardHTML` `data-id` escaping.
 - (c) No connection string, secret or phone number appears in any added file;
   fixtures use obvious placeholders (`test-phone`, `test-wa`, `store-owner-token-abc`).
 
