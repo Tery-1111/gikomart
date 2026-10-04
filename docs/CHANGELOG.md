@@ -711,6 +711,37 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   rejected; previous- and next-step codes accepted once and then replay-blocked.
 - **Existing tests changed:** none.
 
+## Phase 10 — Free Grant
+
+### feat(free-grant): admin-approved free package that converges on paid provisioning
+- **Behavior:** Before, a seller could only acquire a listing/store package by
+  paying through IntaSend; the existing admin "Grant Free Access" could only
+  complete an already-existing pending payment, so a first-time seller could not
+  be granted anything. After, a seller can submit a Free Grant request
+  (`POST /api/grants`) for a listing package or store plan; it becomes `pending`.
+  An admin reviews the queue (`GET /api/admin/grants`, phone masked) and approves
+  or rejects it (atomic `pending → approved|rejected`). On approval the SELLER
+  redeems on their own device (`POST /api/grants/:claimId/redeem`), which mints
+  the owner token in that request and creates the resource through the existing
+  `createResourceForPayment()`. The resulting Store/Listing is a normal record:
+  same moderation, expiry, listing limits and owner-token ownership as a paid
+  one. No `Payment` row is written and no revenue is recorded. The paid flow and
+  the existing Grant Free Access are unchanged.
+- **Schema:** new `GrantRequest` collection (`whatsapp`, `contactHash`,
+  `claimTokenHash` unique, `type`, `package`/`storePlan`, `status`,
+  `decidedBy`/`decidedAt`, `provisionedAt`, `listingId`/`storeId`). Additive only.
+- **Files changed:** `src/models/GrantRequest.js`,
+  `src/controllers/grantController.js`, `src/routes/grants.js`,
+  `src/routes/adminGrants.js`, `src/utils/ownerToken.js`, `server.js`,
+  `public/index.html`, `public/assets/js/app.js`, `public/admin/index.html`,
+  `public/assets/js/admin.js`.
+- **Tests added:** `tests/grantRequest.test.mjs` (27 tests) — request validation
+  and blocked-contact/honeypot handling; claim-token verification; admin queue,
+  approval/rejection and single-approval atomicity; provisioning for both listing
+  and store; moderation; idempotent redeem; and proof that no payment is created.
+- **Existing tests changed:** `tests/adminPortal.test.mjs` — the tab-order
+  assertion now includes the new "Grant requests" tab.
+
 ## Phase 5 and later
 
 Not documented here until built.

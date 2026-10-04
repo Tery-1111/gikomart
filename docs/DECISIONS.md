@@ -432,3 +432,26 @@ new numbers; existing entries are never edited.
   accepted — that disables replay protection. Also rejected: keeping `delta < 0`
   and widening `window`, which merely hides the one-sided guard behind a larger
   tolerance.
+
+## 35. Free Grant is a request → admin decision → seller redemption that converges on the paid provisioning function
+
+- **Decision:** A free package is modelled as a `GrantRequest` — an
+  administrative access request, not a payment. A public request stores only
+  `sha256(claimToken)` and returns the raw token once to the requesting browser.
+  An admin approves or rejects it atomically (`findOneAndUpdate` on
+  `{ _id, status: 'pending' }`). On approval the SELLER's browser redeems it:
+  the owner token is minted in that redeem request (never in the admin's), and a
+  payment-shaped object is passed to the existing `createResourceForPayment()`
+  with the request `_id` as the unique-sparse `paymentId`.
+- **Reason:** The admin's browser is not the seller's, so an owner token minted
+  at approval could never reach the seller; and `createResourceForPayment()`
+  consumes a full resource payload that a bare WhatsApp number does not contain.
+  A redeem step resolves both while reusing the single provisioning convergence
+  point and inheriting its idempotency (unique-sparse `paymentId` + E11000
+  re-read), moderation, expiry and listing limits. Writing no `Payment` row keeps
+  grants out of revenue and payment metrics by construction, and keeps the paid
+  flow and the existing Grant Free Access untouched.
+- **Alternative rejected:** A synthetic zero-amount `Payment` row (invents a
+  financial record and pollutes pending/revenue metrics) and creating
+  Listing/Store directly inside the grant controller (a second provisioning
+  engine to maintain).

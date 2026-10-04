@@ -926,6 +926,73 @@
     },
   };
 
+  // ── Free Grant requests ──────────────────────────────────────────────────
+  // Administrative free-access requests (no payment involved). Approving one
+  // lets the SELLER redeem it on their own device, where the owner token is
+  // minted. The admin never sees or handles a claim token.
+  views.grants = {
+    load: async function () {
+      const result = await api('GET', '/api/admin/grants');
+      assertOk(result.status);
+      const data = result.data || {};
+      const requests = Array.isArray(data.requests) ? data.requests : [];
+      const viewBody = document.getElementById('viewBody');
+      const viewMsg = document.getElementById('viewMsg');
+      clear(viewBody);
+      viewMsg.className = '';
+      viewMsg.textContent = requests.length ? '' : 'Nothing to show.';
+      viewBody.appendChild(el('p', null, 'Approve or reject seller requests for a free package. Approval cannot be undone here — the seller then redeems it on their own device.'));
+
+      const wrap = el('div', { className: 'scroll' });
+      const table = el('table', { id: 'grantsTable' });
+      const headRow = el('tr');
+      ['Time', 'Type', 'Package', 'Phone', 'Status', 'Actions'].forEach(function (heading) {
+        headRow.appendChild(el('th', null, heading));
+      });
+      const thead = el('thead');
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = el('tbody');
+
+      requests.forEach(function (grant) {
+        const row = el('tr', { dataset: { grantId: grant.id } });
+        row.appendChild(el('td', null, fmtTime(grant.createdAt)));
+        row.appendChild(el('td', null, String(grant.type)));
+        row.appendChild(el('td', null, String(grant.package || grant.storePlan || '—')));
+        row.appendChild(el('td', null, grant.whatsappMasked ? String(grant.whatsappMasked) : '—'));
+        row.appendChild(el('td', null, String(grant.status) + (grant.provisioned ? ' / provisioned' : '')));
+
+        const actions = el('td');
+        const rowMsg = el('span', { dataset: { role: 'rowMsg' } });
+        actions.appendChild(rowMsg);
+        if (grant.status === 'pending') {
+          const approve = el('button', { type: 'button' }, 'Approve');
+          armed(approve, 'Approve', function () {
+            api('POST', '/api/admin/grants/' + encodeURIComponent(grant.id) + '/approve').then(function (outcome) {
+              if (outcome.status === 200) activateView('grants');
+              else rowMsg.textContent = 'Failed: ' + errorText(outcome.data);
+            }, function () { rowMsg.textContent = 'Failed: error'; });
+          });
+          const reject = el('button', { type: 'button' }, 'Reject');
+          armed(reject, 'Reject', function () {
+            api('POST', '/api/admin/grants/' + encodeURIComponent(grant.id) + '/reject').then(function (outcome) {
+              if (outcome.status === 200) activateView('grants');
+              else rowMsg.textContent = 'Failed: ' + errorText(outcome.data);
+            }, function () { rowMsg.textContent = 'Failed: error'; });
+          });
+          actions.appendChild(approve);
+          actions.appendChild(reject);
+        }
+        row.appendChild(actions);
+        tbody.appendChild(row);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      viewBody.appendChild(wrap);
+    },
+  };
+
   // ── Two-click confirmation ───────────────────────────────────────────────
   // First click arms the button ("Confirm?"); a second click within 4 seconds
   // runs the action. Used by the destructive actions (moderation, replay,

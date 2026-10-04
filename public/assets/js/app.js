@@ -61,6 +61,20 @@ const BOOST_OPTIONS = [
 // ─── Store constants ────────────────────────────────────────────────────────
 const STORE_OWNER_TOKEN_PREFIX = 'gikomart_storeToken:';
 
+// ─── Free Grant constants ───────────────────────────────────────────────────
+// A Free Grant request gets a one-time claim token (stored only in this
+// browser, keyed by the request id) with which the seller later redeems the
+// approved grant. It is not an account and is never placed in a URL.
+const GRANT_TOKEN_PREFIX = 'gikomart_grantToken:';
+const GRANT_META_PREFIX = 'gikomart_grantMeta:';
+
+// Listing packages for the grant request (mirrors the sell form's options).
+const LISTING_PLAN_OPTIONS = [
+  { id: 'quick', label: 'Quick Sale (24h)', price: 30 },
+  { id: 'standard', label: 'Standard (7 days)', price: 50 },
+  { id: 'premium', label: 'Premium (30 days)', price: 150 },
+];
+
 const STORE_CATEGORIES = [
   { id: 'fashion', name: 'Fashion & Accessories', icon: '👗' },
   { id: 'electronics', name: 'Electronics & Technology', icon: '💻' },
@@ -207,6 +221,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupModal();
   setupStoreModal();
   setupReportModal();
+  setupGrantModal();
   setupActionDelegation();
   loadListings();
   recoverPendingTokens();
@@ -882,6 +897,10 @@ function setupActionDelegation() {
       case 'delete-store': deleteStore(el.dataset.storeId); break;
       case 'select-store-plan': selectStorePlan(el); break;
       case 'close-store-modal': closeStoreModal(); break;
+      // ── Free Grant (admin-reviewed free package request) ──
+      case 'open-grant-modal': openGrantModal(); break;
+      case 'close-grant-modal': closeGrantModal(); break;
+      case 'grant-continue': showGrantRedeemStep(el.dataset.claimId, el.dataset.grantType); break;
       // ── Reporting ──
       case 'report-listing': openReportModal('listing', el.dataset.targetId); break;
       case 'report-store': openReportModal('store', el.dataset.targetId); break;
@@ -2128,5 +2147,335 @@ async function openStorePage(slug) {
     }
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔍</span><p>${escapeHTML(friendlyFetchError(err))}</p></div>`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FREE GRANT FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════
+// A seller requests a free package from the admin. After the admin approves,
+// the seller's own browser redeems the grant: the server mints the owner token
+// in the redeem response (never in the admin's), the resource is created by the
+// existing provisioning function, and from then on the seller is a normal
+// GikoMart seller with an ordinary owner token.
+
+let activeGrant = null;          // { claimId, type } for the seller's own request
+let grantPollTimer = null;
+
+function saveGrantToken(claimId, token) {
+  try { localStorage.setItem(GRANT_TOKEN_PREFIX + claimId, token); } catch (err) {}
+}
+function getGrantToken(claimId) {
+  try { return localStorage.getItem(GRANT_TOKEN_PREFIX + claimId); } catch (err) { return null; }
+}
+function saveGrantMeta(claimId, meta) {
+  try { localStorage.setItem(GRANT_META_PREFIX + claimId, JSON.stringify(meta)); } catch (err) {}
+}
+function getGrantMeta(claimId) {
+  try { return JSON.parse(localStorage.getItem(GRANT_META_PREFIX + claimId) || 'null'); } catch (err) { return null; }
+}
+function clearGrant(claimId) {
+  try { localStorage.removeItem(GRANT_TOKEN_PREFIX + claimId); } catch (err) {}
+  try { localStorage.removeItem(GRANT_META_PREFIX + claimId); } catch (err) {}
+}
+
+function clearGrantPoll() {
+  if (grantPollTimer) { clearTimeout(grantPollTimer); grantPollTimer = null; }
+}
+
+function setupGrantModal() {
+  const overlay = document.getElementById('grantModalOverlay');
+  if (!overlay) return;
+  overlay.addEventListener('click', (e) => {
+    if (e.target.id === 'grantModalOverlay') closeGrantModal();
+  });
+  const card = document.getElementById('grantModalCard');
+  if (!card) return;
+  // The card is re-innerHTML'd per step, so one delegated submit listener here
+  // survives every render (same pattern as the store modal).
+  card.addEventListener('submit', (e) => {
+    if (e.target.id === 'grantRequestForm') handleGrantRequestSubmit(e);
+    else if (e.target.id === 'grantRedeemForm') handleGrantRedeemSubmit(e);
+  });
+  card.addEventListener('change', (e) => {
+    if (e.target.id === 'gr-type') updateGrantPackageOptions();
+  });
+}
+
+function closeGrantModal() {
+  const overlay = document.getElementById('grantModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+  clearGrantPoll();
+}
+
+function openGrantModal() {
+  const card = document.getElementById('grantModalCard');
+  if (!card) return;
+  activeGrant = null;
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 8px;">Request a Free Grant</h3>
+    <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
+      Ask the GikoMart admin for a free package. First message the admin on WhatsApp, then submit this request.
+      Nothing is granted automatically — the admin reviews and approves it.
+    </p>
+    <form id="grantRequestForm" novalidate>
+      <div class="field-group">
+        <label>What do you need?</label>
+        <select id="gr-type">
+          <option value="listing">A listing package</option>
+          <option value="store">A store plan</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Package</label>
+        <select id="gr-package"></select>
+      </div>
+      <div class="field-group">
+        <label>Your WhatsApp number</label>
+        <input type="text" id="gr-whatsapp" placeholder="e.g. 0712345678" required>
+      </div>
+      <div style="position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden;">
+        <label for="gr-website">Leave this field empty</label>
+        <input type="text" id="gr-website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="grSubmitBtn" style="margin-top:8px;">Submit request</button>
+      <div class="form-status" id="grStatus"></div>
+    </form>
+    <div id="grContinuation"></div>
+  `;
+  updateGrantPackageOptions();
+  document.getElementById('grantModalOverlay').classList.add('open');
+}
+
+function updateGrantPackageOptions() {
+  const typeEl = document.getElementById('gr-type');
+  const pkgEl = document.getElementById('gr-package');
+  if (!typeEl || !pkgEl) return;
+  const options = typeEl.value === 'store'
+    ? STORE_PLANS.map((p) => ({ id: p.id, label: `${p.label} — ${p.duration}, up to ${p.maxListings} listings` }))
+    : LISTING_PLAN_OPTIONS.map((p) => ({ id: p.id, label: p.label }));
+  pkgEl.innerHTML = options.map((o) => `<option value="${escapeAttr(o.id)}">${escapeHTML(o.label)}</option>`).join('');
+}
+
+function grantStatusMessage(el, text, kind) {
+  if (!el) return;
+  el.textContent = text;
+  el.className = `form-status${kind ? ' ' + kind : ''}`;
+}
+
+async function handleGrantRequestSubmit(e) {
+  e.preventDefault();
+  const typeEl = document.getElementById('gr-type');
+  const pkgEl = document.getElementById('gr-package');
+  const whatsappEl = document.getElementById('gr-whatsapp');
+  const btn = document.getElementById('grSubmitBtn');
+  const statusEl = document.getElementById('grStatus');
+  const type = typeEl ? typeEl.value : 'listing';
+  const pkg = pkgEl ? pkgEl.value : '';
+  const whatsapp = whatsappEl ? whatsappEl.value.trim() : '';
+
+  if (!whatsapp || whatsapp.replace(/\D/g, '').length < 9) {
+    grantStatusMessage(statusEl, '⚠️ Enter a valid WhatsApp number.', 'error');
+    return;
+  }
+
+  const body = { type, whatsapp, website: (document.getElementById('gr-website') || {}).value || '' };
+  if (type === 'store') body.storePlan = pkg;
+  else body.package = pkg;
+
+  setBtnBusy(btn, true, 'Submitting…');
+  grantStatusMessage(statusEl, '', '');
+  try {
+    const res = await fetch(`${API_BASE}/grants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw httpError(res, data);
+
+    saveGrantToken(data.claimId, data.claimToken);
+    saveGrantMeta(data.claimId, { type: data.type });
+    activeGrant = { claimId: data.claimId, type: data.type };
+
+    setBtnBusy(btn, false);
+    renderGrantPending(data.claimId, data.type);
+    grantPollStatus(data.claimId, data.type, 0);
+  } catch (err) {
+    setBtnBusy(btn, false);
+    grantStatusMessage(statusEl, friendlyFetchError(err), 'error');
+  }
+}
+
+function renderGrantPending(claimId, type) {
+  const card = document.getElementById('grantModalCard');
+  if (!card) return;
+  const panel = document.getElementById('grContinuation');
+  if (!panel) return;
+  panel.innerHTML = `
+    <div style="margin-top:16px; padding:14px; border-radius:var(--radius-lg); background:var(--marigold-light);">
+      <strong>⏳ Request submitted — awaiting admin approval.</strong>
+      <p style="margin:8px 0 0; font-size:14px;">
+        The admin will review your ${escapeHTML(type === 'store' ? 'store plan' : 'listing package')} request.
+        Keep this page open; it will update automatically once approved.
+      </p>
+      <button type="button" class="btn btn-ghost btn-sm" id="grCheckBtn" style="margin-top:10px;">Check again</button>
+    </div>`;
+  const checkBtn = document.getElementById('grCheckBtn');
+  if (checkBtn) checkBtn.addEventListener('click', () => grantPollStatus(claimId, type, 0));
+}
+
+function grantPollStatus(claimId, type, attempt) {
+  clearGrantPoll();
+  const token = getGrantToken(claimId);
+  if (!token) return;
+  fetch(`${API_BASE}/grants/status/${encodeURIComponent(claimId)}`, { headers: { 'X-Grant-Token': token } })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (!data || !data.success) return;
+      if (data.status === 'approved') { showGrantRedeemStep(claimId, data.type || type); return; }
+      if (data.status === 'rejected') {
+        const panel = document.getElementById('grContinuation');
+        if (panel) {
+          panel.innerHTML = '<div class="form-status error" style="margin-top:16px;">❌ This request was not approved. Please contact the GikoMart admin.</div>';
+        }
+        clearGrant(claimId);
+        return;
+      }
+      if (attempt < STATUS_POLL_MAX_ATTEMPTS) {
+        grantPollTimer = setTimeout(() => grantPollStatus(claimId, type, attempt + 1), pollBackoffDelay(attempt));
+      }
+    })
+    .catch(() => {
+      if (attempt < STATUS_POLL_MAX_ATTEMPTS) {
+        grantPollTimer = setTimeout(() => grantPollStatus(claimId, type, attempt + 1), pollBackoffDelay(attempt));
+      }
+    });
+}
+
+function showGrantRedeemStep(claimId, type) {
+  clearGrantPoll();
+  const resolvedType = type || (getGrantMeta(claimId) || {}).type || 'listing';
+  activeGrant = { claimId, type: resolvedType };
+  const card = document.getElementById('grantModalCard');
+  if (!card) return;
+
+  const listingCategories = CATEGORIES.map((c) => `<option value="${escapeAttr(c.name)}">${c.icon} ${escapeHTML(c.name)}</option>`).join('');
+  const storeCategories = STORE_CATEGORIES.map((c) => `<option value="${escapeAttr(c.name)}">${c.icon} ${escapeHTML(c.name)}</option>`).join('');
+  const conditions = ['New', 'Like New', 'Excellent', 'Good', 'Fair', 'Poor']
+    .map((c) => `<option value="${escapeAttr(c)}"${c === 'Excellent' ? ' selected' : ''}>${escapeHTML(c)}</option>`).join('');
+
+  const listingFields = `
+    <div class="field-group"><label>What are you selling?</label><input type="text" id="g-title" placeholder="e.g. Samsung Galaxy S22" required></div>
+    <div class="field-row">
+      <div class="field-group"><label>Category</label><select id="g-category" required><option value="">Choose a category</option>${listingCategories}</select></div>
+      <div class="field-group"><label>Condition</label><select id="g-condition" required>${conditions}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field-group"><label>Price (KSh)</label><input type="number" id="g-price" min="0" required></div>
+      <div class="field-group"><label>Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
+    </div>
+    <div class="field-group"><label>Description</label><textarea id="g-description" required></textarea></div>
+    <div class="field-row">
+      <div class="field-group"><label>Your name</label><input type="text" id="g-seller" required></div>
+      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
+    </div>`;
+
+  const storeFields = `
+    <div class="field-group"><label>Store name</label><input type="text" id="g-store-name" required></div>
+    <div class="field-group"><label>Store category</label><select id="g-store-category" required>${storeCategories}</select></div>
+    <div class="field-group"><label>Description</label><textarea id="g-store-description" rows="3"></textarea></div>
+    <div class="field-row">
+      <div class="field-group"><label>Contact phone</label><input type="text" id="g-store-phone" required></div>
+      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-store-whatsapp" required></div>
+    </div>
+    <div class="field-group"><label>Email (optional)</label><input type="email" id="g-store-email"></div>
+    <div class="field-group"><label>Location</label><input type="text" id="g-store-location" placeholder="e.g. Njoro, near Main Gate"></div>`;
+
+  const acceptance = resolvedType === 'store' ? storeCreationAcceptanceHTML() : sellerListingAcceptanceHTML();
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 8px;">✅ Grant approved — publish now</h3>
+    <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
+      Your free ${escapeHTML(resolvedType === 'store' ? 'store plan' : 'listing package')} is approved. Fill this in once and it goes live — no payment.
+    </p>
+    <form id="grantRedeemForm" novalidate>
+      ${resolvedType === 'store' ? storeFields : listingFields}
+      ${acceptance}
+      <button type="submit" class="btn btn-primary btn-block" id="grRedeemBtn" style="margin-top:8px;">Publish with Free Grant</button>
+      <div class="form-status" id="grRedeemStatus"></div>
+    </form>`;
+  document.getElementById('grantModalOverlay').classList.add('open');
+}
+
+async function handleGrantRedeemSubmit(e) {
+  e.preventDefault();
+  if (!activeGrant) return;
+  const { claimId, type } = activeGrant;
+  const token = getGrantToken(claimId);
+  const btn = document.getElementById('grRedeemBtn');
+  const statusEl = document.getElementById('grRedeemStatus');
+  if (!token) {
+    grantStatusMessage(statusEl, '⚠️ This request is no longer available on this device. Please submit a new request.', 'error');
+    return;
+  }
+
+  const body = {};
+  if (type === 'store') {
+    body.storeData = {
+      name: document.getElementById('g-store-name').value.trim(),
+      category: document.getElementById('g-store-category').value,
+      description: document.getElementById('g-store-description').value.trim(),
+      phone: document.getElementById('g-store-phone').value.trim(),
+      whatsapp: document.getElementById('g-store-whatsapp').value.trim(),
+      email: document.getElementById('g-store-email').value.trim(),
+      location: document.getElementById('g-store-location').value.trim(),
+    };
+    body.acceptance = buildStoreAcceptanceToken();
+  } else {
+    body.listingData = {
+      title: document.getElementById('g-title').value.trim(),
+      category: document.getElementById('g-category').value,
+      condition: document.getElementById('g-condition').value,
+      price: Number(document.getElementById('g-price').value),
+      description: document.getElementById('g-description').value.trim(),
+      sellerName: document.getElementById('g-seller').value.trim(),
+      sellerWhatsapp: document.getElementById('g-whatsapp').value.trim(),
+      location: document.getElementById('g-location').value.trim() || 'Njoro',
+      images: [],
+    };
+    body.acceptance = buildSellerAcceptanceToken();
+  }
+
+  setBtnBusy(btn, true, 'Publishing…');
+  grantStatusMessage(statusEl, '', '');
+  try {
+    const res = await fetch(`${API_BASE}/grants/${encodeURIComponent(claimId)}/redeem`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Grant-Token': token },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw httpError(res, data);
+
+    const resource = data.resource || {};
+    if (data.ownerToken && resource.id) {
+      if (resource.type === 'store') saveStoreToken(resource.id, data.ownerToken);
+      else saveOwnerToken(resource.id, data.ownerToken);
+    }
+    clearGrant(claimId);
+    activeGrant = null;
+    setBtnBusy(btn, false);
+    closeGrantModal();
+    showToast(resource.type === 'store' ? '✅ Store created with your free grant!' : '✅ Listing published with your free grant!');
+    if (resource.type === 'store') {
+      switchView('mystore');
+    } else {
+      loadListings();
+    }
+  } catch (err) {
+    setBtnBusy(btn, false);
+    grantStatusMessage(statusEl, friendlyFetchError(err), 'error');
   }
 }

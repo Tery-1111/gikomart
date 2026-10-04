@@ -37,6 +37,12 @@ route-specific limiter.
 | GET | `/api/admin/metrics` | `X-Admin-Session` | globalLimiter + adminLimiter | Counts and revenue totals (no personal data) |
 | POST | `/api/admin/grant-free-access` | Admin auth (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter + adminLimiter | Complete a pending listing/store payment without a webhook (mock payment) |
 | POST | `/api/admin/grant-preview` | Admin auth (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter + adminLimiter | Preview the pending payment a grant would claim (read-only) |
+| POST | `/api/grants` | None (public) | globalLimiter + reportLimiter (+ honeypot) | Submit a Free Grant request (admin-reviewed; no payment) |
+| GET | `/api/grants/status/:claimId` | Grant claim token (`X-Grant-Token`) | globalLimiter + statusLimiter | Poll a Free Grant request's status |
+| POST | `/api/grants/:claimId/redeem` | Grant claim token (`X-Grant-Token`) | globalLimiter + paymentLimiter | Redeem an approved Free Grant through existing provisioning |
+| GET | `/api/admin/grants` | `X-Admin-Session` | globalLimiter + adminLimiter | List Free Grant requests (phone masked) |
+| POST | `/api/admin/grants/:id/approve` | `X-Admin-Session` | globalLimiter + adminLimiter | Approve a pending Free Grant request (atomic pending → approved) |
+| POST | `/api/admin/grants/:id/reject` | `X-Admin-Session` | globalLimiter + adminLimiter | Reject a pending Free Grant request (atomic pending → rejected) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -143,6 +149,12 @@ ids only — never values, contact data, hashes or reporter IPs.
 | `payment.amount_mismatch` | payment, Payment |
 | `webhook.missing_invoice_id` | payment |
 | `webhook.broadcast_skipped` | listing |
+| `grant.requested` | grant |
+| `grant.blocked_contact` | grant |
+| `grant.redeemed` | Listing, Store |
+| `admin.grant_requests_viewed` | admin |
+| `admin.grant_approved` | grant |
+| `admin.grant_rejected` | grant |
 
 ## f) Data retention
 
@@ -244,3 +256,35 @@ still returned by the public store endpoints), `Listing.location` defaults to
 `'Njoro'`, and the store-creation fallback in
 `src/controllers/paymentController.js` is `'Njoro'`. Existing records are
 unchanged.
+
+## j) Free Grant (admin-approved free package)
+
+Free Grant lets a seller request a free package, which an admin reviews and
+approves; the seller then redeems it. It bypasses **payment acquisition only** —
+provisioning, moderation, ownership, expiry and listing limits are the same as a
+paid purchase, because redemption calls the same `createResourceForPayment()`.
+No `Payment` row is written and no revenue is recorded.
+
+Flow:
+
+1. `POST /api/grants` with `{ type, whatsapp, package | storePlan, website }`.
+   The number is normalized to `254[17]\d{8}`; the type/package are validated
+   against `LISTING_PRICES`/`STORE_PLANS`; a blocked contact gets `403`. Responds
+   `201 { claimId, claimToken, status: 'pending' }`. Only `sha256(claimToken)` is
+   stored — the raw token is returned once, for the requesting browser only.
+2. The admin reviews `GET /api/admin/grants` (session-gated; the phone is masked)
+   and calls `POST /api/admin/grants/:id/approve` or `/reject` (atomic
+   `pending → approved|rejected`). The body is not trusted for package/number.
+3. `GET /api/grants/status/:claimId` (header `X-Grant-Token`) reports
+   `pending | approved | rejected`.
+4. `POST /api/grants/:claimId/redeem` (header `X-Grant-Token`, body
+   `{ listingData | storeData, acceptance }`) mints the owner token in the
+   seller's request, records terms acceptance, and calls
+   `createResourceForPayment()` with the request `_id` as the unique-sparse
+   `paymentId`. Responds `201 { resource: { type, id }, ownerToken }` (returned
+   once). A repeat redeem returns `200 { alreadyProvisioned: true, resource }`
+   without creating a second resource; a rejected request gets `409`.
+
+Rate limiting reuses existing limiters (submit = `reportLimiter`, status =
+`statusLimiter`, redeem = `paymentLimiter`). Admin routes use `adminLimiter` and
+the session-only gate. No environment variable was added.

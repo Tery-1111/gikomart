@@ -111,6 +111,7 @@
     <div class="view-header">
       <h2>List something new</h2>
       <p class="view-sub">Takes under a minute. We'll broadcast it for you.</p>
+      <button type="button" class="btn btn-ghost" data-action="open-grant-modal" style="margin-top:12px;">🎁 Request a Free Grant</button>
     </div>
 
     <div class="sell-layout">
@@ -271,6 +272,13 @@
   </section>
 
 </main>
+
+<!-- ░░░ FREE GRANT MODAL ░░░ -->
+<div class="modal-overlay" id="grantModalOverlay">
+  <div class="modal-card" id="grantModalCard" style="max-width:560px; max-height:90vh; overflow-y:auto;">
+    <!-- populated by JS -->
+  </div>
+</div>
 
 <!-- ░░░ STORE CREATION MODAL ░░░ -->
 <div class="modal-overlay" id="storeModalOverlay">

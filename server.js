@@ -110,6 +110,8 @@ app.use('/api/upload', require('./src/routes/upload'));
 app.use('/api/payments', require('./src/routes/payments'));
 app.use('/api/admin', require('./src/routes/adminAuth'));
 app.use('/api/admin', require('./src/routes/adminGrant'));
+app.use('/api/admin', require('./src/routes/adminGrants'));
+app.use('/api/grants', require('./src/routes/grants'));
 app.use('/api/stores', require('./src/routes/stores'));
 app.use('/api/terms', require('./src/routes/terms'));
 app.use('/api/reports', require('./src/routes/reports'));
