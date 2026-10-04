@@ -370,7 +370,11 @@
 <!-- ░░░ TOAST ░░░ -->
 <div class="toast" id="toast"></div>
 
-<script src="assets/js/app.js"></script>
+<!-- The ?v= busts the browser cache: app.js is mutable and was previously
+     cached for a week, so a deploy could pair fresh HTML with an old script
+     whose delegated actions silently ignored new buttons. Bump v on every
+     app.js change. -->
+<script src="assets/js/app.js?v=20261004a"></script>
 <script data-goatcounter="https://gikomart.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

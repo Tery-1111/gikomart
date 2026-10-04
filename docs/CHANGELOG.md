@@ -768,6 +768,30 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   rejection transitions, failure recovery, and reload/resume behaviour.
 - **Existing tests changed:** none.
 
+## Phase 10c — Live incident: stale app.js silently disabled new UI
+
+### fix(ops): cache-bust app.js and bound the JS/CSS cache lifetime
+- **Behavior:** Before, `assets/js/app.js` was served with `Cache-Control:
+  public, max-age=604800` (a week) while `index.html` was revalidated on every
+  load. After a deploy, returning visitors therefore ran the OLD script against
+  the NEW markup: the delegated dispatcher has no case for a newly added
+  `data-action`, so the new **Request Free Grant** button did nothing at all —
+  no modal, no request, no error. Confirmed live on production: a stale browser
+  ran an 86,903-byte pre-grant `app.js` (`window.openGrantModal === undefined`)
+  while the origin served the current 116,453-byte script, and only a
+  fresh-profile browser worked. After, `index.html` references
+  `assets/js/app.js?v=20261004a` (new cache key → every visitor immediately
+  fetches the current script), and non-admin JS/CSS is served with
+  `public, max-age=300` so any future missed version bump self-heals within
+  minutes instead of persisting for a week. HTML and admin assets are
+  unchanged (already `max-age=0` / `no-store`); images keep the week-long
+  cache.
+- **Files changed:** `public/index.html`, `src/config/staticOptions.js`,
+  `tests/staticHeaders.test.mjs`.
+- **Tests changed:** `tests/staticHeaders.test.mjs` — the public-asset header
+  assertion now encodes the short JS/CSS TTL plus a regression test that
+  `index.html` always references a versioned `app.js`.
+
 ## Phase 5 and later
 
 Not documented here until built.

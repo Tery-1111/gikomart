@@ -56,15 +56,24 @@ describe('Static asset headers', () => {
     expect(res.headers['x-robots-tag']).toBeUndefined();
   });
 
-  it('keeps public assets cached for a week, not no-store', async () => {
+  it('keeps public JS/CSS cached briefly, not no-store, so deploys self-heal', async () => {
+    // Regression: a week-long cache on the mutable app.js paired fresh HTML
+    // with an old script, whose delegated dispatcher silently ignored newly
+    // added data-action cases (the live Free Grant outage). JS/CSS must now
+    // revalidate within minutes while staying cacheable during a session.
     const js = await request(app).get('/assets/js/app.js');
     expect(js.status).toBe(200);
-    expect(js.headers['cache-control']).toContain('max-age=604800');
+    expect(js.headers['cache-control']).toContain('max-age=300');
     expect(js.headers['cache-control']).not.toContain('no-store');
 
     const css = await request(app).get('/assets/css/style.css');
     expect(css.status).toBe(200);
-    expect(css.headers['cache-control']).toContain('max-age=604800');
+    expect(css.headers['cache-control']).toContain('max-age=300');
+  });
+
+  it('references app.js with a cache-busting version so a stale copy can never break new markup', () => {
+    const html = fs.readFileSync(path.join(process.cwd(), 'public', 'index.html'), 'utf8');
+    expect(html).toMatch(/<script src="assets\/js\/app\.js\?v=/);
   });
 });
 
