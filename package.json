@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "prepare": "git config core.hooksPath .githooks",
     "audit": "npm audit --omit=dev",
+    "audit:institution": "node scripts/audit-institution-refs.js",
     "backup": "node scripts/backup.js"
   },
   "keywords": [
