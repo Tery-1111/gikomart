@@ -674,6 +674,22 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   legal pages were recomputed for the intentional copy change (and the comment
   updated); no assertion was weakened, skipped or removed.
 
+## Phase 9c — Access-log IP
+
+### fix(logging): log req.ip instead of the raw forwarded header
+- **Behavior:** Before, the access log's `ip` field was
+  `req.headers['x-forwarded-for'] || req.socket.remoteAddress`, so a client could
+  choose its own logged address by sending an `X-Forwarded-For` header, and a
+  multi-hop chain was logged as one comma-separated string. After, the field is
+  `req.ip` — the same address the rate limiters and the admin lockout use, resolved
+  by Express through the configured `trust proxy` hop count. No other behavior
+  changed.
+- **Files changed:** `server.js`.
+- **Tests added:** `tests/requestLogIp.test.mjs` (new) — trust-proxy detection, a
+  three-hop chain resolving to the client address, a spoofed one-entry chain, and
+  a no-comma assertion.
+- **Existing tests changed:** none.
+
 ## Phase 5 and later
 
 Not documented here until built.

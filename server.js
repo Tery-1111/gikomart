@@ -85,7 +85,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const ms = Date.now() - start;
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = req.ip;
     logger.info('request', {
       method: req.method,
       path: (req.originalUrl || req.url).split('?')[0],

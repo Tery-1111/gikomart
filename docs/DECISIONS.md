@@ -401,3 +401,15 @@ new numbers; existing entries are never edited.
 - **Alternative rejected:** Removing the `campus` field outright (unnecessary API
   and schema churn) and replacing the institution with another institution
   (merely moves the same false association).
+
+## 33. The access log records `req.ip`, not the raw `X-Forwarded-For` header
+
+- **Decision:** The access log records `req.ip`, the same address the rate
+  limiters and the admin lockout use, not the raw `X-Forwarded-For` header, which a
+  client can set itself.
+- **Reason:** The raw header is client-controlled, so logging it lets a caller
+  choose its own recorded address, and a multi-hop chain is logged as one
+  comma-separated string. `req.ip` is resolved through the bounded `trust proxy`
+  hop count, so the logged address now matches the address the security controls
+  actually enforce.
+- **Alternative rejected:** Continuing to log the raw `X-Forwarded-For` header.
