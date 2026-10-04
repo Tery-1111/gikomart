@@ -2161,6 +2161,10 @@ async function openStorePage(slug) {
 
 let activeGrant = null;          // { claimId, type } for the seller's own request
 let grantPollTimer = null;
+// A submit is in flight: the button is disabled AND this flag blocks the
+// handler, so repeated clicks (or Enter-in-input implicit submits) can never
+// create a duplicate request.
+let isGrantRequestInFlight = false;
 
 function saveGrantToken(claimId, token) {
   try { localStorage.setItem(GRANT_TOKEN_PREFIX + claimId, token); } catch (err) {}
@@ -2181,6 +2185,57 @@ function clearGrant(claimId) {
 
 function clearGrantPoll() {
   if (grantPollTimer) { clearTimeout(grantPollTimer); grantPollTimer = null; }
+}
+
+// Human description of what was requested ("Standard (7 days) — listing package").
+function describeGrantRequest(meta) {
+  if (!meta || !meta.type) return 'grant request';
+  const kind = meta.type === 'store' ? 'store plan' : 'listing package';
+  return meta.plan ? `${meta.plan} — ${kind}` : kind;
+}
+
+// The most recent grant request still stored on this device (survives a
+// reload). Same localStorage-prefix scan the pending-token recovery uses.
+function findStoredGrant() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(GRANT_TOKEN_PREFIX)) {
+        const claimId = key.slice(GRANT_TOKEN_PREFIX.length);
+        const meta = getGrantMeta(claimId) || {};
+        if (meta.type) return { claimId, type: meta.type, whatsapp: meta.whatsapp || '', plan: meta.plan || '' };
+      }
+    }
+  } catch (err) {}
+  return null;
+}
+
+// One status read against the existing status endpoint. Returns null on any
+// failure so callers can decide between retrying and showing an error.
+async function fetchGrantStatus(claimId) {
+  const token = getGrantToken(claimId);
+  if (!token) return null;
+  try {
+    const res = await fetch(`${API_BASE}/grants/status/${encodeURIComponent(claimId)}`, { headers: { 'X-Grant-Token': token } });
+    return res.ok ? res.json() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderGrantRejectedState(claimId) {
+  clearGrantPoll();
+  if (claimId) clearGrant(claimId);
+  const card = document.getElementById('grantModalCard');
+  if (!card) return;
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 8px;">Grant request not approved</h3>
+    <div class="form-status error" style="margin-bottom:16px;">
+      Your request wasn't approved at this time. Please contact the GikoMart admin if you need clarification.
+    </div>
+    <button type="button" class="btn btn-ghost" data-action="close-grant-modal">Close</button>`;
+  document.getElementById('grantModalOverlay').classList.add('open');
 }
 
 function setupGrantModal() {
@@ -2245,7 +2300,49 @@ function openGrantModal() {
     <div id="grContinuation"></div>
   `;
   updateGrantPackageOptions();
+  renderGrantResumeBanner();
   document.getElementById('grantModalOverlay').classList.add('open');
+}
+
+// After a reload the request form is back (idle), which invites a duplicate
+// request. If this browser still holds a claim token, surface that request
+// first so the seller resumes it instead of submitting a second one.
+function renderGrantResumeBanner() {
+  const stored = findStoredGrant();
+  const panel = document.getElementById('grContinuation');
+  if (!stored || !panel) return;
+  panel.innerHTML = `
+    <div style="margin-top:16px; padding:14px; border-radius:var(--radius-lg); background:var(--marigold-light);">
+      <strong>⏳ You already have a grant request on this device.</strong>
+      <p style="margin:8px 0 0; font-size:14px;">
+        Requested: ${escapeHTML(describeGrantRequest(stored))} · Status: Pending admin approval
+      </p>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary btn-sm" id="grResumeBtn">Check status</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="grNewRequestBtn">Start a new request</button>
+      </div>
+    </div>`;
+  document.getElementById('grResumeBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('grResumeBtn');
+    setBtnBusy(btn, true, 'Checking…');
+    const data = await fetchGrantStatus(stored.claimId);
+    setBtnBusy(btn, false);
+    if (!data || !data.success) {
+      const statusEl = document.getElementById('grStatus');
+      if (statusEl) grantStatusMessage(statusEl, "📡 Couldn't check right now. Please try again in a moment.", 'error');
+      return;
+    }
+    if (data.status === 'approved') { showGrantRedeemStep(stored.claimId, data.type || stored.type); return; }
+    if (data.status === 'rejected') { renderGrantRejectedState(stored.claimId); return; }
+    // Still pending: move this browser onto the pending state instead of
+    // leaving the request form open for a second submission.
+    showGrantPendingState(stored.claimId, { type: data.type || stored.type, whatsapp: stored.whatsapp, plan: stored.plan });
+  });
+  document.getElementById('grNewRequestBtn').addEventListener('click', () => {
+    panel.innerHTML = '';
+    const whatsappEl = document.getElementById('gr-whatsapp');
+    if (whatsappEl) whatsappEl.focus();
+  });
 }
 
 function updateGrantPackageOptions() {
@@ -2266,6 +2363,9 @@ function grantStatusMessage(el, text, kind) {
 
 async function handleGrantRequestSubmit(e) {
   e.preventDefault();
+  // Repeated clicks / implicit submits must not create a second request.
+  if (isGrantRequestInFlight) return;
+
   const typeEl = document.getElementById('gr-type');
   const pkgEl = document.getElementById('gr-package');
   const whatsappEl = document.getElementById('gr-whatsapp');
@@ -2273,6 +2373,7 @@ async function handleGrantRequestSubmit(e) {
   const statusEl = document.getElementById('grStatus');
   const type = typeEl ? typeEl.value : 'listing';
   const pkg = pkgEl ? pkgEl.value : '';
+  const planLabel = pkgEl && pkgEl.selectedIndex >= 0 ? pkgEl.options[pkgEl.selectedIndex].text : pkg;
   const whatsapp = whatsappEl ? whatsappEl.value.trim() : '';
 
   if (!whatsapp || whatsapp.replace(/\D/g, '').length < 9) {
@@ -2284,8 +2385,9 @@ async function handleGrantRequestSubmit(e) {
   if (type === 'store') body.storePlan = pkg;
   else body.package = pkg;
 
-  setBtnBusy(btn, true, 'Submitting…');
-  grantStatusMessage(statusEl, '', '');
+  isGrantRequestInFlight = true;
+  setBtnBusy(btn, true, 'Submitting request…');
+  grantStatusMessage(statusEl, 'Sending your request…', '');
   try {
     const res = await fetch(`${API_BASE}/grants`, {
       method: 'POST',
@@ -2296,62 +2398,91 @@ async function handleGrantRequestSubmit(e) {
     if (!res.ok || !data.success) throw httpError(res, data);
 
     saveGrantToken(data.claimId, data.claimToken);
-    saveGrantMeta(data.claimId, { type: data.type });
-    activeGrant = { claimId: data.claimId, type: data.type };
+    saveGrantMeta(data.claimId, { type: data.type, whatsapp, plan: planLabel });
+    isGrantRequestInFlight = false;
 
-    setBtnBusy(btn, false);
-    renderGrantPending(data.claimId, data.type);
-    grantPollStatus(data.claimId, data.type, 0);
+    // Replace the form with the persistent submitted/pending state — the
+    // seller must not be able to resubmit from here.
+    showGrantPendingState(data.claimId, { type: data.type, whatsapp, plan: planLabel });
   } catch (err) {
+    isGrantRequestInFlight = false;
     setBtnBusy(btn, false);
+    // The form is untouched, so what the seller typed survives the failure.
     grantStatusMessage(statusEl, friendlyFetchError(err), 'error');
   }
 }
 
-function renderGrantPending(claimId, type) {
+// Persistent submitted/pending state. Replaces the request form entirely so
+// the seller cannot resubmit from here, and makes "submitted ≠ approved"
+// explicit: an admin still has to review the request.
+function showGrantPendingState(claimId, meta) {
+  clearGrantPoll();
   const card = document.getElementById('grantModalCard');
   if (!card) return;
-  const panel = document.getElementById('grContinuation');
-  if (!panel) return;
-  panel.innerHTML = `
-    <div style="margin-top:16px; padding:14px; border-radius:var(--radius-lg); background:var(--marigold-light);">
-      <strong>⏳ Request submitted — awaiting admin approval.</strong>
+  const resolvedType = (meta && meta.type) || 'listing';
+  activeGrant = { claimId, type: resolvedType };
+  card.innerHTML = `
+    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <h3 style="font-family:var(--font-display); margin:0 0 4px;">Request submitted ✓</h3>
+    <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
+      Your free grant request has been sent to the GikoMart admin for review.
+    </p>
+    <div style="padding:14px; border-radius:var(--radius-lg); background:var(--marigold-light); margin-bottom:12px;">
+      <strong>⏳ Status: Pending admin approval</strong>
       <p style="margin:8px 0 0; font-size:14px;">
-        The admin will review your ${escapeHTML(type === 'store' ? 'store plan' : 'listing package')} request.
-        Keep this page open; it will update automatically once approved.
+        Submitted is not approved yet — an admin still has to review your request. Nothing is granted automatically.
       </p>
-      <button type="button" class="btn btn-ghost btn-sm" id="grCheckBtn" style="margin-top:10px;">Check again</button>
-    </div>`;
+      <p style="margin:8px 0 0; font-size:14px;">
+        <strong>Next:</strong> wait for approval, then return here to redeem your grant.
+        You do <strong>not</strong> need to make a payment for this grant.
+      </p>
+    </div>
+    <div style="font-size:14px; color:var(--ink-soft); margin-bottom:16px;">
+      <div><strong>Requested:</strong> ${escapeHTML(describeGrantRequest({ type: resolvedType, plan: meta && meta.plan }))}</div>
+      ${meta && meta.whatsapp ? `<div><strong>WhatsApp:</strong> ${escapeHTML(meta.whatsapp)}</div>` : ''}
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary btn-sm" id="grCheckBtn">Check status</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="close-grant-modal">Close</button>
+    </div>
+    <div class="form-status" id="grPendingStatus" style="margin-top:10px;"></div>`;
   const checkBtn = document.getElementById('grCheckBtn');
-  if (checkBtn) checkBtn.addEventListener('click', () => grantPollStatus(claimId, type, 0));
+  if (checkBtn) {
+    checkBtn.addEventListener('click', async () => {
+      setBtnBusy(checkBtn, true, 'Checking…');
+      await grantPollStatus(claimId, resolvedType, 0);
+      setBtnBusy(checkBtn, false);
+    });
+  }
+  grantPollStatus(claimId, resolvedType, 0);
+  document.getElementById('grantModalOverlay').classList.add('open');
 }
 
-function grantPollStatus(claimId, type, attempt) {
+// Single poller for the grant status (auto-poll AND the manual Check status
+// button both come through here). Reuses the payment-status backoff schedule:
+// it keeps waiting while pending (or on a transient failure) and stops on a
+// terminal state.
+async function grantPollStatus(claimId, type, attempt) {
   clearGrantPoll();
-  const token = getGrantToken(claimId);
-  if (!token) return;
-  fetch(`${API_BASE}/grants/status/${encodeURIComponent(claimId)}`, { headers: { 'X-Grant-Token': token } })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      if (!data || !data.success) return;
-      if (data.status === 'approved') { showGrantRedeemStep(claimId, data.type || type); return; }
-      if (data.status === 'rejected') {
-        const panel = document.getElementById('grContinuation');
-        if (panel) {
-          panel.innerHTML = '<div class="form-status error" style="margin-top:16px;">❌ This request was not approved. Please contact the GikoMart admin.</div>';
-        }
-        clearGrant(claimId);
-        return;
-      }
-      if (attempt < STATUS_POLL_MAX_ATTEMPTS) {
-        grantPollTimer = setTimeout(() => grantPollStatus(claimId, type, attempt + 1), pollBackoffDelay(attempt));
-      }
-    })
-    .catch(() => {
-      if (attempt < STATUS_POLL_MAX_ATTEMPTS) {
-        grantPollTimer = setTimeout(() => grantPollStatus(claimId, type, attempt + 1), pollBackoffDelay(attempt));
-      }
-    });
+  const data = await fetchGrantStatus(claimId);
+  const status = data && data.success ? data.status : null;
+
+  if (status === 'approved') {
+    showGrantRedeemStep(claimId, data.type || type);
+    return;
+  }
+  if (status === 'rejected') {
+    renderGrantRejectedState(claimId);
+    return;
+  }
+
+  if (status === 'pending') {
+    const statusEl = document.getElementById('grPendingStatus');
+    if (statusEl) grantStatusMessage(statusEl, '⏳ Still pending admin approval — nothing to do yet.', '');
+  }
+  if (attempt < STATUS_POLL_MAX_ATTEMPTS) {
+    grantPollTimer = setTimeout(() => grantPollStatus(claimId, type, attempt + 1), pollBackoffDelay(attempt));
+  }
 }
 
 function showGrantRedeemStep(claimId, type) {
@@ -2396,9 +2527,9 @@ function showGrantRedeemStep(claimId, type) {
   const acceptance = resolvedType === 'store' ? storeCreationAcceptanceHTML() : sellerListingAcceptanceHTML();
   card.innerHTML = `
     <button class="modal-close" data-action="close-grant-modal">✕</button>
-    <h3 style="font-family:var(--font-display); margin:0 0 8px;">✅ Grant approved — publish now</h3>
+    <h3 style="font-family:var(--font-display); margin:0 0 4px;">Your free grant was approved 🎉</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
-      Your free ${escapeHTML(resolvedType === 'store' ? 'store plan' : 'listing package')} is approved. Fill this in once and it goes live — no payment.
+      Your grant is ready. Continue below to activate your ${escapeHTML(resolvedType === 'store' ? 'store' : 'listing')} — no payment needed.
     </p>
     <form id="grantRedeemForm" novalidate>
       ${resolvedType === 'store' ? storeFields : listingFields}

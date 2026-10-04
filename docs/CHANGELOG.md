@@ -742,6 +742,32 @@ the tests added. Phase 5 and later are intentionally not documented until built.
 - **Existing tests changed:** `tests/adminPortal.test.mjs` — the tab-order
   assertion now includes the new "Grant requests" tab.
 
+## Phase 10b — Free Grant seller UX states
+
+### feat(ui): explicit free-grant feedback for every state of the request
+- **Behavior:** Before, submitting a Free Grant request left the request form
+  visible under a small continuation note, so a seller could not tell whether
+  the request was submitted, pending, failed or what to do next. After, the
+  modal walks an explicit state machine: submitting (button
+  `Submitting request…`, disabled, in-flight guard against duplicate submits),
+  submitted/pending (persistent state replacing the form, with
+  `Status: Pending admin approval`, that submitted ≠ approved is stated
+  explicitly, the requested package/type and WhatsApp number, and Check
+  status / Close actions), approved (`Your free grant was approved 🎉` before
+  the existing redemption form), rejected (explicit terminal state, no success
+  wording, stored claim cleared), and failure (button restored, friendly
+  message, entered values kept). After a reload the modal offers to resume the
+  request still stored on the device instead of inviting a duplicate. No API,
+  payload, endpoint, polling mechanism or backend behavior changed: the same
+  `POST /api/grants` and `GET /api/grants/status/:claimId` are used, and
+  polling still reuses the payment-status backoff schedule.
+- **Files changed:** `public/assets/js/app.js`.
+- **Tests added:** `tests/grantUx.test.mjs` (10 JSDOM tests driving the real
+  `app.js`) — submitting state and duplicate-click protection, pending state
+  content, manual status check, claim token kept out of URLs, approval and
+  rejection transitions, failure recovery, and reload/resume behaviour.
+- **Existing tests changed:** none.
+
 ## Phase 5 and later
 
 Not documented here until built.
