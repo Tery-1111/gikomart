@@ -263,8 +263,13 @@ exports.login = async (req, res) => {
       return res.status(400).json({ success: false, error: '2FA not enabled — run /verify-2fa' });
     }
 
-    // Replay protection: verify with the previous window recorded so the same
-    // code can't be reused after it expires.
+    // speakeasy's `window: 1` is a two-sided ±1 time-step tolerance: it matches
+    // the previous, current and next step. `verifyDelta` reports which step
+    // matched (`delta` in {-1, 0, +1}); a null result means the code is outside
+    // the window entirely and is rejected outright. Do NOT reject delta < 0 —
+    // that turns the configured ±1 tolerance into a one-sided window, so any
+    // authenticator (or server) clock that is behind is rejected even though
+    // its code is still in the window `window: 1` was configured to absorb.
     const verified = speakeasy.totp.verifyDelta({
       secret: admin.totpSecret,
       encoding: 'base32',
@@ -272,7 +277,7 @@ exports.login = async (req, res) => {
       window: 1,
     });
 
-    if (!verified || verified.delta < 0) {
+    if (!verified) {
       logAuthFailure(req, 'invalid_totp');
       recordAuthFailure(req.ip);
       emit({
@@ -285,12 +290,15 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, error: 'Invalid TOTP code' });
     }
 
-    // Compute the current window index and reject reuse within the same or an
-    // earlier window (verifyDelta allows the previous period as drift tolerance).
-    const now = Math.floor(Date.now() / 1000);
-    const window = 30;
-    const counter = Math.floor(now / window);
-    if (admin.lastUsedCounter >= counter) {
+    // Replay protection across the whole drift window: the code belongs to the
+    // step `counter + delta`, so reject any code whose step is at or before the
+    // last accepted step (this also blocks reusing the previous step's code),
+    // then record the accepted step. This keeps one-use-per-code without
+    // discarding in-window codes.
+    const STEP_SECONDS = 30;
+    const counter = Math.floor(Date.now() / 1000 / STEP_SECONDS);
+    const usedCounter = counter + verified.delta;
+    if (usedCounter <= admin.lastUsedCounter) {
       logAuthFailure(req, 'invalid_totp');
       recordAuthFailure(req.ip);
       emit({
@@ -303,7 +311,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, error: 'TOTP code already used' });
     }
 
-    admin.lastUsedCounter = counter;
+    admin.lastUsedCounter = usedCounter;
     await admin.save();
 
     // Successful auth clears this IP's failure count (FIX A3).

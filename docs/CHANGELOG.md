@@ -690,6 +690,27 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   a no-comma assertion.
 - **Existing tests changed:** none.
 
+## Phase 9d — Admin TOTP drift window and replay
+
+### fix(admin): honor the ±1 TOTP drift window in login without weakening replay
+- **Behavior:** Before, `POST /api/admin/login` verified the code with
+  `verifyDelta({ window: 1 })` (speakeasy's two-sided ±1 step tolerance) but then
+  rejected any result with `delta < 0`, so a code from the immediately **previous**
+  30-second step was refused as `"Invalid TOTP code"`. The replay check also stored
+  the server's *current* step (`counter`) rather than the step the code belonged to.
+  After, a null `verifyDelta` result is the only outright rejection; the replay
+  guard rejects a code whose step is `<= lastUsedCounter` and records the accepted
+  step. A code from the previous step is now accepted once (drift tolerance) and a
+  reused code is still rejected as `"TOTP code already used"`. No secret, config or
+  response shape changed; replay protection is preserved.
+- **Files changed:** `src/controllers/adminAuthController.js`.
+- **Tests added:** `tests/adminTotpLogin.test.mjs` (new, 10 deterministic tests with
+  a mocked clock) — valid current code accepted and a verifiable session issued;
+  invalid code rejected; out-of-window code rejected; used code rejected (replay);
+  fresh code accepted in the next step; wrong admin key rejected; missing code
+  rejected; previous- and next-step codes accepted once and then replay-blocked.
+- **Existing tests changed:** none.
+
 ## Phase 5 and later
 
 Not documented here until built.

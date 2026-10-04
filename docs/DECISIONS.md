@@ -413,3 +413,22 @@ new numbers; existing entries are never edited.
   hop count, so the logged address now matches the address the security controls
   actually enforce.
 - **Alternative rejected:** Continuing to log the raw `X-Forwarded-For` header.
+
+## 34. Admin TOTP login keeps the full ±1 drift window and tracks the accepted step
+
+- **Decision:** `POST /api/admin/login` treats a null `verifyDelta({ window: 1 })`
+  result as the only out-of-window rejection, and its replay guard rejects a code
+  whose time step is `<= lastUsedCounter`, recording the accepted step
+  (`counter + delta`). It does not reject `delta < 0`.
+- **Reason:** `window: 1` is speakeasy's *two-sided* ±1 tolerance: matching the
+  previous, current and next step is the point of configuring it. Rejecting
+  `delta < 0` silently made the window one-sided, so any authenticator (or server)
+  clock behind the other was refused even though its code was still inside the
+  configured window — and because the code comment and the option both advertise
+  ±1 drift, the behavior contradicted its own configuration. Storing the accepted
+  step (not the server's current step) keeps one-use-per-code replay protection
+  across the whole window while allowing in-window codes.
+- **Alternative rejected:** Removing the replay check so every in-window code is
+  accepted — that disables replay protection. Also rejected: keeping `delta < 0`
+  and widening `window`, which merely hides the one-sided guard behind a larger
+  tolerance.
