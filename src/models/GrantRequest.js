@@ -36,14 +36,18 @@ const grantRequestSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Require the package that matches the requested resource type.
-grantRequestSchema.pre('validate', function ensureMatchingPackage(next) {
+// Mongoose 9 invokes document middleware WITHOUT a callback, so a callback-style
+// `next` here threw "TypeError: next is not a function" on every create/save —
+// the production 500 on POST /api/grants (2026-10-04). Sync throw-style keeps
+// the same rejection semantics and messages; the API tests inject fake models
+// so tests/grantRequestModel.test.mjs guards the real schema.
+grantRequestSchema.pre('validate', function ensureMatchingPackage() {
   if (this.type === 'listing' && !this.package) {
-    return next(new Error('package is required for a listing grant'));
+    throw new Error('package is required for a listing grant');
   }
   if (this.type === 'store' && !this.storePlan) {
-    return next(new Error('storePlan is required for a store grant'));
+    throw new Error('storePlan is required for a store grant');
   }
-  return next();
 });
 
 // Admin queue: newest request per status first.
