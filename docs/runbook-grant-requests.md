@@ -16,7 +16,9 @@ normalized WhatsApp number (the same number wa.me uses) and a two-click
 - `pending` (default) — needs a decision. Each row offers **Approve** and
   **Reject**, both two-click confirmed. A rejected request is terminal for the
   seller; approval is terminal too — there is **no unapprove path** (see
-  "When to mint" below for the only lever you keep after approving).
+  "When to mint" below for the only lever you keep after approving; the
+  atomicity, audit and abuse rationale is recorded in `docs/DECISIONS.md`,
+  record #36).
 - `approved` — approved and waiting for the seller to redeem, or already
   redeemed.
 - `rejected` — terminal history.
@@ -24,6 +26,18 @@ normalized WhatsApp number (the same number wa.me uses) and a two-click
   client-side from the approved view; nothing to act on).
 
 Views refresh only when opened or filtered — there is no live polling.
+
+### QA/test requests
+
+Requests submitted by the agent during QA runs can be flagged so they are
+never mistaken for real sellers: flagged rows carry an orange **QA/test**
+badge next to the type, and every row (any status) offers a two-click
+**Mark QA/test** / **Unmark QA/test** toggle. Marking is cosmetic — the
+decision flow (approve, reject, redeem) is identical for flagged requests —
+and is correctable at any time. There is no way to distinguish test traffic
+without the flag once a request exists, so **mark test submissions at creation
+time** (the agent should ask the admin to mark, or use the API directly
+during a QA session). See `docs/API_AND_CONFIG.md` (§j) for the endpoint.
 
 ## When to mint a continuation token
 

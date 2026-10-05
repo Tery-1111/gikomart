@@ -455,3 +455,41 @@ new numbers; existing entries are never edited.
   financial record and pollutes pending/revenue metrics) and creating
   Listing/Store directly inside the grant controller (a second provisioning
   engine to maintain).
+
+## 36. Free Grant approval is terminal — there is no unapprove path
+
+- **Decision:** `POST /api/admin/grants/:id/approve` moves a `GrantRequest`
+  `pending → approved` once, and no endpoint ever writes `status: 'pending'`
+  to an existing request; `reject` exists but matches `pending` only. The
+  admin queue deliberately offers no unapprove action — the only levers kept
+  after approval are minting a continuation token and the cosmetic `isTest`
+  QA flag, neither of which touches the decision.
+- **Reason:** *Atomicity* — every transition is one-way by construction:
+  approve and reject are single `findOneAndUpdate` calls that put the current
+  status inside the filter (`{ _id, status: 'pending' }`), and redemption
+  claims `status: 'approved'` AND `provisioned: null` atomically. An unapprove
+  would be the first backwards edge in this machine, and it would race the
+  seller's client (which polls and flips to the redemption form shortly after
+  approval), race an in-flight provisioning, or strand a minted continuation
+  token — minting is valid only for approved-unprovisioned grants and
+  redemption requires `approved`, so a reverted grant leaves minted
+  credentials in limbo. *Audit* — `admin.grant_approved` with
+  `decidedBy`/`decidedAt` is written by the same atomic update, exactly once,
+  so the trail reads as a monotonic story (submitted → approved → (mint) →
+  redeem); an unapprove would force either an event that reverses a prior
+  event (the latest event no longer implies the document state) or a silent
+  status edit with no event at all, and would let an admin approve, let the
+  seller redeem, then erase the decision. *Abuse* — approval is the only
+  human gate on a path that bypasses payment and provisions a real resource
+  keyed to the request `_id` (the same unique-sparse `paymentId` dedupe as
+  the paid path); reversible approvals would let a compromised session churn
+  approve → redeem → unapprove cycles, leave a live resource whose provenance
+  points at an "unapproved" grant, and make the mint-volume alert meaningless
+  as an abuse signal.
+- **Alternative rejected:** An unapprove/revert endpoint back to `pending`.
+  The correction paths that DO exist are deliberately narrower: `reject` for
+  requests still pending, the cosmetic `isTest` flag for test or mistaken
+  submissions (metadata only), moderation/removal for a produced resource,
+  and — if a genuine revoke need ever appears — a NEW terminal state (e.g.
+  `revoked`) with its own audit event and explicit resource handling, never
+  an edge back to `pending`.
