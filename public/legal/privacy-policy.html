@@ -84,6 +84,12 @@
         <td>Our MongoDB database (Payment record).</td>
       </tr>
       <tr>
+        <td>Free Grant request: the WhatsApp number you give, what you asked for (listing package or store plan), the request status, and who decided it. A blocked number cannot request a Free Grant.</td>
+        <td>The Request a Free Grant form, when you ask for a free listing package or store plan.</td>
+        <td>To review and (if approved) grant the request. Your number is never shown publicly; administrators see it to contact you on WhatsApp. No payment is involved.</td>
+        <td>Our MongoDB database (GrantRequest record).</td>
+      </tr>
+      <tr>
         <td>Terms acceptance record: which terms and version you accepted, the action, the time, your IP address, your browser's user-agent string, unkeyed hashes of the phone numbers involved, and the listing or store identifiers.</td>
         <td>Recorded when you accept terms (publishing a listing, creating a store, or releasing seller contact).</td>
         <td>To keep evidence of the consent you gave. Never shown publicly.</td>
@@ -148,7 +154,8 @@
   <p>The site stores a few values in your browser's local storage so that a page reload does not lose them. These are:</p>
   <ul>
     <li>the one-time ownership token for a listing you created, kept so you can edit or delete that listing from the same browser;</li>
-    <li>the one-time ownership token for a store you created, kept for the same reason; and</li>
+    <li>the one-time ownership token for a store you created, kept for the same reason;</li>
+    <li>the claim token for a Free Grant request you made, kept so the same browser can check its status and redeem the grant once approved (if you clear it, an administrator can issue you a new one); and</li>
     <li>the ownership token for a payment that is still pending, kept so it can be recovered once the payment completes.</li>
   </ul>
   <p>These tokens are stored only in your browser. The server sets no cookies.</p>

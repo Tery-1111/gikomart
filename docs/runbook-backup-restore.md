@@ -60,6 +60,9 @@ db.getCollectionNames()
 db.listings.countDocuments()
 db.stores.countDocuments()
 db.payments.countDocuments()
+db.grantrequests.countDocuments()
+db.termsacceptances.countDocuments()
+db.auditevents.countDocuments()
 ```
 
 The counts should match what you expect for the live database at the dump time.

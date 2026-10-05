@@ -42,6 +42,17 @@ Store — the store phone or WhatsApp:
 db.stores.find({ $or: [ { phone: "PHONE_NUMBER_HERE" }, { whatsapp: "PHONE_NUMBER_HERE" } ] })
 ```
 
+Free Grant request — the WhatsApp number as normalized by the site
+(`2547XXXXXXXX` / `2541XXXXXXXX` only; also check the HMAC form, computed with
+`BLOCK_HASH_SECRET` the same way `src/utils/phone.js` does):
+
+```js
+db.grantrequests.find({ $or: [
+  { whatsapp: "2547XXXXXXXX" },
+  { contactHash: "HMAC64_HERE" }
+] })
+```
+
 Terms acceptance — the hashes are plain sha256 of the value **exactly as it was
 typed** (not normalised), so compute the hash for each candidate format and
 query each one separately:
@@ -108,8 +119,19 @@ Report — clear only the reporter's IP, which exists only for deduplication:
 db.reports.updateOne({ _id: ObjectId("REPORT_ID_HERE") }, { $set: { reporterIp: null } })
 ```
 
+Free Grant request — clear the contact number and its hash (the request
+itself stays, so the audit trail and any decision history remain truthful):
+
+```js
+db.grantrequests.updateOne(
+  { _id: ObjectId("GRANT_ID_HERE") },
+  { $set: { whatsapp: "", contactHash: null } }
+)
+```
+
 What stays behind: the payment amounts and status (dispute window), the terms
-acceptance record minus its 30-day PII (see section 6), the report body, and the
+acceptance record minus its 30-day PII (see section 6), the report body, the
+grant request minus its contact fields, and the
 audit trail. Never hand-delete an acceptance record or an audit event to satisfy
 a request.
 

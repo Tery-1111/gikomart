@@ -20,6 +20,10 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | The payer's phone number is stored on the payment record. | `src/models/Payment.js:8` | Privacy Policy §2 |
 | The payer's phone number is sent to IntaSend to start the M-Pesa payment. | `src/services/paymentService.js:44,62,86` | Privacy Policy §2 |
 | The listing or store details attached to a payment are held on the payment record while pending. | `src/models/Payment.js:6,18` | Privacy Policy §2 |
+| A Free Grant request stores the seller's normalized WhatsApp number, the requested package or store plan, the request status and the administrative decision trail. | `src/models/GrantRequest.js:21-36` | Privacy Policy §2 |
+| A blocked phone number cannot submit a Free Grant request. | `src/controllers/grantController.js` (submitGrant blocked-contact check) | Privacy Policy §2 |
+| The site stores the claim token for a Free Grant request in browser local storage, so the same browser can check the request's status and redeem it once approved. | `public/assets/js/app.js:104-105` | Privacy Policy §5 |
+| A Free Grant request's WhatsApp number is shown in full only in the session-gated admin queue, and the claim token or its hash is returned by no read endpoint. | `src/controllers/grantController.js` (listGrantRequests) | Privacy Policy §2 |
 | Terms acceptance records contain the acceptance type, the terms versions, the action, the timestamp, hashes of the phone/WhatsApp/owner-token values, the IP address, the user-agent, and the listing/store identifiers. | `src/models/TermsAcceptance.js:5-32,55-60`, `src/services/termsAcceptanceService.js:70-88` | Privacy Policy §2 |
 | Report records contain the target type and id, the reason, any details, the reporter IP and the resolution. | `src/models/Report.js:9-26` | Privacy Policy §2 |
 | Every server request is logged with method, path, status, latency, IP address and user-agent. | `server.js:84-99` | Privacy Policy §2 |

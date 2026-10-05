@@ -39,6 +39,9 @@ try again." with a Retry button.
 - **Reports** — open reports by default, filterable by status and target type.
 - **Payments** — payments filterable by status and type, with masked phone
   numbers and a replay action for eligible payments.
+- **Grant requests** — the Free Grant queue: review, approve/reject, and
+  continuation tokens for lost seller credentials. Day-to-day procedure in
+  `docs/runbook-grant-requests.md`.
 - **Blocks** — add, list and remove blocked contacts.
 - **Audit log** — read audit events, filterable by action and resource.
 - **Health** — MongoDB and Cloudinary status, the check time and process uptime.
