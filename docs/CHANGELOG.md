@@ -980,6 +980,70 @@ runs `7654a0e`.)
   exists at the repo root; nothing referenced the pre-lifecycle grant
   behavior anywhere else.
 
+### feat(admin): QA/test marker for grant requests (queue-level separation from real sellers)
+- **Behavior:** Before, an agent-submitted test grant request was
+  indistinguishable from a real seller's submission in the admin queue — the
+  only signals were out-of-band (a throwaway WhatsApp number, the audit log's
+  `adminActor` decisions). After, a request can carry an `isTest` flag: the
+  grants queue renders a **QA/test** badge next to the request type on flagged
+  rows, and every row (any status) offers a two-click **Mark QA/test /
+  Unmark QA/test** toggle backed by `POST /api/admin/grants/:id/qa-flag`
+  (`{ isTest: boolean }` body; the body is not trusted for anything else).
+  The flag is deliberately COSMETIC: the decision lifecycle (approve, reject,
+  redeem, mint) is unchanged for marked requests, marking is allowed for any
+  status and correctable at any time, and the list endpoint accepts an
+  optional `?isTest=true|false` query filter (absent → unfiltered, the
+  previous behavior). The flag never appears on unauthenticated paths
+  (session-gated admin route as every other grant action), and each toggle
+  writes an `admin.grant_test_flag_set` audit event carrying only
+  `{ isTest }` — never token material. No new index; the flag defaults to
+  `false`, so pre-existing rows are unmarked.
+- **Files changed:** `src/models/GrantRequest.js`,
+  `src/controllers/grantController.js`, `src/routes/adminGrants.js`,
+  `public/assets/js/admin.js`, `public/assets/css/admin.css`,
+  `tests/grantLifecycle.test.mjs`, `tests/adminGrantsUi.test.mjs`.
+- **Tests added:** `tests/grantLifecycle.test.mjs` QA block (6) — mark + queue
+  exposure; unmark and untouched real rows; 404 unknown / 400 malformed /
+  401 unauthenticated leaking nothing; lifecycle parity (approve + redeem
+  succeed on a marked grant); audit events per toggle without token material;
+  `?isTest=` filtering both ways. `tests/adminGrantsUi.test.mjs` (2) — badge
+  only on flagged rows with the correct toggle label per state; the toggle
+  POSTs the opposite value and reloads the queue.
+- **Existing tests changed:** `tests/grantLifecycle.test.mjs` — the fake
+  GrantRequest `findOneAndUpdate` now applies a status filter only when the
+  caller supplies one (the QA toggle deliberately has none), and `find`
+  honors an `isTest` filter.
+
+### docs: decision record #36 — Free Grant approval is terminal
+- **Files changed:** `docs/DECISIONS.md` (new record #36),
+  `docs/runbook-grant-requests.md`.
+- Records why the `pending → approved` transition has no reverse edge: the
+  one-way guarded state machine (approve/reject match the current status in
+  the atomic update; redeem claims `approved` + `provisioned: null`; a
+  backwards edge would race a redemption or provisioning and strand minted
+  continuation credentials), the audit trail's monotonic
+  submitted → approved → (mint) → redeem narrative with `decidedBy`/
+  `decidedAt` written exactly once, and the abuse math of a reversible human
+  gate on a payment-bypassing provisioning path. Names the narrower
+  correction paths that exist instead (reject for pending, the cosmetic QA
+  flag, moderation for a produced resource, a hypothetical future `revoked`
+  terminal state). The grants-queue runbook now points at the record where it
+  asserts there is no unapprove path.
+
+### feat(admin): "Why can't I unapprove?" note in the grants queue
+- **Files changed:** `public/assets/js/admin.js`, `public/assets/css/admin.css`,
+  `tests/adminGrantsUi.test.mjs`.
+- Adds a one-line muted note under the queue intro that answers the question
+  where it actually forms: approval is a one-way atomic write — reversing it
+  could race an in-flight redemption or provisioning, strand minted
+  continuation tokens, and break the audit trail — with a link to
+  `docs/DECISIONS.md` record #36 (GitHub blob URL, new tab,
+  `rel="noopener noreferrer"`; the repo docs are not served by the app).
+  Rendered through a new `.view-note` style; content is still inserted as
+  text, never HTML (decision #22).
+- **Tests added:** `tests/adminGrantsUi.test.mjs` (1) — the note renders with
+  the rationale text and the decision-record link (target/rel checked).
+
 ## Phase 5 and later
 
 Not documented here until built.

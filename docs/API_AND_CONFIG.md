@@ -44,6 +44,7 @@ route-specific limiter.
 | POST | `/api/admin/grants/:id/approve` | `X-Admin-Session` | globalLimiter + adminLimiter | Approve a pending Free Grant request (atomic pending → approved) |
 | POST | `/api/admin/grants/:id/reject` | `X-Admin-Session` | globalLimiter + adminLimiter | Reject a pending Free Grant request (atomic pending → rejected) |
 | POST | `/api/admin/grants/:id/continuation-token` | `X-Admin-Session` | globalLimiter + adminLimiter | Mint a NEW continuation credential for an approved, unprovisioned grant (rotates `claimTokenHash`; raw token returned once, only here) |
+| POST | `/api/admin/grants/:id/qa-flag` | `X-Admin-Session` | globalLimiter + adminLimiter | Toggle the QA/test marker on a grant request (`{ isTest: boolean }`; cosmetic only — lifecycle unchanged; writes `admin.grant_test_flag_set`) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -330,6 +331,17 @@ Flow:
    trail (1-hour window, threshold `GRANT_MINT_ALERT_THRESHOLD`, default 5)
    that logs and records `admin.grant_mint_volume_alert` when unusual —
    advisory only; it never blocks or limits minting.
+6. QA/test marker: agent-submitted test requests can be flagged so the queue
+   separates them from real sellers. `POST /api/admin/grants/:id/qa-flag`
+   (session gate; `adminLimiter`; body `{ isTest: boolean }`) sets the flag
+   on a request of ANY status and responds `200 { success, grantId, isTest }`
+   (`400` malformed id, `404` unknown grant, `401` session-less). The flag is
+   cosmetic only — approve/reject/redeem/mint behave identically for marked
+   requests — and is correctable at any time. `GET /api/admin/grants` returns
+   `isTest` per row and accepts an optional `?isTest=true|false` filter
+   (absent → unfiltered); the admin portal renders a **QA/test** badge on
+   flagged rows with a two-click Mark/Unmark toggle. Every toggle writes an
+   `admin.grant_test_flag_set` audit event carrying only `{ isTest }`.
 
 Rate limiting reuses existing limiters (submit = `reportLimiter`, status =
 `statusLimiter`, redeem = `paymentLimiter`). Admin routes use `adminLimiter` and

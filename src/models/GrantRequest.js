@@ -25,6 +25,10 @@ const grantRequestSchema = new mongoose.Schema({
   package: { type: String, enum: ['quick', 'standard', 'premium'], default: null },
   storePlan: { type: String, enum: ['starter_weekly', 'standard_monthly', 'pro_monthly'], default: null },
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  // QA marker: set through the admin API to flag an agent-submitted test
+  // request so the queue can distinguish it from a real seller. Cosmetic
+  // only — the lifecycle (approve/reject/redeem) is deliberately identical.
+  isTest: { type: Boolean, default: false },
   // Administrative decision trail (parity with Payment.grantedBy/grantedAt).
   decidedBy: { type: String, default: null },
   decidedAt: { type: Date, default: null },

@@ -1040,6 +1040,18 @@
       viewMsg.textContent = requests.length ? '' : 'Nothing to show.';
       viewBody.appendChild(el('p', null, 'Approve or reject seller requests for a free package. Approval cannot be undone here — the seller then redeems it on their own device.'));
 
+      // Answer "why can't I unapprove?" in place, where the expectation
+      // actually forms. The full rationale lives in docs/DECISIONS.md
+      // (record #36) — not served by this app, hence the repo link.
+      const rationaleNote = el('p', { className: 'view-note' });
+      rationaleNote.appendChild(document.createTextNode("Why can't I unapprove? Approval is a one-way atomic write — reversing it could race an in-flight redemption or provisioning, strand minted continuation tokens, and break the audit trail. Rationale: "));
+      const rationaleLink = el('a', null, 'docs/DECISIONS.md · record #36');
+      rationaleLink.href = 'https://github.com/Tery-1111/gikomart/blob/main/docs/DECISIONS.md';
+      rationaleLink.target = '_blank';
+      rationaleLink.rel = 'noopener noreferrer';
+      rationaleNote.appendChild(rationaleLink);
+      viewBody.appendChild(rationaleNote);
+
       // History filter (pending default preserved).
       const filterWrap = el('div', { className: 'filter-row' });
       const statusSel = filterSelect('grantStatusFilter', [
@@ -1070,7 +1082,15 @@
       requests.forEach(function (grant) {
         const row = el('tr', { dataset: { grantId: grant.id } });
         row.appendChild(el('td', null, fmtTime(grant.createdAt)));
-        row.appendChild(el('td', null, String(grant.type)));
+        const typeCell = el('td');
+        typeCell.appendChild(document.createTextNode(String(grant.type)));
+        // Test requests (agent QA runs) are marked so they are never mistaken
+        // for real sellers in a queue that serves real people.
+        if (grant.isTest) {
+          typeCell.appendChild(document.createTextNode(' '));
+          typeCell.appendChild(el('span', { className: 'qa-badge' }, 'QA/test'));
+        }
+        row.appendChild(typeCell);
         row.appendChild(el('td', null, String(grant.package || grant.storePlan || '—')));
         row.appendChild(el('td', null, grant.whatsapp ? String(grant.whatsapp) : '—'));
         row.appendChild(el('td', null, grant.status + (grant.provisioned ? ' / provisioned' : '')));
@@ -1078,6 +1098,17 @@
         const actions = el('td');
         const rowMsg = el('span', { dataset: { role: 'rowMsg' } });
         actions.appendChild(rowMsg);
+        // QA/test marker toggle: visible for every status so a flag can be
+        // corrected after the fact. Same two-click guard as the other actions.
+        const qaLabel = grant.isTest ? 'Unmark QA/test' : 'Mark QA/test';
+        const qaBtn = el('button', { type: 'button' }, qaLabel);
+        armed(qaBtn, qaLabel, function () {
+          api('POST', '/api/admin/grants/' + encodeURIComponent(grant.id) + '/qa-flag', { isTest: !grant.isTest }).then(function (outcome) {
+            if (outcome.status === 200) activateView('grants');
+            else rowMsg.textContent = 'Failed: ' + errorText(outcome.data);
+          }, function () { rowMsg.textContent = 'Failed: error'; });
+        });
+        actions.appendChild(qaBtn);
         // Direct WhatsApp contact: the number is already normalized to
         // 254[17]XXXXXXXX, exactly the format wa.me expects — no reformatting.
         if (grant.whatsapp) {
@@ -1097,8 +1128,7 @@
           actions.appendChild(mintBtn);
         }
         if (grant.status === 'pending') {
-          const approve = el('button', { type: 'button' }, 'Approve');
-          armed(approve, 'Approve', function () {
+          const approve = el('button', { type: 'button' }, 'Approve');          armed(approve, 'Approve', function () {
             api('POST', '/api/admin/grants/' + encodeURIComponent(grant.id) + '/approve').then(function (outcome) {
               if (outcome.status === 200) activateView('grants');
               else rowMsg.textContent = 'Failed: ' + errorText(outcome.data);

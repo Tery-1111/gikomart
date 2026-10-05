@@ -433,7 +433,13 @@ exports.listGrantRequests = async (req, res) => {
     const status = ['pending', 'approved', 'rejected'].includes(req.query.status)
       ? req.query.status
       : 'pending';
-    const grants = await GrantRequest.find({ status }).sort({ createdAt: -1 }).limit(50).lean();
+    // Optional QA filter: ?isTest=true|false narrows the view to test
+    // requests (or excludes them). Absent → no filtering (existing behavior).
+    const isTestFilter = req.query.isTest === 'true' ? true
+      : req.query.isTest === 'false' ? false
+      : undefined;
+    const grants = await GrantRequest.find(isTestFilter === undefined ? { status } : { status, isTest: isTestFilter })
+      .sort({ createdAt: -1 }).limit(50).lean();
 
     emit({
       actor: adminActor(req),
@@ -452,6 +458,7 @@ exports.listGrantRequests = async (req, res) => {
         package: grant.package || null,
         storePlan: grant.storePlan || null,
         status: grant.status,
+        isTest: Boolean(grant.isTest),
         createdAt: grant.createdAt,
         decidedAt: grant.decidedAt || null,
         provisioned: Boolean(grant.provisionedAt && grant.provisionedAt.getTime() > 0),
@@ -497,6 +504,41 @@ exports.approveGrant = async (req, res) => {
   } catch (err) {
     logger.error('Grant approve error', { error: err.message });
     res.status(500).json({ success: false, error: 'Grant approval failed' });
+  }
+};
+
+// ─── Admin: QA flag (marks an agent-submitted test request) ────────────────
+// The queue serves real sellers, so test requests must be visually separable.
+// This only toggles the marker — the decision lifecycle is untouched, so the
+// flag is available for any status (not just pending) and can be corrected at
+// any time. Unrecognized bodies are ignored (no upsert, no error).
+exports.setGrantTestFlag = async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(400).json({ success: false, error: 'Invalid grant id' });
+  }
+  try {
+    const grant = await GrantRequest.findOneAndUpdate(
+      { _id: req.params.id },
+      { $set: { isTest: Boolean(req.body && req.body.isTest) } },
+      { returnDocument: 'after' },
+    );
+    if (!grant) {
+      return res.status(404).json({ success: false, error: 'Grant request not found' });
+    }
+
+    emit({
+      actor: adminActor(req),
+      action: 'admin.grant_test_flag_set',
+      resource: 'grant',
+      resourceId: String(grant._id),
+      result: 'success',
+      metadata: { isTest: grant.isTest },
+    });
+
+    res.json({ success: true, grantId: String(grant._id), isTest: grant.isTest });
+  } catch (err) {
+    logger.error('Grant test-flag error', { error: err.message });
+    res.status(500).json({ success: false, error: 'Failed to set the test flag' });
   }
 };
 

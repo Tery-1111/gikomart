@@ -45,10 +45,13 @@ const fakeGrantModel = {
     return doc;
   },
   findById: async (id) => h.grants.find((g) => String(g._id) === String(id)) || null,
-  // Atomic-claim semantics: matches on _id AND status AND the provisionedAt
-  // filter (null means "unclaimed"). Mirrors what MongoDB guarantees.
+  // Atomic-claim semantics: matches on _id AND status (when the caller filters
+  // by it) AND the provisionedAt filter (null means "unclaimed"). Mirrors what
+  // MongoDB guarantees. The QA flag update carries no status filter on purpose
+  // (it works for any status), so status matching is conditional here.
   findOneAndUpdate: async (filter, update) => {
-    const g = h.grants.find((x) => String(x._id) === String(filter._id) && x.status === filter.status);
+    const g = h.grants.find((x) => String(x._id) === String(filter._id)
+      && (filter.status === undefined || x.status === filter.status));
     if (!g) return null;
     if (Object.prototype.hasOwnProperty.call(filter, 'provisionedAt') && filter.provisionedAt === null && g.provisionedAt !== null) {
       return null; // claim already held
@@ -60,7 +63,10 @@ const fakeGrantModel = {
     const builder = {
       sort: () => builder,
       limit: () => builder,
-      lean: async () => h.grants.filter((g) => g.status === filter.status).map((g) => ({ ...g })),
+      lean: async () => h.grants
+        .filter((g) => g.status === filter.status)
+        .filter((g) => filter.isTest === undefined || Boolean(g.isTest) === filter.isTest)
+        .map((g) => ({ ...g })),
       then: (res, rej) => Promise.resolve(builder.lean()).then(res, rej),
       catch: (rej) => Promise.resolve(builder.lean()).catch(rej),
     };
@@ -240,6 +246,82 @@ describe('Admin grant queue — full WhatsApp number and history', () => {
     const res = await request(app).get('/api/admin/grants?status=bogus').set('X-Admin-Session', session());
     expect(res.status).toBe(200);
     expect(res.body.requests).toHaveLength(1);
+  });
+});
+
+describe('QA/test flag — marking agent-submitted requests', () => {
+  it('marks a request and exposes isTest in the queue', async () => {
+    const { body: submitted } = await submitListingGrant({ whatsapp: '0712000011' });
+    const markRes = await request(app).post(`/api/admin/grants/${submitted.claimId}/qa-flag`)
+      .set('X-Admin-Session', session()).send({ isTest: true });
+    expect(markRes.status).toBe(200);
+    expect(markRes.body).toMatchObject({ success: true, grantId: submitted.claimId, isTest: true });
+
+    const queue = await request(app).get('/api/admin/grants?status=pending').set('X-Admin-Session', session());
+    expect(queue.body.requests[0].isTest).toBe(true);
+  });
+
+  it('unmarks again and real-seller rows stay untouched (flag defaults to false)', async () => {
+    const a = await submitListingGrant({ whatsapp: '0712000012' });
+    const b = await submitListingGrant({ whatsapp: '0712000013' });
+    await request(app).post(`/api/admin/grants/${a.body.claimId}/qa-flag`).set('X-Admin-Session', session()).send({ isTest: true });
+    await request(app).post(`/api/admin/grants/${a.body.claimId}/qa-flag`).set('X-Admin-Session', session()).send({ isTest: false });
+
+    const queue = await request(app).get('/api/admin/grants?status=pending').set('X-Admin-Session', session());
+    const rows = Object.fromEntries(queue.body.requests.map((g) => [g.id, g.isTest]));
+    expect(rows[a.body.claimId]).toBe(false);
+    expect(rows[b.body.claimId]).toBe(false);
+  });
+
+  it('unknown grant → 404, malformed id → 400, unauthenticated → 401 (leaks nothing)', async () => {
+    const missing = await request(app).post('/api/admin/grants/650000000000000000000099/qa-flag')
+      .set('X-Admin-Session', session()).send({ isTest: true });
+    expect(missing.status).toBe(404);
+
+    const malformed = await request(app).post('/api/admin/grants/not-an-id/qa-flag')
+      .set('X-Admin-Session', session()).send({ isTest: true });
+    expect(malformed.status).toBe(400);
+
+    const unauth = await request(app).post('/api/admin/grants/650000000000000000000099/qa-flag').send({ isTest: true });
+    expect(unauth.status).toBe(401);
+    expect(JSON.stringify(unauth.body)).not.toContain('isTest');
+  });
+
+  it('the flag is cosmetic: approve and redeem work unchanged on a marked grant', async () => {
+    const { body: submitted } = await submitListingGrant({ whatsapp: '0712000014' });
+    await request(app).post(`/api/admin/grants/${submitted.claimId}/qa-flag`)
+      .set('X-Admin-Session', session()).send({ isTest: true });
+
+    const approveRes = await approve(submitted.claimId);
+    expect(approveRes.status).toBe(200);
+    const redeemRes = await redeemListing(submitted.claimId, submitted.claimToken);
+    expect(redeemRes.status).toBe(201);
+  });
+
+  it('every flag change writes an admin.grant_test_flag_set audit event without token material', async () => {
+    const { body: submitted } = await submitListingGrant({ whatsapp: '0712000015' });
+    await request(app).post(`/api/admin/grants/${submitted.claimId}/qa-flag`)
+      .set('X-Admin-Session', session()).send({ isTest: true });
+    await request(app).post(`/api/admin/grants/${submitted.claimId}/qa-flag`)
+      .set('X-Admin-Session', session()).send({ isTest: false });
+
+    const events = h.auditEvents.filter((e) => e.action === 'admin.grant_test_flag_set');
+    expect(events).toHaveLength(2);
+    expect(events[0].metadata).toMatchObject({ isTest: true });
+    expect(events[1].metadata).toMatchObject({ isTest: false });
+    expect(JSON.stringify(events)).not.toContain(submitted.claimToken);
+    expect(JSON.stringify(events)).not.toContain(sha256hex(submitted.claimToken));
+  });
+
+  it('supports a queue view filtered to test requests only (isTest query param)', async () => {
+    const real = await submitListingGrant({ whatsapp: '0712000016' });
+    const test = await submitListingGrant({ whatsapp: '0712000017' });
+    await request(app).post(`/api/admin/grants/${test.body.claimId}/qa-flag`).set('X-Admin-Session', session()).send({ isTest: true });
+
+    const onlyReal = await request(app).get('/api/admin/grants?status=pending&isTest=false').set('X-Admin-Session', session());
+    expect(onlyReal.body.requests.map((g) => g.id)).toEqual([real.body.claimId]);
+    const onlyTest = await request(app).get('/api/admin/grants?status=pending&isTest=true').set('X-Admin-Session', session());
+    expect(onlyTest.body.requests.map((g) => g.id)).toEqual([test.body.claimId]);
   });
 });
 

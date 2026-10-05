@@ -36,6 +36,9 @@ const approvedNotProvisionedGrant = {
   createdAt: '2026-10-02T10:00:00.000Z', decidedAt: '2026-10-02T11:00:00.000Z', provisioned: false,
   whatsapp: '254722222222', whatsappMasked: '2547***22',
 };
+const qaPendingGrant = {
+  ...pendingGrant, id: 'g4', isTest: true, whatsapp: '254733333333', whatsappMasked: '2547***33',
+};
 
 beforeAll(async () => {
   const { JSDOM, VirtualConsole } = await import('jsdom');
@@ -261,5 +264,59 @@ describe('Admin Grant Requests UI', () => {
     statusSel.dispatchEvent(new Event('change', { bubbles: true }));
     await tick();
     expect(requestedUrls.some((u) => u.includes('status=rejected'))).toBe(true);
+  });
+
+  it('flags a QA/test request with a badge and offers the toggle on every row', async () => {
+    await openGrantsView([pendingGrant, qaPendingGrant]);
+    const rows = [...grantsTable().querySelectorAll('tbody tr')];
+    const realRow = rows.find((r) => r.dataset.grantId === 'g1');
+    const qaRow = rows.find((r) => r.dataset.grantId === 'g4');
+
+    // Badge only on the flagged row.
+    expect(qaRow.querySelector('.qa-badge')).toBeTruthy();
+    expect(qaRow.querySelector('.qa-badge').textContent).toBe('QA/test');
+    expect(realRow.querySelector('.qa-badge')).toBeNull();
+
+    // Toggle action exists for both statuses, labelled by current state.
+    const rowButtons = Object.fromEntries(rows.map((r) => [r.dataset.grantId, [...r.querySelectorAll('button')].map((b) => b.textContent)]));
+    expect(rowButtons.g1).toContain('Mark QA/test');
+    expect(rowButtons.g4).toContain('Unmark QA/test');
+  });
+
+  it('Mark QA/test toggles through POST /qa-flag with the opposite value and reloads', async () => {
+    await openGrantsView([pendingGrant]);
+    const calls = [];
+    fetchHandler = (url, options = {}) => {
+      if (url.includes('/api/admin/grants/g1/qa-flag')) {
+        calls.push({ url: String(url), body: options.body ? JSON.parse(options.body) : null });
+        return json({ success: true, grantId: 'g1', isTest: true });
+      }
+      if (url.includes('/api/admin/grants')) return json(grantsData([pendingGrant]));
+      return json({ success: false }, 404);
+    };
+    const markBtn = [...grantsTable().querySelectorAll('button')].find((b) => b.textContent === 'Mark QA/test');
+    markBtn.click(); // arm
+    await tick();
+    markBtn.click(); // confirm (two-click guard)
+    await tick();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain('/api/admin/grants/g1/qa-flag');
+    expect(calls[0].body).toEqual({ isTest: true });
+    // A 200 reloads the view (the queue is fetched again).
+    expect(grantsTable()).toBeTruthy();
+  });
+
+  it("explains why there is no unapprove action, linking to the decision record", async () => {
+    await openGrantsView([pendingGrant]);
+    const note = document.querySelector('#viewBody .view-note');
+    expect(note).toBeTruthy();
+    expect(note.textContent).toContain("Why can't I unapprove?");
+    expect(note.textContent).toContain('one-way atomic write');
+    expect(note.textContent).toContain('docs/DECISIONS.md');
+    const link = note.querySelector('a');
+    expect(link.href).toContain('github.com/Tery-1111/gikomart/blob/main/docs/DECISIONS.md');
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noopener');
   });
 });

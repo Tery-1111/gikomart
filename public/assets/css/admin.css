@@ -69,9 +69,20 @@ button {
   background: var(--white);
   color: var(--ink);
   cursor: pointer;
-}
+}.tab { margin: 8px 6px 8px 0; }
 
-.tab { margin: 8px 6px 8px 0; }
+/* Queue marker for agent-submitted test grant requests. */
+.qa-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--marigold);
+  border-radius: 999px;
+  color: var(--marigold);
+  background: var(--cream);
+  vertical-align: middle;
+}
 
 .tab.active {
   background: var(--teal);
@@ -93,6 +104,15 @@ button {
 #viewBody { margin-top: 12px; }
 
 .scroll { width: 100%; overflow-x: auto; }
+
+/* Muted helper note under a view's intro line (e.g. the unapprove rationale). */
+.view-note {
+  margin: 4px 0 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.view-note a { color: var(--teal); }
 
 table { width: 100%; border-collapse: collapse; }
 
