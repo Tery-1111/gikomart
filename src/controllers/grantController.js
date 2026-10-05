@@ -475,7 +475,10 @@ exports.listGrantRequests = async (req, res) => {
   }
 };
 
-// ─── Admin: approve (atomic pending → approved) ─────────────────────────────
+// ─── Admin: approve (atomic pending → approved, terminal — no unapprove path) ─
+// Terminal by design: docs/DECISIONS.md record #36 holds the atomicity, audit
+// and abuse rationale. The cosmetic QA flag (setGrantTestFlag below) is the
+// only post-decision lever that does not touch the decision itself.
 exports.approveGrant = async (req, res) => {
   if (!isValidId(req.params.id)) {
     return res.status(400).json({ success: false, error: 'Invalid grant id' });

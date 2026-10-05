@@ -282,8 +282,9 @@ Flow:
    `whatsappMasked` kept — never on any public endpoint, and a session-less
    request leaks nothing; each row also reports a derived `provisioned`
    boolean) and calls `POST /api/admin/grants/:id/approve` or `/reject`
-   (atomic `pending → approved|rejected`). The body is not trusted for
-   package/number. The queue's `status` filter accepts
+   (atomic `pending → approved|rejected`; both decisions are terminal — there
+   is no unapprove path, see `docs/DECISIONS.md` record #36). The body is not
+   trusted for package/number. The queue's `status` filter accepts
    `pending | approved | rejected` (pending default; an unknown value falls
    back to pending); the admin portal's additional `provisioned` view is
    derived client-side by fetching `status=approved` and filtering rows whose

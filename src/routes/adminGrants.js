@@ -23,6 +23,10 @@ function requireAdminSession(req, res, next) {
 router.use(adminLimiter);
 
 router.get('/grants', requireAdminSession, listGrantRequests);
+// Decisions are terminal and one-way (both match `pending` only) — there is
+// deliberately NO unapprove endpoint; docs/DECISIONS.md #36 holds the
+// rationale. This file is where such a route would be added, so the guard
+// lives here: do not add a route that writes `status: 'pending'`.
 router.post('/grants/:id/approve', requireAdminSession, approveGrant);
 router.post('/grants/:id/reject', requireAdminSession, rejectGrant);
 // Continuation-credential rotation: same session gate as every other grant

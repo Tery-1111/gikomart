@@ -24,6 +24,9 @@ const grantRequestSchema = new mongoose.Schema({
   // Exactly one of these is set, matching `type` (enforced below).
   package: { type: String, enum: ['quick', 'standard', 'premium'], default: null },
   storePlan: { type: String, enum: ['starter_weekly', 'standard_monthly', 'pro_monthly'], default: null },
+  // One-way lifecycle, written only by the atomic admin decisions in
+  // grantController: pending → approved | rejected. 'pending' is set only at
+  // creation — there is no unapprove path (docs/DECISIONS.md #36).
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   // QA marker: set through the admin API to flag an agent-submitted test
   // request so the queue can distinguish it from a real seller. Cosmetic

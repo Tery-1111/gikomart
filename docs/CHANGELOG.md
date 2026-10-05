@@ -1044,6 +1044,25 @@ runs `7654a0e`.)
 - **Tests added:** `tests/adminGrantsUi.test.mjs` (1) — the note renders with
   the rationale text and the decision-record link (target/rel checked).
 
+### docs: align reversibility language everywhere with decision record #36
+- **Files changed:** `docs/API_AND_CONFIG.md`,
+  `docs/runbook-admin-portal.md`, `src/models/GrantRequest.js`,
+  `src/controllers/grantController.js`, `src/routes/adminGrants.js` (the last
+  three comments only).
+- Sweep of every runbook and code comment for anything implying a grant
+  decision can be reversed. Already aligned (no change): the grants runbook's
+  recovery section ("deliberately no admin path to force one"), the deploy
+  runbook ("approval is terminal"), the moderation and data-requests runbooks
+  (resource-level levers, not decision edits), `LEGAL_FACTS.md`, the seller
+  copy in `app.js`, and the portal note. Aligned now: the API doc's
+  approve/reject step (both terminal + pointer to #36), the portal runbook's
+  tab bullet ("both terminal — there is no unapprove path"), the approve
+  section header in `grantController.js` (matches reject's "terminal"), the
+  `status` field comment in the model (one-way lifecycle; `pending` written
+  only at creation), and an explicit no-unapprove guard comment on the
+  approve/reject routes in `adminGrants.js` — the file where such a route
+  would be added. Behavior unchanged; no test changes.
+
 ## Phase 5 and later
 
 Not documented here until built.
