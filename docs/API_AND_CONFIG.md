@@ -76,6 +76,7 @@ route-specific limiter.
 | `CONTACT_RELEASE_LIMIT` | Contact releases per hour per IP | 40 | No | — |
 | `REPORT_RATE_LIMIT` | Public report submissions per hour per IP | 10 | No | — |
 | `AUDIT_RETENTION_DAYS` | Days to keep audit events before pruning | 365 | No | — |
+| `GRANT_MINT_ALERT_THRESHOLD` | Continuation-token mints per hour that trigger an `admin.grant_mint_volume_alert` audit event + warn log (advisory only — never blocks) | 5 | No | — |
 | `WHAPI_TOKEN` | Whapi.Cloud bearer token for broadcasts | changeme | No | — |
 | `WHATSAPP_GROUPS` | Comma-separated broadcast group IDs | — | No | — |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account name | changeme | No | — |
@@ -157,6 +158,7 @@ ids only — never values, contact data, hashes or reporter IPs.
 | `admin.grant_approved` | grant |
 | `admin.grant_rejected` | grant |
 | `admin.grant_continuation_minted` | grant |
+| `admin.grant_mint_volume_alert` | grant |
 
 ## f) Data retention
 
@@ -303,11 +305,16 @@ Flow:
    through the same `broadcastListing` as the paid webhook path — only when
    moderation approved it, fire-and-forget; store grants never broadcast.
 5. Continuation: the claim token lives only in the submitting browser's
-   localStorage. To move it, the seller's pending card builds a
-   `#grant=<claimId>/<token>` URL HASH fragment link from its own stored
-   token; `app.js` captures and scrubs the hash at script-parse time (never
-   sent to a server, never in Referer — `index.html` sets
-   `Referrer-Policy: no-referrer`) and resumes through the normal poll flow.
+   localStorage. To move it, the seller's pending card offers **Copy WhatsApp
+   message** — one click puts the whole handoff on the clipboard (request
+   description, contact number, and the private `#grant=<claimId>/<token>`
+   URL HASH fragment link with a keep-it-private note; purely client-side,
+   the token never rendered into the page, and an honest link-free message
+   when no token is readable). The Continue-on-another-device dialog builds
+   the same style of fragment link on its own; `app.js` captures and scrubs
+   the hash at script-parse time (never sent to a server, never in Referer —
+   `index.html` sets `Referrer-Policy: no-referrer`) and resumes through the
+   normal poll flow.
    When the token is lost entirely, an admin can deliberately mint a NEW
    credential: `POST /api/admin/grants/:id/continuation-token` (session
    gate; `adminLimiter`; empty body) atomically replaces the stored
@@ -318,7 +325,11 @@ Flow:
    logged or audited. Errors: `400` malformed id, `404` unknown grant,
    `409` pending/rejected/provisioned (a redemption in flight counts as
    provisioned for this check). No schema change — the same
-   `claimTokenHash` field and timing-safe comparison are reused.
+   `claimTokenHash` field and timing-safe comparison are reused. Abuse
+   watch: each mint fire-and-forgets a volume evaluation over the audit
+   trail (1-hour window, threshold `GRANT_MINT_ALERT_THRESHOLD`, default 5)
+   that logs and records `admin.grant_mint_volume_alert` when unusual —
+   advisory only; it never blocks or limits minting.
 
 Rate limiting reuses existing limiters (submit = `reportLimiter`, status =
 `statusLimiter`, redeem = `paymentLimiter`). Admin routes use `adminLimiter` and

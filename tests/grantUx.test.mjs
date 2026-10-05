@@ -76,6 +76,24 @@ function closeGrantModalIfOpen() {
   if (close) close.click();
 }
 
+// JSDOM has no navigator.clipboard, so app.js uses the execCommand fallback in
+// these tests. For copy-path assertions, swap the global navigator for one
+// that captures writeText (the primary browser path), and restore it after.
+let restoreNavigator = null;
+function stubClipboardCapture(capture) {
+  const desc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText: async (text) => { capture.text = text; } } },
+    configurable: true,
+    writable: true,
+  });
+  restoreNavigator = () => {
+    if (desc) Object.defineProperty(globalThis, 'navigator', desc);
+    else delete globalThis.navigator;
+    restoreNavigator = null;
+  };
+}
+
 beforeEach(() => {
   calls.length = 0;
   grantSubmitDeferred = null;
@@ -146,6 +164,82 @@ describe('Free Grant request — submitted/pending state', () => {
       // The token travels in the header, as the backend expects.
       expect(call.options.headers['X-Grant-Token']).toBe('tok-abc');
     }
+  });
+
+  it("'Copy WhatsApp message' copies request details, number and the private #grant= link in ONE action", async () => {
+    await submitRequest();
+    await new Promise((r) => setTimeout(r, 10));
+
+    const card = document.getElementById('grantModalCard');
+    const waBtn = card.querySelector('#grWhatsAppBtn');
+    expect(waBtn).not.toBeNull();
+
+    // The submit itself was a POST; the handoff must add no further requests.
+    const postsBeforeCopy = calls.filter((c) => c.method === 'POST').length;
+    const capture = {};
+    stubClipboardCapture(capture);
+    try {
+      waBtn.click();
+      await new Promise((r) => setTimeout(r, 25));
+    } finally {
+      restoreNavigator();
+    }
+    const copied = capture.text;
+
+    // One action, no intermediate steps: the message is already on the clipboard.
+    expect(copied).toBeTruthy();
+    expect(copied).toContain('Hi! I requested a GikoMart Free Grant');
+    expect(copied).toContain('Request: Quick Sale (24h) — listing package');
+    expect(copied).toContain('My WhatsApp: 0712345678');
+    // The private credential travels INSIDE the copied message as a hash
+    // fragment — exactly the format app.js parses on the other device.
+    expect(copied).toContain(`${window.location.origin}/#grant=grant-1/tok-abc`);
+    expect(copied).toContain('do not share it');
+    // Feedback: button label flips and a status line confirms the copy.
+    expect(waBtn.textContent).toBe('Copied ✓');
+    expect(card.querySelector('#grPendingStatus').textContent).toContain('WhatsApp message copied');
+    // No network activity: the handoff is purely client-side.
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(postsBeforeCopy);
+  });
+
+  it('never renders the claim token into the page, even after the copy', async () => {
+    await submitRequest();
+    await new Promise((r) => setTimeout(r, 10));
+    const card = document.getElementById('grantModalCard');
+    expect(card.textContent).not.toContain('tok-abc');
+    const waBtn = card.querySelector('#grWhatsAppBtn');
+    stubClipboardCapture({});
+    try {
+      waBtn.click();
+      await new Promise((r) => setTimeout(r, 25));
+    } finally {
+      restoreNavigator();
+    }
+    expect(card.textContent).not.toContain('tok-abc');
+    expect(card.textContent).not.toContain('#grant=');
+  });
+
+  it('still copies an honest message without the link when no token is stored', async () => {
+    // Submit normally, then strip the credential to simulate the rare case of
+    // a token the browser cannot read back — the handoff must not embed a
+    // broken link, and the rest of the message must survive.
+    await submitRequest();
+    await new Promise((r) => setTimeout(r, 10));
+    localStorage.removeItem('gikomart_grantToken:grant-1');
+
+    const card = document.getElementById('grantModalCard');
+    const capture = {};
+    stubClipboardCapture(capture);
+    try {
+      card.querySelector('#grWhatsAppBtn').click();
+      await new Promise((r) => setTimeout(r, 25));
+    } finally {
+      restoreNavigator();
+    }
+    const copied = capture.text;
+    expect(copied).toContain('Request: Quick Sale (24h) — listing package');
+    expect(copied).toContain('My WhatsApp: 0712345678');
+    expect(copied).not.toContain('#grant=');
   });
 });
 

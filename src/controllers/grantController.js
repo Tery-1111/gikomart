@@ -7,6 +7,7 @@ const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { broadcastListing } = require('../services/whatsappService');
+const { evaluateGrantMintVolume } = require('../services/grantMintAlert');
 const { createResourceForPayment } = require('./paymentController');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
@@ -245,7 +246,7 @@ exports.redeemGrant = async (req, res, next) => {
     const claimed = await GrantRequest.findOneAndUpdate(
       { _id: grant._id, status: 'approved', provisionedAt: null },
       { $set: { provisionedAt: new Date(0) } },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!claimed) {
       // Another request holds the claim. Resolve to its outcome instead of
@@ -388,7 +389,7 @@ exports.mintGrantContinuation = async (req, res) => {
     const grant = await GrantRequest.findOneAndUpdate(
       { _id: req.params.id, status: 'approved', provisionedAt: null },
       { $set: { claimTokenHash: hashClaimToken(rawToken) } },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!grant) {
       // Distinguish "no such grant" (404) from "wrong state" (409) so the
@@ -407,6 +408,12 @@ exports.mintGrantContinuation = async (req, res) => {
       result: 'success',
       metadata: { type: grant.type },
     });
+
+    // Lightweight abuse alarm: flag unusual minting volume. The audit trail
+    // written above is the evidence base, so this evaluation is
+    // fire-and-forget — an alert must never delay or fail the mint response,
+    // and the raw token is irrelevant (and invisible) to it.
+    evaluateGrantMintVolume().catch(() => {});
 
     return res.json({
       success: true,
@@ -471,7 +478,7 @@ exports.approveGrant = async (req, res) => {
     const grant = await GrantRequest.findOneAndUpdate(
       { _id: req.params.id, status: 'pending' },
       { $set: { status: 'approved', decidedBy: adminActor(req), decidedAt } },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!grant) {
       return res.status(404).json({ success: false, error: 'No pending grant request found' });
@@ -503,7 +510,7 @@ exports.rejectGrant = async (req, res) => {
     const grant = await GrantRequest.findOneAndUpdate(
       { _id: req.params.id, status: 'pending' },
       { $set: { status: 'rejected', decidedBy: adminActor(req), decidedAt } },
-      { new: true },
+      { returnDocument: 'after' },
     );
     if (!grant) {
       return res.status(404).json({ success: false, error: 'No pending grant request found' });

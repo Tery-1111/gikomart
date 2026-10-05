@@ -887,6 +887,99 @@ runs `7654a0e`.)
   copy now introduces the redemption form ("Your grant is approved and ready
   …").
 
+### feat(ui): one-click "Copy WhatsApp message" handoff in the seller's pending state
+- **Behavior:** Before, a seller who wanted the admin on WhatsApp had to
+  assemble the message themselves — what they requested, their number, and (if
+  they knew to use it) the continue-on-another-device link from the separate
+  dialog. After, the pending card's primary button, **Copy WhatsApp message**,
+  puts the entire handoff on the clipboard in ONE action: a greeting, the
+  human-readable request description (`Request: Quick Sale (24h) — listing
+  package`), the contact number as typed, and the private `#grant=<claimId>/
+<token>` hash-fragment link with a keep-it-private note. The link is built
+  from the seller's own stored token (the same credential the Continue dialog
+  moves); if no token is readable, an honest message without a link is copied
+  instead of a broken one. The action is purely client-side (zero network
+  requests), the token is never rendered into the page (it travels only in
+  the copied text), and the button confirms with `Copied ✓` plus a status
+  line. Refactor: the copy mechanics moved into a shared
+  `copyTextToClipboard` helper (clipboard API with execCommand fallback) used
+  by both this button and the Continue dialog. `app.js` cache key bumped to
+  `?v=20261005b`.
+- **Files changed:** `public/assets/js/app.js`, `public/index.html`,
+  `tests/grantUx.test.mjs`.
+- **Tests added:** `tests/grantUx.test.mjs` — one click copies greeting,
+  request details, number and the exact `#grant=grant-1/tok-abc` fragment
+  with no additional network requests; the claim token is never rendered into
+  the page even after the copy; a missing token still yields an honest,
+  link-free message.
+- **Existing tests changed:** none.
+
+### feat(ops): volume alerting for continuation-token minting (credential-rotation abuse signal)
+- **Behavior:** Before, nothing flagged unusual minting volume — an admin
+  session rotating credentials for far more grants than lost tokens could
+  justify (mass re-targeting of unprovisioned grants, or a compromised
+  session) was visible only by manually reading the audit log. After, every
+  successful mint fire-and-forgets a lightweight evaluation that counts
+  `admin.grant_continuation_minted` events in the trailing ONE-HOUR window
+  via the existing audit collection (no new state, no extra write on the mint
+  path) and, at or above the threshold, logs a warn line and writes a
+  `admin.grant_mint_volume_alert` audit event carrying only
+  `{ count, windowMinutes, threshold }` — never token material. The alarm is
+  advisory ONLY: it never blocks, delays, rate-limits or alters the mint
+  response, and a failed evaluation (or alert write) is swallowed so the mint
+  always succeeds. Threshold via `GRANT_MINT_ALERT_THRESHOLD` (positive
+  integer, default 5 when unset or invalid; read at call time so tests and
+  deployments can change it without a restart).
+- **Files changed:** `src/services/grantMintAlert.js` (new),
+  `src/controllers/grantController.js`, `.env.example`,
+  `tests/grantLifecycle.test.mjs`.
+- **Tests added:** `tests/grantLifecycle.test.mjs` alert block — silent below
+  the threshold; alert at the threshold with correct actor/resource/metadata
+  and no token material; invalid threshold falls back to the default of 5;
+  the mint still succeeds when the evaluation throws; the evaluation queries
+  the minted action within a one-hour window.
+- **Existing tests changed:** none (the lifecycle fake AuditEvent gained a
+  `countDocuments` stub, reset to 0 per test).
+
+### docs: grants-queue runbook (SOP for review, minting and safe sending)
+- **Files changed:** `docs/runbook-grant-requests.md` (new),
+  `docs/runbook-admin-portal.md` (tabs list now points at it).
+- Covers: reading the queue and its four filters, when minting a continuation
+  token is (and is not) appropriate, the mint-and-send procedure with the
+  once-only display and social-engineering guardrails, what each grant audit
+  action means (including the volume alert and its reconciliation rule), and
+  recovery for minted-but-not-sent or never-redeemed grants.
+
+### docs: deploy runbook for the Free Grant lifecycle shipment
+- **Files changed:** `docs/runbook-deploy-free-grant.md` (new).
+- Covers: preconditions (full gate green, cache-bust newer than production),
+  the two-commit shape, push-and-watch Render deploy, the `?v=` marker that
+  proves the new build is serving, header/API/seller/admin verification steps
+  (including assisted sign-in and the do-not-mint-five-times alert rule), and
+  rollback with revert + the 5-minute JS TTL self-heal.
+
+### docs: repo-wide audit for claims outdated by the Free Grant lifecycle
+- **Behavior:** a sweep of every living document, legal page and UI-copy
+  surface against the shipped lifecycle found three substantive gaps, now
+  fixed. (1) `public/legal/privacy-policy.html` did not disclose the
+  GrantRequest record (WhatsApp number, request, decision) or the grant claim
+  token stored in browser local storage — the data inventory gained a
+  Free Grant row and §5 gained the claim-token bullet. (2)
+  `docs/runbook-data-requests.md` had no way to find or erase a requester's
+  Free Grant records — section 2 gained the `db.grantrequests` find (plain
+  plus HMAC form) and section 3 the contact-field erasure. (3)
+  `docs/runbook-backup-restore.md` verified restores against only three
+  collections — now seven (adds grantrequests, termsacceptances,
+  auditevents). `docs/LEGAL_FACTS.md` gained the matching code-backed fact
+  rows. Verified-and-unchanged: the admin-portal runbook's Payments masking
+  text (payments still mask; only the grants queue shows full numbers),
+  `LEGAL_PLACEHOLDERS.md`, `AGENT_RULES.md`, `AUDIT_INPUTS.md`, the ui-audit
+  docs, the phase gate reports (point-in-time records, not living claims),
+  and the seller-facing copy in `app.js` (the "The admin will not ask for
+  it" and "no payment needed" lines are accurate as shipped). No README
+  exists at the repo root; nothing referenced the pre-lifecycle grant
+  behavior anywhere else.
+
 ## Phase 5 and later
 
 Not documented here until built.

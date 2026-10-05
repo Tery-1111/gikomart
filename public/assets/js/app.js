@@ -2329,6 +2329,56 @@ function restoreGrantContinuation() {
   showGrantPendingState(claimId, { type: 'listing' });
 }
 
+// Clipboard helper shared by the continuation dialog and the WhatsApp
+// handoff button. Prefers the async clipboard API; falls back to a hidden
+// textarea + execCommand for older browsers and test environments. Returns
+// false when neither path worked so callers can show an honest failure.
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (err) { /* fall through */ }
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (err) {
+    return false;
+  }
+}
+
+// The seller's one-click WhatsApp handoff: everything the admin needs in one
+// copyable message — what was requested, the contact number as typed, and the
+// continue-on-another-device link carrying the claim credential in its URL
+// HASH. The link is built from this browser's own stored token (the same
+// credential the Continue dialog moves); nothing here contacts the server and
+// the token is never rendered into the page — it only travels in the copied
+// text, which tells the admin to keep it private.
+function buildGrantWhatsAppHandoff(claimId, meta) {
+  const m = meta || getGrantMeta(claimId) || {};
+  let link;
+  const token = getGrantToken(claimId);
+  try {
+    link = token
+      ? `${window.location.origin}/#${GRANT_HASH_PREFIX.slice(1)}${encodeURIComponent(claimId)}/${encodeURIComponent(token)}`
+      : '';
+  } catch (err) {
+    link = '';
+  }
+  return [
+    'Hi! I requested a GikoMart Free Grant and I am waiting for approval.',
+    `Request: ${describeGrantRequest({ type: m.type, plan: m.plan })}`,
+    m.whatsapp ? `My WhatsApp: ${m.whatsapp}` : null,
+    link ? `If you ask me to continue on another device, open this private link (anyone with it can finish my request, so please do not share it): ${link}` : null,
+    'Thank you!',
+  ].filter(Boolean).join('\n');
+}
+
 // "Continue on another device": build a copyable link carrying this grant's
 // claimId + token in the URL HASH (never sent to the server). The token comes
 // from this browser's own localStorage — it is the seller's own credential,
@@ -2360,23 +2410,9 @@ function showGrantContinuationDialog(claimId) {
   const copyBtn = document.getElementById('grCopyLinkBtn');
   copyBtn.addEventListener('click', async () => {
     const statusEl = document.getElementById('grLinkStatus');
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(link);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = link;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
-      if (statusEl) grantStatusMessage(statusEl, '✅ Link copied. Paste it into the WhatsApp chat with the admin or open it on your other device.', '');
-    } catch (err) {
-      if (statusEl) grantStatusMessage(statusEl, '⚠️ Could not copy automatically — long-press the address bar and copy the link.', 'error');
-    }
+    const ok = await copyTextToClipboard(link);
+    if (ok && statusEl) grantStatusMessage(statusEl, '✅ Link copied. Paste it into the WhatsApp chat with the admin or open it on your other device.', '');
+    else if (!ok && statusEl) grantStatusMessage(statusEl, '⚠️ Could not copy automatically — long-press the address bar and copy the link.', 'error');
   });
   document.getElementById('grHideLinkBtn').addEventListener('click', () => { panel.innerHTML = ''; });
 }
@@ -2642,7 +2678,8 @@ function showGrantPendingState(claimId, meta) {
       ${meta && meta.whatsapp ? `<div><strong>WhatsApp:</strong> ${escapeHTML(meta.whatsapp)}</div>` : ''}
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button type="button" class="btn btn-primary btn-sm" id="grCheckBtn">Check status</button>
+      <button type="button" class="btn btn-primary btn-sm" id="grWhatsAppBtn">Copy WhatsApp message</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="grCheckBtn">Check status</button>
       <button type="button" class="btn btn-ghost btn-sm" id="grContinueBtn">Continue on another device</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-grant-modal">Close</button>
     </div>
@@ -2654,6 +2691,26 @@ function showGrantPendingState(claimId, meta) {
       setBtnBusy(checkBtn, true, 'Checking…');
       await grantPollStatus(claimId, resolvedType, 0);
       setBtnBusy(checkBtn, false);
+    });
+  }
+  // One-click WhatsApp handoff: a single copy action puts the whole message —
+  // request details, contact number, and the private continuation link — on
+  // the clipboard, ready to paste into the chat with the admin.
+  const waBtn = document.getElementById('grWhatsAppBtn');
+  if (waBtn) {
+    const originalWaLabel = waBtn.textContent;
+    waBtn.addEventListener('click', async () => {
+      const statusEl = document.getElementById('grPendingStatus');
+      const ok = await copyTextToClipboard(buildGrantWhatsAppHandoff(claimId, meta));
+      if (statusEl) {
+        grantStatusMessage(statusEl,
+          ok
+            ? '✅ WhatsApp message copied — paste it into your chat with the GikoMart admin.'
+            : '⚠️ Could not copy automatically — open "Continue on another device" and copy the link manually.',
+          ok ? '' : 'error');
+      }
+      waBtn.textContent = ok ? 'Copied ✓' : originalWaLabel;
+      setTimeout(() => { waBtn.textContent = originalWaLabel; }, 3000);
     });
   }
   const continueBtn = document.getElementById('grContinueBtn');

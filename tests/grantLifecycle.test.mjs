@@ -120,6 +120,7 @@ const fakeTermsModel = {
 const fakeAuditEvent = {
   create: vi.fn(async (data) => { h.auditEvents.push(data); return data; }),
   find: () => ({ sort: () => ({ limit: () => ({ lean: async () => h.auditEvents.map((e) => ({ ...e })) }) }) }),
+  countDocuments: vi.fn(async () => 0),
 };
 const fakeAdminModel = {
   findOne: () => ({ select: () => Promise.resolve(null), then: (res) => Promise.resolve(null).then(res, res) }),
@@ -166,6 +167,9 @@ beforeEach(() => {
   h.grants.length = 0; h.listings.length = 0; h.stores.length = 0; h.payments.length = 0;
   h.blocks.length = 0; h.acceptances.length = 0; h.auditEvents.length = 0;
   broadcastListing.mockClear();
+  fakeAuditEvent.countDocuments.mockClear();
+  fakeAuditEvent.countDocuments.mockResolvedValue(0);
+  delete process.env.GRANT_MINT_ALERT_THRESHOLD;
   listingCreateDelay = null;
   listingCreateThrow = null;
 });
@@ -439,5 +443,113 @@ describe('Admin continuation-token mint — deliberate credential rotation', () 
     expect(h.grants[0].claimTokenHash).toBe(sha256hex(body.claimToken));
     const stillWorks = await request(app).get(`/api/grants/status/${body.claimId}`).set('X-Grant-Token', body.claimToken);
     expect(stillWorks.status).toBe(200);
+  });
+});
+
+describe('Continuation-token mint volume alerting', () => {
+  // Drain the fire-and-forget alert evaluation the mint triggered. The alert
+  // path itself waits on countDocuments/create, so yielding a few microtask
+  // ticks settles it deterministically without sleeping.
+  const drainAlert = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+
+  it('stays silent while the window count is below the threshold', async () => {
+    const { body } = await submitListingGrant({ whatsapp: '0712000071' });
+    await approve(body.claimId);
+    fakeAuditEvent.countDocuments.mockResolvedValue(1);
+    process.env.GRANT_MINT_ALERT_THRESHOLD = '5';
+
+    const mint = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(mint.status).toBe(200);
+    await drainAlert();
+
+    expect(h.auditEvents.some((e) => e.action === 'admin.grant_mint_volume_alert')).toBe(false);
+  });
+
+  it('raises an admin.grant_mint_volume_alert at the threshold, carrying counts but no token material', async () => {
+    const { body } = await submitListingGrant({ whatsapp: '0712000072' });
+    await approve(body.claimId);
+    process.env.GRANT_MINT_ALERT_THRESHOLD = '3';
+    fakeAuditEvent.countDocuments.mockResolvedValue(3);
+
+    const mint = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(mint.status).toBe(200); // the alert NEVER blocks or alters the mint
+    await drainAlert();
+
+    const alert = h.auditEvents.find((e) => e.action === 'admin.grant_mint_volume_alert');
+    expect(alert).toBeTruthy();
+    expect(alert.actor).toBe('system');
+    expect(alert.resource).toBe('grant');
+    expect(alert.metadata).toMatchObject({ count: 3, threshold: 3, windowMinutes: 60 });
+    expect(JSON.stringify(alert)).not.toContain(mint.body.claimToken);
+    expect(JSON.stringify(alert)).not.toContain('claimToken');
+  });
+
+  it('ignores an invalid or non-positive threshold and uses the default of 5', async () => {
+    const { body } = await submitListingGrant({ whatsapp: '0712000073' });
+    await approve(body.claimId);
+    process.env.GRANT_MINT_ALERT_THRESHOLD = '-2';
+    fakeAuditEvent.countDocuments.mockResolvedValue(4);
+
+    const mint = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(mint.status).toBe(200);
+    await drainAlert();
+
+    // count 4 < default 5 → no alert; the check evaluated with the default.
+    expect(h.auditEvents.some((e) => e.action === 'admin.grant_mint_volume_alert')).toBe(false);
+    fakeAuditEvent.countDocuments.mockResolvedValue(5);
+    const second = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(second.status).toBe(200);
+    await drainAlert();
+    expect(h.auditEvents.some((e) => e.action === 'admin.grant_mint_volume_alert')).toBe(true);
+  });
+
+  it('the mint still succeeds when the alert evaluation fails', async () => {
+    const { body } = await submitListingGrant({ whatsapp: '0712000074' });
+    await approve(body.claimId);
+    fakeAuditEvent.countDocuments.mockRejectedValue(new Error('count exploded'));
+
+    const mint = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(mint.status).toBe(200);
+    expect(mint.body.claimToken).toMatch(/^[0-9a-f]{48}$/);
+    expect(h.grants[0].claimTokenHash).toBe(sha256hex(mint.body.claimToken));
+    await drainAlert();
+    expect(h.auditEvents.some((e) => e.action === 'admin.grant_mint_volume_alert')).toBe(false);
+  });
+
+  it('queries the audit trail for the minted action within a one-hour window', async () => {
+    const { body } = await submitListingGrant({ whatsapp: '0712000075' });
+    await approve(body.claimId);
+
+    const mint = await request(app)
+      .post(`/api/admin/grants/${body.claimId}/continuation-token`)
+      .set('X-Admin-Session', session())
+      .send({});
+    expect(mint.status).toBe(200);
+    await drainAlert();
+
+    expect(fakeAuditEvent.countDocuments).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'admin.grant_continuation_minted',
+        timestamp: expect.objectContaining({ $gte: expect.any(Date) }),
+      }),
+    );
+    const filter = fakeAuditEvent.countDocuments.mock.calls.at(-1)[0];
+    expect(filter.timestamp.$gte.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(Date.now() - filter.timestamp.$gte.getTime()).toBeLessThan(61 * 60 * 1000);
   });
 });

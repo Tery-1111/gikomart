@@ -502,7 +502,7 @@ exports.handleWebhook = async (req, res, next) => {
       const payment = await Payment.findOneAndUpdate(
         { invoiceId: invoice_id, status: { $ne: 'completed' } },
         { status: 'completed' },
-        { new: true }
+        { returnDocument: 'after' }
       );
 
       if (!payment) {

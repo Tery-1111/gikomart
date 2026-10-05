@@ -162,7 +162,7 @@ router.post('/grant-free-access', requireAdminSession, async (req, res) => {
     const payment = await Payment.findOneAndUpdate(
       query,
       { $set: { status: 'completed', grantedBy: adminActor(req), grantedAt } },
-      { new: true, sort: { createdAt: -1 } },
+      { returnDocument: 'after', sort: { createdAt: -1 } },
     );
 
     if (!payment) {
