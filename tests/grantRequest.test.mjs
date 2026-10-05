@@ -302,13 +302,16 @@ describe('Admin grant queue', () => {
     expect(h.grants[0].status).toBe('pending');
   });
 
-  it('lists a pending request with a masked phone', async () => {
+  it('lists a pending request with the full number (session-gated admin only) plus the masked form', async () => {
     await submitListingGrant();
     const res = await request(app).get('/api/admin/grants').set('X-Admin-Session', session());
     expect(res.status).toBe(200);
     expect(res.body.requests).toHaveLength(1);
     expect(res.body.requests[0].whatsappMasked).toBe('2547***78');
-    expect(JSON.stringify(res.body)).not.toContain('254712345678');
+    // The full normalized number is exposed to the authenticated admin queue
+    // (wa.me contact + verification) — but never a claim token or its hash.
+    expect(res.body.requests[0].whatsapp).toBe('254712345678');
+    expect(JSON.stringify(res.body)).not.toContain('claimTokenHash');
   });
 
   it('approves a pending request and records the admin actor', async () => {

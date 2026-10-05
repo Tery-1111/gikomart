@@ -6,6 +6,7 @@ const BlockedContact = require('../models/BlockedContact');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
+const { broadcastListing } = require('../services/whatsappService');
 const { createResourceForPayment } = require('./paymentController');
 const { VALID_CONDITIONS } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
@@ -219,8 +220,10 @@ exports.redeemGrant = async (req, res, next) => {
     }
 
     // Idempotent replay: already provisioned → return the existing resource
-    // rather than creating a second one.
-    if (grant.provisionedAt) {
+    // rather than creating a second one. The epoch-0 sentinel (a redemption
+    // currently in flight) is excluded so a mid-flight race never reports a
+    // not-yet-existing resource as "already provisioned".
+    if (grant.provisionedAt && grant.provisionedAt.getTime() > 0) {
       const existingId = grant.type === 'listing' ? grant.listingId : grant.storeId;
       return res.status(200).json({
         success: true,
@@ -231,6 +234,32 @@ exports.redeemGrant = async (req, res, next) => {
 
     if (grant.status !== 'approved') {
       return res.status(409).json({ success: false, error: 'This grant request has not been approved yet' });
+    }
+
+    // Atomic single-winner claim. Two concurrent redeems both pass the reads
+    // above, so the resource-producing side must be claimed atomically: only
+    // the request whose update matches `provisionedAt: null` may mint an owner
+    // token and provision. The epoch-0 sentinel marks "claimed, provisioning";
+    // it is replaced by the real timestamp on success and reset to null on
+    // failure, preserving the documented safe-retry behaviour.
+    const claimed = await GrantRequest.findOneAndUpdate(
+      { _id: grant._id, status: 'approved', provisionedAt: null },
+      { $set: { provisionedAt: new Date(0) } },
+      { new: true },
+    );
+    if (!claimed) {
+      // Another request holds the claim. Resolve to its outcome instead of
+      // minting a second (potentially dead) owner token.
+      const fresh = await GrantRequest.findById(grant._id);
+      if (fresh && fresh.provisionedAt && fresh.provisionedAt.getTime() > 0) {
+        const existingId = fresh.type === 'listing' ? fresh.listingId : fresh.storeId;
+        return res.status(200).json({
+          success: true,
+          alreadyProvisioned: true,
+          resource: { type: fresh.type, id: existingId ? String(existingId) : null },
+        });
+      }
+      return res.status(409).json({ success: false, error: 'This grant is being redeemed right now — try again in a moment' });
     }
 
     // Validate the payload + terms using the same rules the paid path enforces.
@@ -258,22 +287,6 @@ exports.redeemGrant = async (req, res, next) => {
     const { rawOwnerToken, ownerTokenHash } = generateOwnerToken();
 
     const contactWhatsapp = grant.type === 'listing' ? payload.listingData.sellerWhatsapp : payload.storeData.whatsapp;
-    await recordAcceptance({
-      acceptanceType,
-      versions: payload.versions,
-      action: grant.type === 'listing' ? `FREE_GRANT_PUBLISH:${grant.package}` : `FREE_GRANT_CREATE_STORE:${grant.storePlan}`,
-      phone: grant.whatsapp,
-      whatsapp: contactWhatsapp,
-      ownerTokenHash,
-      ip: req.ip,
-      userAgent: req.get('user-agent') || '',
-      fee: { amount: 0, currency: 'KES', label: 'Free grant' },
-      metadata: {
-        grantRequestId: String(grant._id),
-        grantPackage: grant.package || null,
-        grantStorePlan: grant.storePlan || null,
-      },
-    });
 
     // Payment-shaped object for the shared provisioning convergence point. It
     // needs no real Payment document: createResourceForPayment reads only these
@@ -282,12 +295,39 @@ exports.redeemGrant = async (req, res, next) => {
       ? { _id: grant._id, type: 'listing', package: grant.package, listingData: payload.listingData, ownerTokenHash }
       : { _id: grant._id, type: 'store', storePlan: grant.storePlan, storeData: payload.storeData, ownerTokenHash };
 
-    const { type, doc } = await createResourceForPayment(paymentShaped);
+    // Acceptance + provisioning run inside the claim. Any failure releases the
+    // claim (provisionedAt back to null) so the seller can safely retry.
+    let result;
+    try {
+      await recordAcceptance({
+        acceptanceType,
+        versions: payload.versions,
+        action: grant.type === 'listing' ? `FREE_GRANT_PUBLISH:${grant.package}` : `FREE_GRANT_CREATE_STORE:${grant.storePlan}`,
+        phone: grant.whatsapp,
+        whatsapp: contactWhatsapp,
+        ownerTokenHash,
+        ip: req.ip,
+        userAgent: req.get('user-agent') || '',
+        fee: { amount: 0, currency: 'KES', label: 'Free grant' },
+        metadata: {
+          grantRequestId: String(grant._id),
+          grantPackage: grant.package || null,
+          grantStorePlan: grant.storePlan || null,
+        },
+      });
 
-    grant.provisionedAt = new Date();
-    if (type === 'listing') grant.listingId = doc._id;
-    else grant.storeId = doc._id;
-    await grant.save();
+      result = await createResourceForPayment(paymentShaped);
+    } catch (err) {
+      claimed.provisionedAt = null;
+      await claimed.save().catch(() => {});
+      throw err;
+    }
+    const { type, doc } = result;
+
+    claimed.provisionedAt = new Date();
+    if (type === 'listing') claimed.listingId = doc._id;
+    else claimed.storeId = doc._id;
+    await claimed.save();
 
     emit({
       actor: ownerActor(req),
@@ -303,6 +343,17 @@ exports.redeemGrant = async (req, res, next) => {
       },
     });
 
+    // Broadcast parity with the paid listing path (paymentController webhook):
+    // announce the new listing, but only when moderation approved it — the paid
+    // path skips flagged listings too. Fire-and-forget: a broadcast failure
+    // must never turn a completed provisioning into a failed redemption.
+    // Store grants have no broadcast mechanism to reuse, so none is triggered.
+    if (type === 'listing' && doc.moderationStatus === 'approved') {
+      broadcastListing(doc).catch((broadcastErr) => {
+        logger.warn('Grant listing broadcast failed', { error: broadcastErr.message });
+      });
+    }
+
     return res.status(201).json({
       success: true,
       resource: { type, id: String(doc._id) },
@@ -311,6 +362,61 @@ exports.redeemGrant = async (req, res, next) => {
   } catch (err) {
     logger.error('Grant redeem error', { error: err.message });
     return next(err);
+  }
+};
+
+// ─── Admin: mint a NEW continuation credential for an approved grant ───────
+// The claim token lives only in the seller's browser localStorage. When it is
+// lost before redemption (cleared storage, new phone), the admin can
+// deliberately rotate the credential: the stored claimTokenHash is atomically
+// replaced with the hash of a freshly generated 192-bit token. Reusing the
+// SAME field means there is still exactly one credential system and the old
+// token is revoked by the write itself; timing-safe comparison is untouched.
+// The raw token is returned ONLY in this action's response — the list endpoint
+// never carries a token or hash — and it is never logged or audited in
+// plaintext.
+exports.mintGrantContinuation = async (req, res) => {
+  if (!isValidId(req.params.id)) {
+    return res.status(400).json({ success: false, error: 'Invalid grant id' });
+  }
+  try {
+    // Eligibility mirrors redemption itself: approved and not yet provisioned
+    // (the epoch-0 in-flight sentinel also fails the provisionedAt:null match,
+    // so a rotation can never strand a redemption that is mid-flight). There
+    // is no second credential system: this replaces claimTokenHash in place.
+    const rawToken = crypto.randomBytes(24).toString('hex');
+    const grant = await GrantRequest.findOneAndUpdate(
+      { _id: req.params.id, status: 'approved', provisionedAt: null },
+      { $set: { claimTokenHash: hashClaimToken(rawToken) } },
+      { new: true },
+    );
+    if (!grant) {
+      // Distinguish "no such grant" (404) from "wrong state" (409) so the
+      // admin can tell a typo from an eligibility problem.
+      const exists = await GrantRequest.findById(req.params.id);
+      if (!exists) return res.status(404).json({ success: false, error: 'Grant request not found' });
+      return res.status(409).json({ success: false, error: 'Only approved, not-yet-provisioned grants can get a continuation token' });
+    }
+
+    // Audit the rotation without the token or its hash in any field.
+    emit({
+      actor: adminActor(req),
+      action: 'admin.grant_continuation_minted',
+      resource: 'grant',
+      resourceId: String(grant._id),
+      result: 'success',
+      metadata: { type: grant.type },
+    });
+
+    return res.json({
+      success: true,
+      claimId: String(grant._id),
+      claimToken: rawToken,
+      message: 'New continuation token generated. The previous token no longer works. Send it to the seller now — it is shown only once.',
+    });
+  } catch (err) {
+    logger.error('Grant continuation mint error', { error: err.message });
+    res.status(500).json({ success: false, error: 'Failed to generate continuation token' });
   }
 };
 
@@ -341,7 +447,11 @@ exports.listGrantRequests = async (req, res) => {
         status: grant.status,
         createdAt: grant.createdAt,
         decidedAt: grant.decidedAt || null,
-        provisioned: Boolean(grant.provisionedAt),
+        provisioned: Boolean(grant.provisionedAt && grant.provisionedAt.getTime() > 0),
+        // Full number for the session-gated admin queue (wa.me contact +
+        // verification). Never returned by any public endpoint; the masked
+        // form is kept for any surface that prefers it.
+        whatsapp: grant.whatsapp,
         whatsappMasked: maskPhone(grant.whatsapp),
       })),
     });

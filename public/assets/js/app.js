@@ -8,6 +8,42 @@
 // host or port. Works on localhost, Render, or any dev port.
 const API_BASE = '/api';
 
+// ─── Cross-device grant continuation (URL hash) ───────────────────────────
+// A seller can hand an in-flight grant to another device with a continuation
+// link of the form  <origin>/#grant=<claimId>/<claimToken>. The HASH FRAGMENT
+// is deliberate: browsers never send it to the server, so the bearer token
+// cannot reach logs, proxies, or Referer headers, and analytics (GoatCounter
+// records page URLs) never observe it. This block runs at script parse time —
+// before any analytics can fire — captures the values, and immediately scrubs
+// the URL so the token never lingers in the address bar or history. The
+// actual restoration runs in DOMContentLoaded (restoreGrantContinuation).
+const GRANT_HASH_PREFIX = '#grant=';
+let grantContinuation = null; // { claimId, token } captured from this page load's URL
+
+(function captureGrantContinuation() {
+  try {
+    const hash = window.location.hash || '';
+    // Always strip the hash once read — valid or malformed, the token must
+    // not stay in the visible URL.
+    const cleanUrl = window.location.pathname + window.location.search;
+    if (!hash.startsWith(GRANT_HASH_PREFIX)) {
+      if (hash) window.history.replaceState(null, '', cleanUrl);
+      return;
+    }
+    const payload = hash.slice(GRANT_HASH_PREFIX.length);
+    const sep = payload.indexOf('/');
+    if (sep <= 0 || sep === payload.length - 1) {
+      // Malformed continuation (missing id or token): scrub and ignore.
+      window.history.replaceState(null, '', cleanUrl);
+      return;
+    }
+    grantContinuation = { claimId: payload.slice(0, sep), token: payload.slice(sep + 1) };
+    window.history.replaceState(null, '', cleanUrl);
+  } catch (err) {
+    // A malformed hash must never break page initialization.
+  }
+})();
+
 // Ownership tokens: after a listing payment completes, the server hands back a
 // one-time owner token. It is stored only in this browser (localStorage) and
 // sent back as X-Owner-Token on edit/delete. Before the listing's id is known,
@@ -225,6 +261,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupActionDelegation();
   loadListings();
   recoverPendingTokens();
+  // Cross-device continuation: the URL hash carried claimId+token, which the
+  // parse-time capture above has already stored and scrubbed. Drive the
+  // existing resume flow so the seller lands on the right state.
+  if (grantContinuation) restoreGrantContinuation();
   // Abort any in-flight status poll when the page is torn down (tab close or
   // navigation) so a stale timer can't fire against a gone page.
   window.addEventListener('pagehide', () => { clearListingPoll(); clearStorePoll(); });
@@ -900,7 +940,6 @@ function setupActionDelegation() {
       // ── Free Grant (admin-reviewed free package request) ──
       case 'open-grant-modal': openGrantModal(); break;
       case 'close-grant-modal': closeGrantModal(); break;
-      case 'grant-continue': showGrantRedeemStep(el.dataset.claimId, el.dataset.grantType); break;
       // ── Reporting ──
       case 'report-listing': openReportModal('listing', el.dataset.targetId); break;
       case 'report-store': openReportModal('store', el.dataset.targetId); break;
@@ -2161,6 +2200,8 @@ async function openStorePage(slug) {
 
 let activeGrant = null;          // { claimId, type } for the seller's own request
 let grantPollTimer = null;
+let grantImageUrl = null;   // uploaded photo URL for the grant redeem form
+let isGrantImageUploading = false;
 // A submit is in flight: the button is disabled AND this flag blocks the
 // handler, so repeated clicks (or Enter-in-input implicit submits) can never
 // create a duplicate request.
@@ -2261,6 +2302,165 @@ function closeGrantModal() {
   const overlay = document.getElementById('grantModalOverlay');
   if (overlay) overlay.classList.remove('open');
   clearGrantPoll();
+  grantImageUrl = null;
+  isGrantImageUploading = false;
+}
+
+// ─── Cross-device continuation ──────────────────────────────────────────
+// The URL-hash values were captured and scrubbed at script-parse time
+// (captureGrantContinuation). This runs inside DOMContentLoaded, after the
+// modal is wired, and reuses the existing resume flow: store the token under
+// the same localStorage key the seller's own submission used, then drive the
+// existing poll/restore logic. The URL is never reloaded; the token is never
+// rendered into the page.
+function restoreGrantContinuation() {
+  const { claimId, token } = grantContinuation;
+  grantContinuation = null; // use once
+  if (!claimId || !token) return;
+  // Reuse the existing persistence helpers — no duplicate storage logic.
+  saveGrantToken(claimId, token);
+  if (!getGrantMeta(claimId)) {
+    // Minimal meta so describeGrantRequest has something to show; the status
+    // endpoint supplies the authoritative type once polled.
+    saveGrantMeta(claimId, { type: 'listing' });
+  }
+  // Land on the persistent submitted/pending state (same as the seller's own
+  // resume flow) and let its poller flip the card to approved/rejected.
+  showGrantPendingState(claimId, { type: 'listing' });
+}
+
+// "Continue on another device": build a copyable link carrying this grant's
+// claimId + token in the URL HASH (never sent to the server). The token comes
+// from this browser's own localStorage — it is the seller's own credential,
+// moved by the seller themselves, exactly as before, just transported by the
+// seller instead of being device-bound. The admin never sees it.
+function showGrantContinuationDialog(claimId) {
+  const panel = document.getElementById('grDevicePanel');
+  if (!panel) return;
+  const token = getGrantToken(claimId);
+  if (!token) return;
+  let link = '';
+  try {
+    link = `${window.location.origin}/#${GRANT_HASH_PREFIX.slice(1)}${encodeURIComponent(claimId)}/${encodeURIComponent(token)}`;
+  } catch (err) {
+    return;
+  }
+  panel.innerHTML = `
+    <div style="margin-top:12px; padding:14px; border-radius:var(--radius-lg); background:var(--marigold-light);">
+      <strong>Continue on another device</strong>
+      <p style="margin:8px 0 0; font-size:14px;">
+        Anyone with this link can finish publishing this grant — treat it like a password. The admin will not ask for it.
+      </p>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary btn-sm" id="grCopyLinkBtn">Copy link</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="grHideLinkBtn">Hide</button>
+      </div>
+      <div class="form-status" id="grLinkStatus" style="margin-top:8px;"></div>
+    </div>`;
+  const copyBtn = document.getElementById('grCopyLinkBtn');
+  copyBtn.addEventListener('click', async () => {
+    const statusEl = document.getElementById('grLinkStatus');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = link;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      if (statusEl) grantStatusMessage(statusEl, '✅ Link copied. Paste it into the WhatsApp chat with the admin or open it on your other device.', '');
+    } catch (err) {
+      if (statusEl) grantStatusMessage(statusEl, '⚠️ Could not copy automatically — long-press the address bar and copy the link.', 'error');
+    }
+  });
+  document.getElementById('grHideLinkBtn').addEventListener('click', () => { panel.innerHTML = ''; });
+}
+
+// Reuse the paid Sell flow's upload pipeline unchanged: same endpoint, same
+// retry/backoff, same server validation (multer 5 MB, magic bytes, sharp,
+// Cloudinary). Only the element ids differ.
+async function uploadGrantImage(file, statusEl) {
+  if (file.size > 5 * 1024 * 1024) {
+    grantStatusMessage(statusEl, 'File too large — max 5MB', 'error');
+    return null;
+  }
+  const formData = new FormData();
+  formData.append('image', file);
+  const res = await fetchUploadWithRetry(formData, statusEl);
+  if (res && res.status === 503) {
+    grantStatusMessage(statusEl, 'Server is busy — please try again in a moment', 'error');
+    return null;
+  }
+  if (!res || !res.ok) {
+    let serverError = '';
+    try { serverError = ((await res.json()) || {}).error || ''; } catch (_e) {}
+    grantStatusMessage(statusEl, serverError || 'Upload failed — the listing will be posted without a photo', 'error');
+    return null;
+  }
+  const data = await res.json();
+  return data.url || null;
+}
+
+function setupGrantImageUpload() {
+  const box = document.getElementById('g-imageUploadBox');
+  const input = document.getElementById('g-image');
+  const placeholder = document.getElementById('g-imageUploadPlaceholder');
+  const previewImg = document.getElementById('g-imagePreviewImg');
+  const removeBtn = document.getElementById('g-imageRemoveBtn');
+  const status = document.getElementById('g-imageUploadStatus');
+  if (!box || !input) return;
+  box.addEventListener('click', (e) => {
+    if (e.target === removeBtn) return;
+    if (!box.classList.contains('has-image')) input.click();
+  });
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file || isGrantImageUploading) return;
+    isGrantImageUploading = true;
+    status.textContent = 'Uploading photo…';
+    status.className = 'image-upload-status';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      previewImg.src = e.target.result;
+      previewImg.classList.add('show');
+      placeholder.style.display = 'none';
+      box.classList.add('has-image');
+      removeBtn.hidden = false;
+    };
+    reader.readAsDataURL(file);
+    const url = await uploadGrantImage(file, status);
+    isGrantImageUploading = false;
+    if (url) {
+      grantImageUrl = url;
+      status.textContent = '✅ Photo uploaded';
+      status.className = 'image-upload-status success';
+    } else {
+      // No photo — the seller can still publish, exactly like the Sell form.
+      input.value = '';
+      previewImg.src = '';
+      previewImg.classList.remove('show');
+      placeholder.style.display = 'flex';
+      box.classList.remove('has-image');
+      removeBtn.hidden = true;
+    }
+  });
+  removeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    input.value = '';
+    grantImageUrl = null;
+    previewImg.src = '';
+    previewImg.classList.remove('show');
+    placeholder.style.display = 'flex';
+    box.classList.remove('has-image');
+    removeBtn.hidden = true;
+    status.textContent = '';
+    status.className = 'image-upload-status';
+  });
 }
 
 function openGrantModal() {
@@ -2443,9 +2643,11 @@ function showGrantPendingState(claimId, meta) {
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button type="button" class="btn btn-primary btn-sm" id="grCheckBtn">Check status</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="grContinueBtn">Continue on another device</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-grant-modal">Close</button>
     </div>
-    <div class="form-status" id="grPendingStatus" style="margin-top:10px;"></div>`;
+    <div class="form-status" id="grPendingStatus" style="margin-top:10px;"></div>
+    <div id="grDevicePanel"></div>`;
   const checkBtn = document.getElementById('grCheckBtn');
   if (checkBtn) {
     checkBtn.addEventListener('click', async () => {
@@ -2453,6 +2655,10 @@ function showGrantPendingState(claimId, meta) {
       await grantPollStatus(claimId, resolvedType, 0);
       setBtnBusy(checkBtn, false);
     });
+  }
+  const continueBtn = document.getElementById('grContinueBtn');
+  if (continueBtn) {
+    continueBtn.addEventListener('click', () => showGrantContinuationDialog(claimId));
   }
   grantPollStatus(claimId, resolvedType, 0);
   document.getElementById('grantModalOverlay').classList.add('open');
@@ -2508,6 +2714,19 @@ function showGrantRedeemStep(claimId, type) {
       <div class="field-group"><label>Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
     </div>
     <div class="field-group"><label>Description</label><textarea id="g-description" required></textarea></div>
+    <div class="field-group"><label>Photo (optional)</label>
+      <div class="image-upload" id="g-imageUploadBox">
+        <input type="file" id="g-image" accept="image/*" hidden>
+        <div class="image-upload-placeholder" id="g-imageUploadPlaceholder">
+          <span class="image-upload-icon">📷</span>
+          <span class="image-upload-text">Click to add a photo</span>
+          <span class="image-upload-hint">JPG or PNG, up to 5MB</span>
+        </div>
+        <img id="g-imagePreviewImg" class="image-preview-img" alt="">
+        <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" hidden>✕</button>
+      </div>
+      <div class="image-upload-status" id="g-imageUploadStatus"></div>
+    </div>
     <div class="field-row">
       <div class="field-group"><label>Your name</label><input type="text" id="g-seller" required></div>
       <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
@@ -2529,7 +2748,7 @@ function showGrantRedeemStep(claimId, type) {
     <button class="modal-close" data-action="close-grant-modal">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 4px;">Your free grant was approved 🎉</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
-      Your grant is ready. Continue below to activate your ${escapeHTML(resolvedType === 'store' ? 'store' : 'listing')} — no payment needed.
+      Your grant is approved and ready. Complete the form below to publish your ${escapeHTML(resolvedType === 'store' ? 'store' : 'listing')} — no payment needed.
     </p>
     <form id="grantRedeemForm" novalidate>
       ${resolvedType === 'store' ? storeFields : listingFields}
@@ -2537,6 +2756,11 @@ function showGrantRedeemStep(claimId, type) {
       <button type="submit" class="btn btn-primary btn-block" id="grRedeemBtn" style="margin-top:8px;">Publish with Free Grant</button>
       <div class="form-status" id="grRedeemStatus"></div>
     </form>`;
+  // Fresh photo state per render, and wire the optional image upload
+  // (listing grants only — stores have no image field).
+  grantImageUrl = null;
+  isGrantImageUploading = false;
+  if (resolvedType === 'listing') setupGrantImageUpload();
   document.getElementById('grantModalOverlay').classList.add('open');
 }
 
@@ -2574,7 +2798,7 @@ async function handleGrantRedeemSubmit(e) {
       sellerName: document.getElementById('g-seller').value.trim(),
       sellerWhatsapp: document.getElementById('g-whatsapp').value.trim(),
       location: document.getElementById('g-location').value.trim() || 'Njoro',
-      images: [],
+      images: grantImageUrl ? [grantImageUrl] : [],
     };
     body.acceptance = buildSellerAcceptanceToken();
   }

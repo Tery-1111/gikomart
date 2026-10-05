@@ -10,6 +10,7 @@
   let busy = false;
   const views = {};
   let activeView = null;
+  let grantStatusFilter = 'pending';
   let reportStatusFilter = 'open';
   let reportTypeFilter = '';
   let paymentStatusFilter = '';
@@ -283,6 +284,15 @@
     return data && typeof data.error === 'string' ? data.error : 'error';
   }
 
+  // Mask a phone for non-grant surfaces (payments table). Grant requests show
+  // the full number in their session-gated queue (see views.grants).
+  function maskPhone(value) {
+    if (typeof value === 'string' && /^\d{9,15}$/.test(value)) {
+      return value.slice(0, 4) + '***' + value.slice(-2);
+    }
+    return value;
+  }
+
   function filterSelect(id, options, value) {
     const node = el('select', { id: id });
     options.forEach(function (opt) {
@@ -292,13 +302,6 @@
     });
     node.value = value;
     return node;
-  }
-
-  function maskPhone(value) {
-    if (typeof value === 'string' && /^\d{9,15}$/.test(value)) {
-      return value.slice(0, 4) + '***' + value.slice(-2);
-    }
-    return value;
   }
 
   views.reports = {
@@ -929,19 +932,129 @@
   // ── Free Grant requests ──────────────────────────────────────────────────
   // Administrative free-access requests (no payment involved). Approving one
   // lets the SELLER redeem it on their own device, where the owner token is
-  // minted. The admin never sees or handles a claim token.
+  // minted. The admin never handles the seller's claim token — except as a
+  // deliberate, explicit rotation: for an approved grant whose token was lost
+  // before redemption, the admin can mint a NEW continuation credential
+  // (see mintGrantContinuation below), which atomically replaces the stored
+  // hash so the old token stops working.
+
+  // Copy text to the clipboard with the same execCommand fallback the seller
+  // app uses (JSDOM/test and older browsers have no navigator.clipboard).
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); return true; } catch (err) { /* fall through */ }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  // Direct WhatsApp contact: the number is already normalized to
+  // 254[17]XXXXXXXX, exactly the format wa.me expects — no reformatting.
+  // presetText (optional) is sent as the prefilled message, e.g. a
+  // continuation link minted for this grant.
+  function buildGrantContactAnchor(grant, presetText) {
+    const anchor = el('a', null, 'WhatsApp Seller');
+    const message = presetText
+      || 'Hi! Your GikoMart Free Grant was approved. Open GikoMart, tap "Request a Free Grant" in the Sell tab, and it will guide you to finish publishing your ' + (grant.type === 'store' ? 'store' : 'listing') + '.';
+    anchor.href = 'https://wa.me/' + String(grant.whatsapp) + '?text=' + encodeURIComponent(message);
+    anchor.target = '_blank';
+    anchor.rel = 'noopener';
+    return anchor;
+  }
+
+  // Mint a NEW continuation credential for an approved, unprovisioned grant.
+  // The endpoint atomically replaces the stored claimTokenHash and returns the
+  // raw token exactly once — it lives only in this closure and is never stored,
+  // logged, or re-fetched. The row then offers: the #grant=<id>/<token> link
+  // (hash fragment, never sent to a server), a copy button, the WhatsApp
+  // message carrying the link, and a reveal control for the token itself.
+  // Closing the tab discards it; minting again revokes it.
+  function mintGrantContinuation(grant) {
+    const result = { done: false };
+    result.promise = api('POST', '/api/admin/grants/' + encodeURIComponent(grant.id) + '/continuation-token', {}).then(function (outcome) {
+      if (outcome.status !== 200) throw new Error(errorText(outcome.data));
+      const data = outcome.data || {};
+      const claimId = String(data.claimId || grant.id);
+      const token = String(data.claimToken || '');
+      if (!token) throw new Error('empty token');
+      result.done = true;
+
+      let origin = '';
+      try { origin = window.location.origin; } catch (err) { /* JSDOM guards */ }
+      // The admin portal and the seller app share an origin; the fragment is
+      // never transmitted, so the absolute origin is only a display concern.
+      if (!origin) origin = 'https://gikomart.co.ke';
+      const link = origin + '/#grant=' + encodeURIComponent(claimId) + '/' + encodeURIComponent(token);
+      const waMessage = 'Hi! Here is your GikoMart Free Grant continuation link. Open it on the phone or computer where you want to finish publishing your ' + (grant.type === 'store' ? 'store' : 'listing') + '. Anyone who has the link can finish the request, so keep it private. Link: ' + link;
+
+      const row = document.querySelector('#grantsTable tr[data-grant-id="' + grant.id + '"]');
+      const rowMsg = row ? row.querySelector('[data-role="rowMsg"]') : document.createElement('span');
+      if (!row) return; // view reloaded mid-flight — token discarded unused
+      clear(rowMsg);
+
+      rowMsg.appendChild(el('strong', null, 'Continuation link (shown only once — the previous token no longer works):'));
+      const openAnchor = el('a', null, 'Open link');
+      openAnchor.href = link;
+      rowMsg.appendChild(openAnchor);
+      if (grant.whatsapp) {
+        rowMsg.appendChild(buildGrantContactAnchor(grant, waMessage));
+      }
+      const copyBtn = el('button', { type: 'button' }, 'Copy link');
+      copyBtn.addEventListener('click', async function () {
+        const ok = await copyText(link);
+        copyBtn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+        setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 3000);
+      });
+      rowMsg.appendChild(copyBtn);
+      // No raw-token span is rendered: the token travels inside the link
+      // (href + copy + WhatsApp message) and nowhere else, so it never
+      // appears as page text — not even hidden-and-revealable.
+    });
+    return result;
+  }
+
   views.grants = {
     load: async function () {
-      const result = await api('GET', '/api/admin/grants');
+      // 'provisioned' is a client-side view over the approved dataset (rows
+      // whose provisioning fields are set) — the API only knows the three
+      // stored statuses, and its whitelist would fall back to 'pending'.
+      const apiStatus = grantStatusFilter === 'provisioned' ? 'approved' : grantStatusFilter;
+      const result = await api('GET', '/api/admin/grants?status=' + encodeURIComponent(apiStatus));
       assertOk(result.status);
       const data = result.data || {};
-      const requests = Array.isArray(data.requests) ? data.requests : [];
+      const allRequests = Array.isArray(data.requests) ? data.requests : [];
+      const requests = grantStatusFilter === 'provisioned'
+        ? allRequests.filter(function (grant) { return grant.provisioned; })
+        : allRequests;
       const viewBody = document.getElementById('viewBody');
       const viewMsg = document.getElementById('viewMsg');
       clear(viewBody);
       viewMsg.className = '';
       viewMsg.textContent = requests.length ? '' : 'Nothing to show.';
       viewBody.appendChild(el('p', null, 'Approve or reject seller requests for a free package. Approval cannot be undone here — the seller then redeems it on their own device.'));
+
+      // History filter (pending default preserved).
+      const filterWrap = el('div', { className: 'filter-row' });
+      const statusSel = filterSelect('grantStatusFilter', [
+        { value: 'pending', label: 'pending' },
+        { value: 'approved', label: 'approved' },
+        { value: 'rejected', label: 'rejected' },
+        { value: 'provisioned', label: 'provisioned' },
+      ], grantStatusFilter);
+      statusSel.addEventListener('change', function () {
+        grantStatusFilter = statusSel.value;
+        activateView('grants');
+      });
+      filterWrap.appendChild(el('label', null, 'Status: '));
+      filterWrap.appendChild(statusSel);
+      viewBody.appendChild(filterWrap);
 
       const wrap = el('div', { className: 'scroll' });
       const table = el('table', { id: 'grantsTable' });
@@ -959,12 +1072,30 @@
         row.appendChild(el('td', null, fmtTime(grant.createdAt)));
         row.appendChild(el('td', null, String(grant.type)));
         row.appendChild(el('td', null, String(grant.package || grant.storePlan || '—')));
-        row.appendChild(el('td', null, grant.whatsappMasked ? String(grant.whatsappMasked) : '—'));
-        row.appendChild(el('td', null, String(grant.status) + (grant.provisioned ? ' / provisioned' : '')));
+        row.appendChild(el('td', null, grant.whatsapp ? String(grant.whatsapp) : '—'));
+        row.appendChild(el('td', null, grant.status + (grant.provisioned ? ' / provisioned' : '')));
 
         const actions = el('td');
         const rowMsg = el('span', { dataset: { role: 'rowMsg' } });
         actions.appendChild(rowMsg);
+        // Direct WhatsApp contact: the number is already normalized to
+        // 254[17]XXXXXXXX, exactly the format wa.me expects — no reformatting.
+        if (grant.whatsapp) {
+          actions.appendChild(buildGrantContactAnchor(grant, null));
+        }
+        // Deliberate rotation for an approved grant whose claim token was
+        // lost before redemption: mint a NEW credential (revoking the old
+        // one) and hand the seller a #grant= fragment link + WhatsApp message.
+        if (grant.status === 'approved' && !grant.provisioned) {
+          const mintBtn = el('button', { type: 'button' }, 'New continuation link');
+          armed(mintBtn, 'New continuation link', function () {
+            const minted = mintGrantContinuation(grant);
+            minted.promise.catch(function (err) {
+              rowMsg.textContent = 'Failed: ' + (err && err.message ? err.message : 'error');
+            });
+          });
+          actions.appendChild(mintBtn);
+        }
         if (grant.status === 'pending') {
           const approve = el('button', { type: 'button' }, 'Approve');
           armed(approve, 'Approve', function () {

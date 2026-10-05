@@ -156,7 +156,7 @@ describe('Free Grant request — approval transition', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(card.textContent).toContain('Your free grant was approved');
-    expect(card.textContent).toContain('Your grant is ready. Continue below to activate your listing');
+    expect(card.textContent).toContain('Your grant is approved and ready. Complete the form below to publish your listing');
     // The existing redemption UI is presented, not a different flow.
     expect(card.querySelector('#grantRedeemForm')).not.toBeNull();
     expect(card.querySelector('#g-title')).not.toBeNull();
