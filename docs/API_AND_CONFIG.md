@@ -40,9 +40,10 @@ route-specific limiter.
 | POST | `/api/grants` | None (public) | globalLimiter + reportLimiter (+ honeypot) | Submit a Free Grant request (admin-reviewed; no payment) |
 | GET | `/api/grants/status/:claimId` | Grant claim token (`X-Grant-Token`) | globalLimiter + statusLimiter | Poll a Free Grant request's status |
 | POST | `/api/grants/:claimId/redeem` | Grant claim token (`X-Grant-Token`) | globalLimiter + paymentLimiter | Redeem an approved Free Grant through existing provisioning |
-| GET | `/api/admin/grants` | `X-Admin-Session` | globalLimiter + adminLimiter | List Free Grant requests (phone masked) |
+| GET | `/api/admin/grants` | `X-Admin-Session` | globalLimiter + adminLimiter | List Free Grant requests (full normalized number, session-gated; masked form also included; never any token/hash) |
 | POST | `/api/admin/grants/:id/approve` | `X-Admin-Session` | globalLimiter + adminLimiter | Approve a pending Free Grant request (atomic pending → approved) |
 | POST | `/api/admin/grants/:id/reject` | `X-Admin-Session` | globalLimiter + adminLimiter | Reject a pending Free Grant request (atomic pending → rejected) |
+| POST | `/api/admin/grants/:id/continuation-token` | `X-Admin-Session` | globalLimiter + adminLimiter | Mint a NEW continuation credential for an approved, unprovisioned grant (rotates `claimTokenHash`; raw token returned once, only here) |
 | GET | `/api/stores/slug/:slug` | None; `X-Store-Owner-Token`/admin for contact | globalLimiter | Public store by slug (flagged/removed hidden) |
 | GET | `/api/stores/me/all` | `X-Store-Owner-Token` | globalLimiter | All stores owned by the presented token |
 | GET | `/api/stores/:id` | `X-Store-Owner-Token` | globalLimiter | Owner's store by id (full data) |
@@ -155,6 +156,7 @@ ids only — never values, contact data, hashes or reporter IPs.
 | `admin.grant_requests_viewed` | admin |
 | `admin.grant_approved` | grant |
 | `admin.grant_rejected` | grant |
+| `admin.grant_continuation_minted` | grant |
 
 ## f) Data retention
 
@@ -272,18 +274,51 @@ Flow:
    against `LISTING_PRICES`/`STORE_PLANS`; a blocked contact gets `403`. Responds
    `201 { claimId, claimToken, status: 'pending' }`. Only `sha256(claimToken)` is
    stored — the raw token is returned once, for the requesting browser only.
-2. The admin reviews `GET /api/admin/grants` (session-gated; the phone is masked)
-   and calls `POST /api/admin/grants/:id/approve` or `/reject` (atomic
-   `pending → approved|rejected`). The body is not trusted for package/number.
+2. The admin reviews `GET /api/admin/grants` (session-gated; the full
+   normalized number is returned as `whatsapp` for wa.me contact, with
+   `whatsappMasked` kept — never on any public endpoint, and a session-less
+   request leaks nothing; each row also reports a derived `provisioned`
+   boolean) and calls `POST /api/admin/grants/:id/approve` or `/reject`
+   (atomic `pending → approved|rejected`). The body is not trusted for
+   package/number. The queue's `status` filter accepts
+   `pending | approved | rejected` (pending default; an unknown value falls
+   back to pending); the admin portal's additional `provisioned` view is
+   derived client-side by fetching `status=approved` and filtering rows whose
+   `provisioned` is true — the API itself has no such status value. The list
+   payload never contains the claim token or its hash.
 3. `GET /api/grants/status/:claimId` (header `X-Grant-Token`) reports
    `pending | approved | rejected`.
 4. `POST /api/grants/:claimId/redeem` (header `X-Grant-Token`, body
-   `{ listingData | storeData, acceptance }`) mints the owner token in the
-   seller's request, records terms acceptance, and calls
-   `createResourceForPayment()` with the request `_id` as the unique-sparse
-   `paymentId`. Responds `201 { resource: { type, id }, ownerToken }` (returned
-   once). A repeat redeem returns `200 { alreadyProvisioned: true, resource }`
-   without creating a second resource; a rejected request gets `409`.
+   `{ listingData | storeData, acceptance }`) claims the redemption
+   atomically (`status: 'approved'` AND `provisioned: null`, with an epoch-0
+   in-flight sentinel and rollback to `provisioned: null` on failure), mints
+   the owner token in the seller's request, records terms acceptance, and
+   calls `createResourceForPayment()` with the request `_id` as the
+   unique-sparse `paymentId`. Responds `201 { resource: { type, id },
+   ownerToken }` (returned once). A repeat redeem returns
+   `200 { alreadyProvisioned: true, resource }` without creating a second
+   resource; a rejected or not-yet-approved request gets `409`; a
+   concurrent redemption while another holds the claim resolves to the
+   winner's outcome or a retryable `409`. A redeemed LISTING is broadcast
+   through the same `broadcastListing` as the paid webhook path — only when
+   moderation approved it, fire-and-forget; store grants never broadcast.
+5. Continuation: the claim token lives only in the submitting browser's
+   localStorage. To move it, the seller's pending card builds a
+   `#grant=<claimId>/<token>` URL HASH fragment link from its own stored
+   token; `app.js` captures and scrubs the hash at script-parse time (never
+   sent to a server, never in Referer — `index.html` sets
+   `Referrer-Policy: no-referrer`) and resumes through the normal poll flow.
+   When the token is lost entirely, an admin can deliberately mint a NEW
+   credential: `POST /api/admin/grants/:id/continuation-token` (session
+   gate; `adminLimiter`; empty body) atomically replaces the stored
+   `claimTokenHash` for an approved, not-yet-provisioned grant, which
+   revokes the old token by the write itself. Responds
+   `200 { success, claimId, claimToken, message }` — the raw token is
+   returned ONLY in this response, never via `GET /api/admin/grants`, never
+   logged or audited. Errors: `400` malformed id, `404` unknown grant,
+   `409` pending/rejected/provisioned (a redemption in flight counts as
+   provisioned for this check). No schema change — the same
+   `claimTokenHash` field and timing-safe comparison are reused.
 
 Rate limiting reuses existing limiters (submit = `reportLimiter`, status =
 `statusLimiter`, redeem = `paymentLimiter`). Admin routes use `adminLimiter` and

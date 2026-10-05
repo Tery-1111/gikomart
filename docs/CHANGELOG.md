@@ -792,6 +792,101 @@ the tests added. Phase 5 and later are intentionally not documented until built.
   assertion now encodes the short JS/CSS TTL plus a regression test that
   `index.html` always references a versioned `app.js`.
 
+## Phase 10d — Free Grant lifecycle: broadcast parity, admin history, cross-device continuation
+
+(Working-tree changes documented as built; not yet committed — production still
+runs `7654a0e`.)
+
+### feat(free-grant): listings redeemed from a grant broadcast like paid ones
+- **Behavior:** Before, only the paid webhook path announced a newly created
+  listing to the configured WhatsApp groups (`broadcastListing` in
+  `paymentController`), so a listing created through Free Grant redemption was
+  silent on the broadcast channel. After, a successful grant redemption calls
+  the SAME `broadcastListing` for `type: 'listing'`, under the same rules as
+  the paid path: only when moderation approved it (`moderationStatus ===
+  'approved'` — flagged listings are skipped both ways), fire-and-forget so a
+  broadcast failure is logged and never undoes provisioning, and store grants
+  never broadcast (stores have no broadcast mechanism). `WHATSAPP_GROUPS`
+  unset still no-ops safely.
+- **Files changed:** `src/controllers/grantController.js`,
+  `tests/grantLifecycle.test.mjs`.
+- **Tests added:** `tests/grantLifecycle.test.mjs` (new) — approved listing
+  grant broadcasts exactly once with the created document; flagged grant is
+  not broadcast; a broadcast failure never rolls back provisioning; a store
+  grant never triggers the listing broadcast; no `Payment` row is created
+  anywhere in the extended lifecycle.
+- **Existing tests changed:** none.
+
+### feat(admin): full WhatsApp number in the grant queue plus a status history filter
+- **Behavior:** Before, the session-gated admin queue returned and displayed
+  only the masked number (`2547***78`), which made a wa.me follow-up
+  impossible, and `GET /api/admin/grants` knew only
+  `status=pending|approved|rejected` with a silent pending fallback. After,
+  the queue response carries the FULL normalized number (`whatsapp`, rendered
+  as the "WhatsApp Seller" wa.me anchor) alongside `whatsappMasked` for any
+  surface that prefers masking — the full number still appears on no public
+  endpoint, and a session-less request still leaks nothing. The admin UI adds
+  a history filter (pending default, approved, rejected, and a derived
+  `provisioned` view that fetches `status=approved` and filters provisioned
+  rows client-side, because sending a bogus status to the API would fall back
+  to pending).
+- **Files changed:** `src/controllers/grantController.js`,
+  `public/assets/js/admin.js`, `tests/grantRequest.test.mjs`,
+  `tests/grantLifecycle.test.mjs`, `tests/adminGrantsUi.test.mjs`.
+- **Tests added:** `tests/grantLifecycle.test.mjs` — full number returned only
+  in the authenticated admin response (with the masked form kept), raw claim
+  token and stored hash absent from the list payload, session-less request
+  leaks nothing, status filtering with `provisioned` derived on approved rows,
+  unknown status falls back to pending. `tests/adminGrantsUi.test.mjs` (new,
+  JSDOM over the real admin portal) — full number displayed, wa.me anchor
+  built from the normalized number, no anchor when the number is missing,
+  filter default and reload behaviour, provisioned derived client-side.
+- **Existing tests changed:** `tests/grantRequest.test.mjs` — the admin list
+  assertion now requires the full `whatsapp` AND the absence of any token or
+  hash material.
+
+### feat(free-grant): cross-device continuation for the claim credential (seller link + admin mint)
+- **Behavior:** Before, the claim token lived only in the submitting browser's
+  localStorage: clearing storage or switching devices made an approved grant
+  unredeemable, with no recovery path. After, the credential can be moved two
+  deliberate ways. (1) Seller-side: the pending card offers "Continue on
+  another device", building a `#grant=<claimId>/<token>` URL HASH fragment
+  from the seller's OWN stored token — `app.js` captures the hash at
+  script-parse time and scrubs it (`history.replaceState`) before analytics or
+  any server contact, then resumes through the existing localStorage + poll
+  flow; `public/index.html` sends `Referrer-Policy: no-referrer` so the
+  fragment can never leak via Referer. (2) Admin-side: a session-gated action
+  (`POST /api/admin/grants/:id/continuation-token`) atomically replaces the
+  stored `claimTokenHash` with the hash of a newly generated 192-bit token for
+  an approved, NOT-yet-provisioned grant — revoking the old token by the write
+  itself, reusing the same single credential system (no schema change),
+  keeping comparison timing-safe, and returning the raw token exactly once in
+  that response only: never in the grant list, never logged, never written to
+  audit events. The admin UI renders the fragment link, a wa.me message
+  carrying it, and a copy action on the eligible row only (two-click
+  confirmed); the token is never rendered as page text, and minting again
+  rotates the credential. A dead `grant-continue` dispatcher case (markup
+  nothing generated) was removed.
+- **Files changed:** `src/routes/adminGrants.js`,
+  `src/controllers/grantController.js`, `public/assets/js/app.js`,
+  `public/assets/js/admin.js`, `public/index.html`,
+  `tests/grantContinuation.test.mjs`, `tests/grantLifecycle.test.mjs`,
+  `tests/adminGrantsUi.test.mjs`, `tests/grantUx.test.mjs`.
+- **Tests added:** `tests/grantContinuation.test.mjs` (new, 7) — parse-time
+  hash capture/scrub/malformed handling and the resume flow.
+  `tests/adminGrantsUi.test.mjs` — mint button appears only on approved,
+  unprovisioned rows; the minted row renders the `#grant=` link, wa.me
+  message and copy action without exposing the token as page text; a failed
+  mint surfaces the API error. `tests/grantLifecycle.test.mjs` mint block —
+  rotation replaces the stored hash and revokes the old token (old token 401,
+  new token works, stale token cannot redeem), the raw token appears only in
+  the mint response (absent from the list and the audit event), 409 for
+  pending/rejected/provisioned, 404 unknown / 400 malformed id, unauthenticated
+  401 that leaks nothing and rotates nothing.
+- **Existing tests changed:** `tests/grantUx.test.mjs` — the approved-state
+  copy now introduces the redemption form ("Your grant is approved and ready
+  …").
+
 ## Phase 5 and later
 
 Not documented here until built.
