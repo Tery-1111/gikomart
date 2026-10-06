@@ -19,6 +19,17 @@ const TermsAcceptance = require('../models/TermsAcceptance');
 const BlockedContact = require('../models/BlockedContact');
 const { contactHash } = require('../utils/phone');
 
+// Constant-time comparison of two string secrets (same implementation as
+// grantController.safeCompare). Length is the only early branch; a mismatch
+// still runs timingSafeEqual so response timing does not leak how many
+// leading characters of the challenge were correct.
+function safeCompare(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 // The only fields a client may seed a paid listing with. Every key a client
 // sends inside listingData that is not on this list is dropped before the
 // Payment record is written, and createResourceForPayment copies exactly these
@@ -491,7 +502,11 @@ exports.handleWebhook = async (req, res, next) => {
     // would otherwise compare equal to an absent env value (`undefined !==
     // undefined` is false) and accept a forged webhook. Read at call time so the
     // check reflects the current deployment environment rather than module load.
-    if (!expectedChallenge || receivedChallenge !== expectedChallenge) {
+    // Non-string received values are treated as a mismatch (a Buffer/Object body
+    // would otherwise be stringified into an accidental match), and the
+    // comparison is constant-time so timing cannot probe the secret.
+    if (!expectedChallenge || typeof receivedChallenge !== 'string'
+      || !safeCompare(receivedChallenge, expectedChallenge)) {
       // Whitelist only debug-useful fields — the raw body contains the webhook
       // challenge secret and payer phone numbers (audit §4.3).
       logger.error('Webhook challenge mismatch', {
@@ -522,31 +537,18 @@ exports.handleWebhook = async (req, res, next) => {
     }
 
     if (state === 'COMPLETE') {
-      // Atomic idempotency guard: transition the payment to 'completed' and mark
-      // it as claimed in a single operation. Webhooks can be delivered more than
-      // once (provider retries, duplicate notifications) and possibly concurrently.
-      // Because the filter excludes payments already 'completed', only ONE of the
-      // concurrent deliveries can match and update the document — the loser gets
-      // null back and skips all side effects (listing creation, broadcast, boosts).
-      // This closes the check-then-act race between reading the status and saving it.
-      const payment = await Payment.findOneAndUpdate(
-        { invoiceId: invoice_id, status: { $ne: 'completed' } },
-        { status: 'completed' },
-        { returnDocument: 'after' }
-      );
+      // Load the payment first WITHOUT granting completion. The status is left
+      // as-is ('pending') through amount validation; only after every check
+      // passes does the atomic claim below transition it to 'completed'. This
+      // ordering means an amount-mismatch redelivery can never leave a payment
+      // marked completed (the old code claimed 'completed' before validating).
+      const payment = await Payment.findOne({ invoiceId: invoice_id });
 
       if (!payment) {
-        // The atomic update matched nothing. Find out why: either the payment
-        // record doesn't exist (404) or it was already processed by a duplicate
-        // delivery (200). Either way, return before any side effects.
-        const existing = await Payment.findOne({ invoiceId: invoice_id });
-        if (!existing) {
-          return res.status(404).json({ success: false, error: 'Payment record not found' });
-        }
-        return res.status(200).json({ success: true, message: 'Payment already processed' });
+        return res.status(404).json({ success: false, error: 'Payment record not found' });
       }
 
-      // Server-side amount validation. Prefer the canonical price captured on
+      // Server-side amount validation FIRST. Prefer the canonical price captured on
       // the Payment at initiation time (Payment.expectedAmount) so a price
       // change between initiation and completion never rejects a genuinely paid
       // record. Legacy payments predating that field have no value and fall
@@ -557,6 +559,12 @@ exports.handleWebhook = async (req, res, next) => {
         ?? BOOST_PRICES[payment.boostType];
       if (payment.amount !== expectedAmount) {
         logger.error(`Payment amount mismatch: expected ${expectedAmount}, stored ${payment.amount}, invoice ${invoice_id}`);
+        // Mark the record failed (a valid enum value) so the mismatch is
+        // observable and a redelivery is recognizable; nothing is provisioned.
+        await Payment.findOneAndUpdate(
+          { invoiceId: invoice_id, status: 'pending' },
+          { status: 'failed' },
+        );
         emit({
           actor: SYSTEM_ACTOR,
           action: 'payment.amount_mismatch',
@@ -566,6 +574,27 @@ exports.handleWebhook = async (req, res, next) => {
           metadata: { type: payment.type, expectedAmount: expectedAmount ?? null, storedAmount: payment.amount ?? null },
         });
         return res.status(400).json({ success: false, error: 'Payment amount validation failed' });
+      }
+
+      // Atomic idempotency claim: transition the payment to 'completed' in a
+      // single operation. Webhooks can be delivered more than once (provider
+      // retries, duplicate notifications) and possibly concurrently. Because
+      // the filter excludes payments already 'completed', only ONE of the
+      // concurrent deliveries can match and update the document — the loser
+      // gets null back and skips all side effects (listing creation, broadcast,
+      // boosts). This closes the check-then-act race between reading the status
+      // and saving it, and runs only AFTER validation has passed.
+      const claimed = await Payment.findOneAndUpdate(
+        { _id: payment._id, invoiceId: invoice_id, status: { $ne: 'completed' } },
+        { status: 'completed' },
+        { returnDocument: 'after' }
+      );
+
+      if (!claimed) {
+        // The atomic update matched nothing: the payment was already processed
+        // by a duplicate delivery. (The record itself was just found above, so
+        // the only other cause — a deleted record — cannot occur here.)
+        return res.status(200).json({ success: true, message: 'Payment already processed' });
       }
 
       if (payment.type === 'listing') {
