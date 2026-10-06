@@ -114,6 +114,20 @@ exports.setup2FA = async (req, res) => {
       }
     }
 
+    // Production first-time setup guard: with no 2FA-enrolled admin, a leaked
+    // or guessed admin key alone would otherwise be enough to enroll a new
+    // second factor (self-service takeover). In production, first-time setup
+    // is therefore disabled unless the operator explicitly opts in with
+    // ALLOW_2FA_SETUP=true. Enrolled-admin and non-production flows are
+    // unchanged. Runs before any secret is generated or written.
+    const adminEnrolled = current && current.totpEnabled === true;
+    if (process.env.NODE_ENV === 'production'
+      && !adminEnrolled
+      && process.env.ALLOW_2FA_SETUP !== 'true') {
+      logger.warn('2FA first-time setup blocked in production', { ip: req.ip });
+      return res.status(403).json({ error: '2FA setup is disabled' });
+    }
+
     const secret = speakeasy.generateSecret({
       name: `GikoMart Admin`,
     });
