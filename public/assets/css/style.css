@@ -1574,3 +1574,10 @@ textarea:focus-visible {
   padding: 8px 14px;
   font-size: 13px;
 }
+
+/* Lazy background images (store cover): native loading="lazy" does not apply
+   to CSS backgrounds, so the render ships a data-bg placeholder and an
+   IntersectionObserver swaps the real Cloudinary URL in when 10% visible.
+   .bg-loaded lands at swap time for the (best-effort) fade-in. */
+.lazy-bg { background-color: #f0f0f0; }
+.bg-loaded { transition: background-image 0.3s ease-in; }

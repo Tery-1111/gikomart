@@ -250,6 +250,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // load (store modal + delegated actions + listings never initialized).
   await loadTermsVersions();
   buildCategoryPills();
+  // No covers exist on first paint (they arrive via openStorePage); this is
+  // a cheap no-op that keeps the lazy-background lifecycle point wired.
+  initLazyBackgrounds();
   buildCategorySelect();
   buildPulseTicker();
   setupNav();
@@ -2125,6 +2128,49 @@ async function openStoreListings(storeId) {
 
 // ─── Public store page ──────────────────────────────────────────────────────
 
+// Lazy background images (store covers). Native loading="lazy" does not
+// apply to CSS backgrounds, so covers render as a data-bg placeholder and
+// this swaps the real URL in when the element nears the viewport.
+const lazyBgSeen = new WeakSet();
+let lazyBgObserver = null;
+
+function applyLazyBackground(el) {
+  const url = el.getAttribute('data-bg');
+  el.classList.remove('lazy-bg');
+  el.classList.add('bg-loaded');
+  if (url) {
+    // The attribute value is entity-decoded by the time it is read back.
+    // Strip characters that could terminate the CSS url("…") string.
+    el.style.backgroundImage = `url("${url.replace(/["\\\r\n]/g, '')}")`;
+  }
+}
+
+function initLazyBackgrounds() {
+  const pending = document.querySelectorAll('.lazy-bg');
+  if (typeof IntersectionObserver === 'undefined') {
+    // Fallback (older browsers, jsdom): no observer, load immediately.
+    pending.forEach(applyLazyBackground);
+    return;
+  }
+  if (!lazyBgObserver) {
+    lazyBgObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        applyLazyBackground(entry.target);
+        // One-shot: stop watching once the background is in place. The
+        // WeakSet dedupe keeps re-renders from double-observing and never
+        // holds detached elements, so observers cannot leak.
+        lazyBgObserver.unobserve(entry.target);
+      }
+    }, { threshold: 0.1 });
+  }
+  pending.forEach((el) => {
+    if (lazyBgSeen.has(el)) return;
+    lazyBgSeen.add(el);
+    lazyBgObserver.observe(el);
+  });
+}
+
 async function openStorePage(slug) {
   switchView('storepage');
   const container = document.getElementById('storePageContent');
@@ -2142,7 +2188,7 @@ async function openStorePage(slug) {
     container.innerHTML = `
       <div style="background:var(--card); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-soft); margin-bottom:24px;">
         ${store.cover_url
-          ? `<div style="height:200px; background:url('${escapeAttr(cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto'))}') center/cover;"></div>`
+          ? `<div class="lazy-bg" style="height:200px; background-position:center; background-size:cover;" data-bg="${escapeAttr(cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto'))}"></div>`
           : '<div style="height:120px; background:linear-gradient(135deg, var(--marigold), var(--teal));"></div>'}
         <div style="padding:24px;">
           <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
@@ -2169,6 +2215,9 @@ async function openStorePage(slug) {
       <h3 style="font-family:var(--font-display); margin-bottom:12px;">Listings (${data.listingCount})</h3>
       <div class="listing-grid" id="storePageListings"></div>
     `;
+
+    // Cover is data-bg-only; swap in the real image now that the DOM exists.
+    initLazyBackgrounds();
 
     // Load store listings: keep skeletons in the grid until they arrive.
     const grid = document.getElementById('storePageListings');

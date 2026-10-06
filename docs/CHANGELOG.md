@@ -1082,6 +1082,25 @@ runs `7654a0e`.)
   3 MB + 1 byte; pixel-bomb test's under-limit assertion now 3 MB; the
   "buffer already within" assertion now 1280px.
 
+### perf: lazy-load store cover background images via IntersectionObserver
+- **Behavior:** Before, the public store page rendered its cover as an inline
+  `background:url('…w_1200…')`, fetching the ~1200px Cloudinary derivative
+  immediately on store-page open even when the cover was off-screen (native
+  loading="lazy" does not apply to CSS backgrounds). After, the render emits
+  `<div class="lazy-bg" style="height:200px; background-position:center;
+  background-size:cover;" data-bg="…">` with no background-image, and a
+  shared IntersectionObserver (threshold 0.1, one-shot unobserve, WeakSet
+  dedupe) swaps the URL into `style.backgroundImage` when the element is 10%
+  visible; where IntersectionObserver is unavailable (old browsers, jsdom) the
+  URL is applied immediately. Escape contract unchanged (escapeAttr on
+  data-bg; the applied `url("…")` strips characters that could terminate the
+  CSS string).
+- **Files changed:** `public/assets/js/app.js`, `public/assets/css/style.css`,
+  `public/index.html` (cache-bust ?v=20261006b), `docs/CHANGELOG.md`.
+- **Tests:** no test changes; tests/xssEscaping's hostile cover_url probe
+  exercises the new path (jsdom has no IntersectionObserver → immediate-apply
+  fallback) and still asserts no injected elements / no window.__XSS.
+
 ## Phase 5 and later
 
 Not documented here until built.
