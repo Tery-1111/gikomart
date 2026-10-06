@@ -5,6 +5,7 @@ const TermsAcceptance = require('../models/TermsAcceptance');
 const Payment = require('../models/Payment');
 const Report = require('../models/Report');
 const AuditEvent = require('../models/AuditEvent');
+const Upload = require('../models/Upload');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 
@@ -66,6 +67,35 @@ async function deleteExpiredListings() {
     logger.info('Cleanup: deleted expired listings', { count: expired.length });
   } catch (err) {
     logger.error('Cleanup job error', { error: err.message });
+  }
+}
+
+// Orphan upload sweep: destroy Cloudinary assets that were never attached to
+// a listing or store (attached:false) after 24 hours. Max 100 per run so a
+// backlog cannot turn one tick into an unbounded API burst. The Upload record
+// is deleted only when the Cloudinary destroy succeeded; every error is caught
+// and logged so one bad asset never kills the rest of the cron step.
+async function destroyOrphanUploads() {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const orphans = await Upload.find({ attached: false, createdAt: { $lt: cutoff } }).limit(100);
+    if (!orphans.length) return;
+
+    let destroyed = 0;
+    let failed = 0;
+    for (const orphan of orphans) {
+      try {
+        await cloudinary.uploader.destroy(orphan.publicId);
+        await Upload.deleteOne({ _id: orphan._id });
+        destroyed += 1;
+      } catch (err) {
+        failed += 1;
+        logger.warn('Failed to destroy orphan upload', { publicId: orphan.publicId, error: err.message });
+      }
+    }
+    logger.info('Cleanup: orphan upload sweep', { scanned: orphans.length, destroyed, failed });
+  } catch (err) {
+    logger.error('Orphan upload sweep error', { error: err.message });
   }
 }
 
@@ -260,8 +290,9 @@ function startCleanupScheduler() {
     await stripOldReportPII();
     await stripOldPaymentPII();
     await pruneOldAuditEvents();
+    await destroyOrphanUploads();
   });
-  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + retention (store/acceptance contacts and hashes, report IPs, payment PII, audit events)');
+  logger.info('Cleanup scheduler started (every 30 min) — listings + store expiry + retention (store/acceptance contacts and hashes, report IPs, payment PII, audit events) + orphan upload sweep');
 }
 
 module.exports = {
@@ -274,4 +305,5 @@ module.exports = {
   stripOldReportPII,
   stripOldPaymentPII,
   pruneOldAuditEvents,
+  destroyOrphanUploads,
 };

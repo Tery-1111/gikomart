@@ -3,7 +3,9 @@ const router = express.Router();
 const multer = require('multer');
 const sharp = require('sharp');
 const cloudinary = require('../config/cloudinary');
-const { uploadLimiter } = require('../middleware/rateLimiter');
+const { uploadLimiter, uploadDailyLimiter } = require('../middleware/rateLimiter');
+const Upload = require('../models/Upload');
+const logger = require('../config/logger');
 const { createSemaphore } = require('../utils/semaphore');
 
 const storage = multer.memoryStorage();
@@ -41,7 +43,7 @@ function handleMulterError(err, req, res, next) {
   return next(err);
 }
 
-router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async (req, res, next) => {
+router.post('/', uploadLimiter, uploadDailyLimiter, upload.single('image'), handleMulterError, async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No file uploaded' });
@@ -101,6 +103,15 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       fetch_format: 'auto',
       allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
     });
+
+    // Track the asset so cleanupService can destroy uploads that are never
+    // attached to a paid listing/store (orphan sweep). A bookkeeping failure
+    // must not fail an upload that already succeeded in Cloudinary.
+    try {
+      await Upload.create({ publicId: result.public_id, url: result.secure_url });
+    } catch (err) {
+      logger.warn('Failed to record Upload for orphan tracking', { publicId: result.public_id, error: err.message });
+    }
 
     res.json({ success: true, url: result.secure_url });
   } catch (err) {

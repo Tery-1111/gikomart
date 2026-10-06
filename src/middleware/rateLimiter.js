@@ -28,6 +28,16 @@ const uploadLimiter = rateLimit({
   message: { success: false, error: 'Upload limit reached — please wait before trying again' },
 });
 
+// Upload daily ceiling: 100 uploads per IP per rolling 24 hours, layered after
+// uploadLimiter to bound Cloudinary storage growth from a single source.
+const uploadDailyLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Upload limit reached — please wait before trying again' },
+});
+
 // Payment initiation: 5 per minute per IP
 const paymentLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -100,4 +110,4 @@ const reportLimiter = rateLimit({
   message: { success: false, error: 'Too many reports — please try again later' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };
+module.exports = { globalLimiter, uploadLimiter, uploadDailyLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };

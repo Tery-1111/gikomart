@@ -150,6 +150,7 @@ const pass = () => (req, res, next) => next();
 const fakeRateLimiterModule = {
   globalLimiter: pass(),
   uploadLimiter: pass(),
+  uploadDailyLimiter: pass(),
   paymentLimiter: pass(),
   listingCreateLimiter: pass(),
   contactLimiter: pass(),
