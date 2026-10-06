@@ -7,5 +7,7 @@ totp-test.json
 .venv-brand/
 server-load-states.log
 backups/
-# Local security audit snapshots (not committed)
+# Local security audit snapshots (not committed).
+# Exception: AUDIT_INPUTS.md was deliberately force-added in d3fa901 and stays
+# tracked — gitignore does not untrack already-committed files.
 docs/security/
