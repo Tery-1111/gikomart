@@ -712,7 +712,7 @@ function listingCardHTML(l) {
   const condClass = 'cond-' + String(l.condition).replace(/\s+/g, '-');
   const hasImage = l.images && l.images.length > 0;
   const imageContent = hasImage
-    ? `<img src="${escapeAttr(cloudinaryResize(l.images[0], 'w_400,h_400,c_fill,q_auto,f_auto'))}" alt="${escapeAttr(l.title)}" loading="lazy">`
+    ? `<img src="${escapeAttr(cloudinaryResize(l.images[0], 'w_400,h_400,c_fill,q_auto,f_auto'))}"${responsiveImageAttrs(l.images[0], [400, 600, 800], (w) => `w_${w},h_${w},c_fill,q_auto,f_auto`, CARD_IMAGE_SIZES)} alt="${escapeAttr(l.title)}" loading="lazy">`
     : l.icon;
   const badgeHTML = l.featured
     ? `<span class="featured-badge ${l.boostType === 'rush' ? 'rush-badge' : ''}">⭐ ${l.boostType === 'rush' ? 'Rush Boost' : 'Featured'}</span>`
@@ -780,7 +780,7 @@ function openListingModal(id, source) {
   const condClass = 'cond-' + String(listing.condition).replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
-    ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}" alt="${escapeAttr(listing.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
+    ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}"${responsiveImageAttrs(listing.images[0], [400, 800, 1280], (w) => `w_${w},q_auto,f_auto`, DETAIL_IMAGE_SIZES)} alt="${escapeAttr(listing.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
@@ -1629,6 +1629,36 @@ function escapeAttr(str) {
 function cloudinaryResize(url, transform) {
   if (!url || !url.includes('/upload/')) return url;
   return url.replace('/upload/', `/upload/${transform}/`);
+}
+
+// ─── Responsive images (srcset/sizes) ──────────────────────────────────────
+// Rendered-width facts for `sizes` (style.css): cards are one auto-fill
+// minmax(240px,1fr) column inside .app-shell (max-width 1180px, 24px side
+// padding) — ≈350px desktop column, one full-width column on small phones;
+// the detail modal (.modal-card max-width 460px, 28px padding) shows its
+// image at ≤404 CSS px. Slight overestimates are the safe direction (the
+// browser then picks a sharper rung, never a blurrier one).
+const CARD_IMAGE_SIZES = '(max-width: 520px) calc(100vw - 48px), 350px';
+const DETAIL_IMAGE_SIZES = '(max-width: 520px) calc(100vw - 88px), 404px';
+
+// Build a srcset attribute value from Cloudinary width rungs of one image.
+// Returns '' for non-Cloudinary URLs (cloudinaryResize passes those through
+// unchanged, and repeating one URL at three descriptors gains nothing) —
+// the caller then emits no srcset at all and plain src keeps fallback duty.
+function cloudinarySrcset(url, widths, transformFor) {
+  if (!url || !url.includes('/upload/')) return '';
+  return widths.map((w) => `${cloudinaryResize(url, transformFor(w))} ${w}w`).join(', ');
+}
+
+// Full srcset/sizes attribute pair for an <img>, or '' when the URL is not a
+// Cloudinary upload. srcset URLs may contain commas (Cloudinary transform
+// lists) — the srcset grammar splits on whitespace, not commas. escapeAttr
+// keeps quote-bearing hostile values inside the attribute; a hostile value
+// with '/upload/' and spaces could at worst produce a malformed srcset, which
+// browsers discard in favor of src (same degradation as any broken hint).
+function responsiveImageAttrs(url, widths, transformFor, sizes) {
+  const srcset = cloudinarySrcset(url, widths, transformFor);
+  return srcset ? ` srcset="${escapeAttr(srcset)}" sizes="${escapeAttr(sizes)}"` : '';
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1119,6 +1119,26 @@ runs `7654a0e`.)
 - **Tests added:** 5 (suite grows to 50 files). `tests/xssEscaping.test.mjs`
   unchanged — it keeps covering the fallback path and the escaping contract.
 
+### perf: responsive srcset/sizes for listing card and detail images
+- **Behavior:** Before, every device fetched one fixed Cloudinary derivative —
+  the card its `w_400,h_400,c_fill` square crop, the detail modal its
+  `w_800` — regardless of viewport or device pixel ratio. After, both renders
+  emit `srcset`/`sizes`: the card ladder is 400/600/800 (the square c_fill
+  crop scales with the width so every rung keeps the 1:1 crop), the detail
+  ladder 400/800/1280 (1280 = the upload pipeline's max dimension; the
+  existing `w_800` src stays as fallback). `sizes` values reflect measured
+  rendered widths (style.css: .app-shell auto-fill minmax(240px,1fr) grid ≈
+  350px desktop column / full-width phone column; .modal-card 460px − 2×28px
+  padding ≈ 404px). Non-Cloudinary URLs emit no srcset at all — plain src
+  keeps fallback duty and hostile values gain no new sink (escapeAttr on the
+  assembled value; a malformed srcset degrades to src, per spec).
+- **Files changed:** `public/assets/js/app.js` (cloudinarySrcset +
+  responsiveImageAttrs helpers beside cloudinaryResize; card + detail call
+  sites), `public/index.html` (cache-bust ?v=20261006c),
+  `tests/responsiveImages.test.mjs` (new), `docs/CHANGELOG.md`.
+- **Coverage:** listingCardHTML is the single card renderer (browse grid,
+  my-listings, store page, store listings) — one change, four surfaces.
+
 ## Phase 5 and later
 
 Not documented here until built.
