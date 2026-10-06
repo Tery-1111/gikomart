@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const logger = require('../config/logger');
 const Listing = require('../models/Listing');
+const TermsAcceptance = require('../models/TermsAcceptance');
 const { ACCEPTANCE_TYPES, TERMS_VERSIONS } = require('../config/termsVersions');
 const {
   validateAcceptanceToken,
@@ -69,6 +70,30 @@ exports.recordContactAcceptance = async (req, res, next) => {
     const sellerWhatsapp = listing.sellerWhatsapp;
     if (!sellerWhatsapp) {
       return res.status(400).json({ success: false, error: 'Seller contact unavailable' });
+    }
+
+    // 5b. Contact-release caps: one listing must not be milked for its seller
+    //    number beyond 30 releases per rolling hour, and the whole contact
+    //    flow is capped at 1500 releases per rolling hour globally. Keyed on
+    //    the BUYER_CONTACT acceptance records (created by this endpoint), not
+    //    on IP — IP rotation does not bypass these. Checked before the
+    //    acceptance record is written and the number is returned.
+    const CONTACT_CAP_429 = { success: false, error: 'This contact is temporarily unavailable. Please try again later.' };
+    const releaseWindowStart = new Date(Date.now() - 60 * 60 * 1000);
+    const [listingReleases, globalReleases] = await Promise.all([
+      TermsAcceptance.countDocuments({
+        listingId,
+        acceptanceType: ACCEPTANCE_TYPES.BUYER_CONTACT,
+        timestamp: { $gte: releaseWindowStart },
+      }),
+      TermsAcceptance.countDocuments({
+        acceptanceType: ACCEPTANCE_TYPES.BUYER_CONTACT,
+        timestamp: { $gte: releaseWindowStart },
+      }),
+    ]);
+    if (listingReleases >= 30 || globalReleases >= 1500) {
+      logger.warn('Contact release cap reached', { listingId: String(listingId), listingReleases, globalReleases });
+      return res.status(429).json(CONTACT_CAP_429);
     }
 
     // 6. Record the acceptance, hashing the contact actually released (from the

@@ -337,6 +337,9 @@ const fakePaymentModel = {
 const fakeTermsModel = {
   create: async (data) => makeDoc({ _id: `ta-${Math.random().toString(36).slice(2, 8)}`, ...data }),
   findByIdAndUpdate: async () => makeDoc({}),
+  // Contact-release caps count records through this; 0 keeps the caps inactive
+  // so these tests keep exercising the un-capped release path.
+  countDocuments: async () => 0,
 };
 
 const fakeAdminModel = {

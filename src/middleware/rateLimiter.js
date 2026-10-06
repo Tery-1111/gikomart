@@ -75,13 +75,14 @@ const adminLimiter = rateLimit({
 });
 
 // Contact release: buyer contact-acceptance returns seller PII, so it gets its
-// own long-window budget on top of contactLimiter. The default is 40 per hour
-// per IP and tunable via CONTACT_RELEASE_LIMIT for ops. A missing or
-// non-positive value uses 40.
+// own long-window budget on top of contactLimiter. The default is 20 per hour
+// per IP (tightened from 40 to shrink the phone-harvesting budget) and
+// tunable via CONTACT_RELEASE_LIMIT for ops. A missing or
+// non-positive value uses 20.
 const configuredContactReleaseMax = Number.parseInt(process.env.CONTACT_RELEASE_LIMIT, 10);
 const contactReleaseLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: Number.isInteger(configuredContactReleaseMax) && configuredContactReleaseMax > 0 ? configuredContactReleaseMax : 40,
+  max: Number.isInteger(configuredContactReleaseMax) && configuredContactReleaseMax > 0 ? configuredContactReleaseMax : 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many contact releases — please try again later' },

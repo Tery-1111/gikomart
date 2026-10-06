@@ -23,7 +23,12 @@ const require = createRequire(import.meta.url);
     filename: termsResolved,
     loaded: true,
     path: termsResolved,
-    exports: { create: async (data) => ({ _id: 'ta-limit', ...data }) },
+    exports: {
+      create: async (data) => ({ _id: 'ta-limit', ...data }),
+      // controller-level contact-release caps read counts through this;
+      // 0 keeps them inactive so this suite exercises only the limiter
+      countDocuments: async () => 0,
+    },
   };
 }
 
@@ -61,14 +66,15 @@ app.use(express.json());
 app.use('/api/terms', termsRouter);
 
 describe('Contact release rate limit', () => {
-  it('does not rate-limit requests 1 through 40', async () => {
-    for (let i = 1; i <= 40; i++) {
+  // Default tightened from 40 to 20 per hour per IP (security hardening).
+  it('does not rate-limit requests 1 through 20', async () => {
+    for (let i = 1; i <= 20; i++) {
       const res = await request(app).post('/api/terms/contact-acceptance').send({});
       expect(res.status, `request #${i} must not be rate-limited`).not.toBe(429);
     }
   });
 
-  it('returns 429 on request 41', async () => {
+  it('returns 429 on request 21', async () => {
     const res = await request(app).post('/api/terms/contact-acceptance').send({});
     expect(res.status).toBe(429);
   });
