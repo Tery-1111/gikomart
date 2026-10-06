@@ -14,7 +14,7 @@ route-specific limiter.
 | PUT | `/api/listings/:id` | `X-Owner-Token` or admin | globalLimiter + paymentLimiter | Update a listing (content re-screened) |
 | DELETE | `/api/listings/:id` | `X-Owner-Token` or admin | globalLimiter + paymentLimiter | Delete a listing |
 | PUT | `/api/listings/:id/moderate` | Admin (`X-Admin-Key` or `X-Admin-Session`) | globalLimiter | Moderate a listing (approved/flagged/removed) |
-| POST | `/api/upload` | None (public) | globalLimiter + uploadLimiter | Validate and store an image |
+| POST | `/api/upload` | None (public) | globalLimiter + uploadLimiter | Validate and store an image (3 MB max, re-encoded to 1280×1280 JPEG q80) |
 | POST | `/api/payments/boost` | `X-Owner-Token` (checked in controller) | globalLimiter + paymentLimiter | Initiate a boost STK push |
 | POST | `/api/payments/initiate-listing` | None (public) | globalLimiter + paymentLimiter + listingCreateLimiter (+ honeypot) | Initiate a listing payment |
 | POST | `/api/payments/initiate-store-plan` | None (public) | globalLimiter + paymentLimiter + listingCreateLimiter (+ honeypot) | Initiate a store-plan payment |

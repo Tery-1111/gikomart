@@ -9,7 +9,7 @@ const { createSemaphore } = require('../utils/semaphore');
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5MB max, single file
+  limits: { fileSize: 3 * 1024 * 1024, files: 1 }, // 3MB max, single file
 });
 
 // Bound concurrent sharp decoding. A single decode can allocate tens of MB at
@@ -33,7 +33,7 @@ const ACCEPTED_MIME = new Set([
 // of letting them fall through to the generic 500 error handler.
 function handleMulterError(err, req, res, next) {
   if (err && err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ success: false, error: 'Image must be 5 MB or smaller' });
+    return res.status(400).json({ success: false, error: 'Image must be 3 MB or smaller' });
   }
   if (err && err.code && err.code.startsWith('LIMIT_')) {
     return res.status(400).json({ success: false, error: 'Upload rejected: ' + err.code });
@@ -75,11 +75,11 @@ router.post('/', uploadLimiter, upload.single('image'), handleMulterError, async
       // limitInputPixels caps DECODE, not output: a solid-colour PNG can declare
       // far more pixels than its file size suggests, so without an explicit cap
       // sharp falls back to its ~268 MP library default and happily allocates
-      // hundreds of MB of raw pixels for a sub-5 MB upload.
+      // hundreds of MB of raw pixels for a sub-3 MB upload.
       ({ data } = await sharp(req.file.buffer, { animated: false, limitInputPixels: 25_000_000 })
         // Strip metadata (EXIF contains location + camera data) and cap resolution.
         .rotate() // bake EXIF orientation into pixels
-        .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+        .resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 80 })
         .toBuffer({ resolveWithObject: true }));
     } catch (err) {

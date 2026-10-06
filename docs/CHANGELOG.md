@@ -1063,6 +1063,25 @@ runs `7654a0e`.)
   approve/reject routes in `adminGrants.js` — the file where such a route
   would be added. Behavior unchanged; no test changes.
 
+### perf(upload): tune compression to 1280px/3MB and harden lazy loading
+- **Behavior:** Before, uploads accepted 5 MB files and were re-encoded at a
+  1600×1600 ceiling; only 1 of 7 rendered `<img>` tags lazy-loaded. After,
+  uploads are capped at 3 MB (`fileSize: 3 * 1024 * 1024`), sharp resizes to
+  1280×1280 (`fit: 'inside'`, `withoutEnlargement` unchanged), the 400 error
+  message and all user-facing "max 5MB" copy now say 3MB (server error string,
+  sell-form client pre-check, Free Grant client pre-check, upload hints in
+  index.html/app.js/ui-preview), and every remaining `<img>` render in app.js
+  (listing detail, both store logos, grant upload preview) plus both static
+  preview images in index.html carries `loading="lazy"`. Security surface
+  unchanged: `limitInputPixels` stays 25M, `file-type` magic-byte sniffing,
+  quality 80, semaphore, and rate limits untouched.
+- **Files changed:** `src/routes/upload.js`, `public/assets/js/app.js`,
+  `public/index.html`, `public/ui-preview/index.html`, `tests/wiring.test.mjs`,
+  `docs/CHANGELOG.md`, `docs/API_AND_CONFIG.md`.
+- **Tests updated:** `tests/wiring.test.mjs` — oversize rejection now built at
+  3 MB + 1 byte; pixel-bomb test's under-limit assertion now 3 MB; the
+  "buffer already within" assertion now 1280px.
+
 ## Phase 5 and later
 
 Not documented here until built.

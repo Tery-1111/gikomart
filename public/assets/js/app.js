@@ -777,7 +777,7 @@ function openListingModal(id, source) {
   const condClass = 'cond-' + String(listing.condition).replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
-    ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}" alt="${escapeAttr(listing.title)}" style="width:100%;height:100%;object-fit:cover;">`
+    ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}" alt="${escapeAttr(listing.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
     : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
   const card = document.getElementById('modalCard');
   card.innerHTML = `
@@ -1214,8 +1214,8 @@ function setupImageUpload() {
     // Block a second pick while the current upload is still in flight.
     if (isUploading) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      status.textContent = 'File too large — max 5MB';
+    if (file.size > 3 * 1024 * 1024) {
+      status.textContent = 'File too large — max 3MB';
       status.className = 'image-upload-status error';
       return;
     }
@@ -1676,7 +1676,7 @@ function renderStoreManagementPanel(store, listingCount) {
     <div style="background:var(--card); border-radius:var(--radius-lg); padding:24px; margin-bottom:20px; box-shadow:var(--shadow-soft);">
       <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
         ${store.logo_url
-          ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
+          ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" loading="lazy" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
           : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px;">🏪</div>'}
         <div>
           <h3 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h3>
@@ -2147,7 +2147,7 @@ async function openStorePage(slug) {
         <div style="padding:24px;">
           <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
             ${store.logo_url
-              ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover; border:3px solid var(--card);">`
+              ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" loading="lazy" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover; border:3px solid var(--card);">`
               : '<div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--marigold-light); display:flex; align-items:center; justify-content:center; font-size:36px; border:3px solid var(--card);">🏪</div>'}
             <div>
               <h2 style="margin:0; font-family:var(--font-display);">${escapeHTML(store.name)}</h2>
@@ -2418,11 +2418,11 @@ function showGrantContinuationDialog(claimId) {
 }
 
 // Reuse the paid Sell flow's upload pipeline unchanged: same endpoint, same
-// retry/backoff, same server validation (multer 5 MB, magic bytes, sharp,
+// retry/backoff, same server validation (multer 3 MB, magic bytes, sharp,
 // Cloudinary). Only the element ids differ.
 async function uploadGrantImage(file, statusEl) {
-  if (file.size > 5 * 1024 * 1024) {
-    grantStatusMessage(statusEl, 'File too large — max 5MB', 'error');
+  if (file.size > 3 * 1024 * 1024) {
+    grantStatusMessage(statusEl, 'File too large — max 3MB', 'error');
     return null;
   }
   const formData = new FormData();
@@ -2777,9 +2777,9 @@ function showGrantRedeemStep(claimId, type) {
         <div class="image-upload-placeholder" id="g-imageUploadPlaceholder">
           <span class="image-upload-icon">📷</span>
           <span class="image-upload-text">Click to add a photo</span>
-          <span class="image-upload-hint">JPG or PNG, up to 5MB</span>
+          <span class="image-upload-hint">JPG or PNG, up to 3MB</span>
         </div>
-        <img id="g-imagePreviewImg" class="image-preview-img" alt="">
+        <img id="g-imagePreviewImg" class="image-preview-img" alt="" loading="lazy">
         <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" hidden>✕</button>
       </div>
       <div class="image-upload-status" id="g-imageUploadStatus"></div>

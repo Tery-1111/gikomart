@@ -1280,11 +1280,11 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(cloudinaryUpload).not.toHaveBeenCalled();
   });
 
-  it('rejects a file above the 5 MB limit with 4xx and never uploads (oversize)', async () => {
-    // One byte over the multer limit (upload.js: fileSize: 5 * 1024 * 1024).
+  it('rejects a file above the 3 MB limit with 4xx and never uploads (oversize)', async () => {
+    // One byte over the multer limit (upload.js: fileSize: 3 * 1024 * 1024).
     // A valid PNG header keeps this a pure size rejection, not a format one.
     const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'blue' } }).png().toBuffer();
-    const oversized = Buffer.concat([png, Buffer.alloc(5 * 1024 * 1024 + 1)]);
+    const oversized = Buffer.concat([png, Buffer.alloc(3 * 1024 * 1024 + 1)]);
     const res = await request(app).post('/api/upload')
       .set('Content-Type', 'multipart/form-data')
       .attach('image', oversized, { filename: 'big.png', contentType: 'image/png' });
@@ -1306,10 +1306,10 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
   it('rejects an image above the input pixel cap before decoding it (pixel bomb)', async () => {
     // 6000x5000 = 30 megapixels: a fully decodable PNG that clears sharp's
     // ~268 MP library default but exceeds the route's explicit 25 MP cap.
-    // A solid-colour image of this size deflates well under the 5 MB multer
+    // A solid-colour image of this size deflates well under the 3 MB multer
     // limit, so file size alone is no defence — the header declares the cost.
     const bomb = await sharp({ create: { width: 6000, height: 5000, channels: 3, background: 'blue' } }).png().toBuffer();
-    expect(bomb.length).toBeLessThan(5 * 1024 * 1024);
+    expect(bomb.length).toBeLessThan(3 * 1024 * 1024);
 
     const res = await request(app).post('/api/upload')
       .set('Content-Type', 'multipart/form-data')
@@ -1333,8 +1333,8 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
   });
 
-  it('does not ask Cloudinary to resize again — the buffer is already within 1600px', async () => {
-    // 2400x1800 = 4.3 MP, so sharp's resize must produce a 1600x1200 buffer.
+  it('does not ask Cloudinary to resize again — the buffer is already within 1280px', async () => {
+    // 2400x1800 = 4.3 MP, so sharp's resize must produce a 1280x960 buffer.
     // Cloudinary therefore receives an already-capped image and the no-op
     // `transformation` would only cost a second resize pass per upload.
     const png = await sharp({ create: { width: 2400, height: 1800, channels: 3, background: 'purple' } }).png().toBuffer();
@@ -1359,7 +1359,7 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
 
     // The data URI handed over is the sharp output, i.e. already inside the box.
     const capped = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
-    expect(Math.max(capped.width, capped.height)).toBeLessThanOrEqual(1600);
+    expect(Math.max(capped.width, capped.height)).toBeLessThanOrEqual(1280);
   });
 
   it('bounds concurrent sharp decoding to 3 under 5 parallel uploads (Rule D)', async () => {

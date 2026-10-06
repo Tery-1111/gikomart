@@ -133,9 +133,9 @@
             <div class="image-upload-placeholder" id="imageUploadPlaceholder">
               <span class="image-upload-icon">📷</span>
               <span class="image-upload-text">Click to add a photo</span>
-              <span class="image-upload-hint">JPG or PNG, up to 5MB</span>
+              <span class="image-upload-hint">JPG or PNG, up to 3MB</span>
             </div>
-            <img id="imagePreviewImg" class="image-preview-img" alt="">
+            <img id="imagePreviewImg" class="image-preview-img" alt="" loading="lazy">
             <button type="button" class="image-remove-btn" id="imageRemoveBtn" hidden>✕</button>
           </div>
           <div class="image-upload-status" id="imageUploadStatus"></div>
@@ -214,7 +214,7 @@
           </div>
           <div class="wa-body-mock">
             <div class="wa-bubble-mock">
-              <img id="prev-image" class="wa-bubble-image" alt="" hidden>
+              <img id="prev-image" class="wa-bubble-image" alt="" hidden loading="lazy">
               <strong>🆕 NEW AT GikoMart</strong>
               <p id="prev-title">Your item title</p>
               <p>💰 KSh <span id="prev-price">0</span></p>
@@ -375,7 +375,7 @@
      cached for a week, so a deploy could pair fresh HTML with an old script
      whose delegated actions silently ignored new buttons. Bump v on every
      app.js change. -->
-<script src="assets/js/app.js?v=20261005b"></script>
+<script src="assets/js/app.js?v=20261006a"></script>
 <script data-goatcounter="https://gikomart.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
