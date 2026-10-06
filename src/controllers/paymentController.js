@@ -19,6 +19,17 @@ const TermsAcceptance = require('../models/TermsAcceptance');
 const BlockedContact = require('../models/BlockedContact');
 const { contactHash } = require('../utils/phone');
 
+// The only fields a client may seed a paid listing with. Every key a client
+// sends inside listingData that is not on this list is dropped before the
+// Payment record is written, and createResourceForPayment copies exactly these
+// keys onto the created Listing — so attacker-added keys (featured, views,
+// status, boostType, …) can never reach the database. Mirrors the fields
+// validated in the initiate-listing handler plus the normalized price.
+const LISTING_DATA_ALLOWLIST = [
+  'title', 'category', 'subcategory', 'condition', 'price',
+  'description', 'images', 'sellerName', 'sellerWhatsapp', 'location',
+];
+
 // A contact is blocked when the sha256 of its normalized Kenyan form matches a
 // BlockedContact row. Non-normalizable values are ignored; an all-invalid list
 // is not blocked. Errors are left to propagate to the caller's error handling.
@@ -149,6 +160,13 @@ exports.initiateListing = async (req, res, next) => {
     // payment record into Listing.create() cleanly.
     listingData.price = price;
 
+    // Allowlist the stored payload: copy exactly the validated fields and drop
+    // every other client-supplied key before anything is persisted.
+    const cleanListingData = {};
+    for (const key of LISTING_DATA_ALLOWLIST) {
+      if (listingData[key] !== undefined) cleanListingData[key] = listingData[key];
+    }
+
     // Blocked contacts cannot start a payment: checked after all validation and
     // the store_id rejection, and before any IntaSend call, acceptance record or
     // Payment.create. Enforcement is at initiation only.
@@ -219,7 +237,7 @@ exports.initiateListing = async (req, res, next) => {
       amount,
       package: pkg,
       expectedAmount: LISTING_PRICES[pkg].amount,
-      listingData,
+      listingData: cleanListingData,
       ownerTokenHash,
       invoiceId,
       termsAcceptanceId: acceptanceRec._id,
@@ -389,7 +407,19 @@ async function createResourceForPayment(payment) {
     try {
       listing = await Listing.create({
         paymentId: payment._id,
-        ...payment.listingData,
+        // Explicit key-by-key copy of the allowlisted payment payload — no
+        // spread, so a legacy or tampered listingData row cannot inject fields
+        // like featured, views, status or boostType here.
+        title: payment.listingData.title,
+        category: payment.listingData.category,
+        subcategory: payment.listingData.subcategory,
+        condition: payment.listingData.condition,
+        price: payment.listingData.price,
+        description: payment.listingData.description,
+        images: payment.listingData.images,
+        sellerName: payment.listingData.sellerName,
+        sellerWhatsapp: payment.listingData.sellerWhatsapp,
+        location: payment.listingData.location,
         // A listing is always created standalone; any store_id persisted in the
         // payment payload (from a legacy row or admin replay) is ignored here.
         store_id: null,
