@@ -1101,6 +1101,24 @@ runs `7654a0e`.)
   exercises the new path (jsdom has no IntersectionObserver → immediate-apply
   fallback) and still asserts no injected elements / no window.__XSS.
 
+### test: controllable IntersectionObserver stub + deferred cover-load coverage
+- **Behavior:** none — test infrastructure only (no product file touched, no
+  cache-bust). jsdom has no IntersectionObserver, so tests could previously
+  reach only app.js's immediate-apply fallback for lazy backgrounds; now a
+  stub can be installed before the app.js import to hold every lazy
+  background un-applied until the test fires the intersection itself.
+- **Files changed:** `tests/intersectionObserverStub.mjs` (new — reusable
+  stub: records callback/options, tracks observed elements, `trigger(el,
+  isIntersecting)` / `triggerAll()`, per-instance registry),
+  `tests/lazyBackgrounds.test.mjs` (new — drives the real app.js + index.html
+  store page through the observer path: data-bg placeholder unapplied at
+  open, shared observer with threshold 0.1, non-intersecting entries ignored,
+  intersecting entry applies the URL once + swaps lazy-bg → bg-loaded +
+  one-shot unobserve, re-renders reuse the same observer),
+  `docs/CHANGELOG.md`.
+- **Tests added:** 5 (suite grows to 50 files). `tests/xssEscaping.test.mjs`
+  unchanged — it keeps covering the fallback path and the escaping contract.
+
 ## Phase 5 and later
 
 Not documented here until built.
