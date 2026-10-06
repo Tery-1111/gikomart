@@ -17,6 +17,7 @@ const {
 } = require('../services/termsAcceptanceService');
 const TermsAcceptance = require('../models/TermsAcceptance');
 const BlockedContact = require('../models/BlockedContact');
+const Upload = require('../models/Upload');
 const { contactHash } = require('../utils/phone');
 
 // Constant-time comparison of two string secrets (same implementation as
@@ -37,6 +38,22 @@ function safeCompare(a, b) {
 // it. Checked BEFORE any IntaSend SDK call; the raw number is never read back.
 const PHONE_CAP = { HOUR: 3, DAY: 10, HOUR_MS: 60 * 60 * 1000, DAY_MS: 24 * 60 * 60 * 1000 };
 const PHONE_CAP_429 = { success: false, error: 'Too many payment requests for this number. Please try again later.' };
+
+// Mark the uploaded images referenced by a paid listing/store as attached so
+// the orphan sweep (cleanupService.destroyOrphanUploads) spares them. Called
+// after validation succeeds, BEFORE the SDK call — an attacker cannot mark
+// arbitrary URLs attached because validation has already bounded the payload.
+// Never throws: attach-marking is bookkeeping and must not block a payment.
+async function markUploadsAttached(urls) {
+  const list = (Array.isArray(urls) ? urls : [urls]).filter((u) => typeof u === 'string' && u.length > 0);
+  if (list.length === 0) return;
+  try {
+    await Upload.updateMany({ url: { $in: list } }, { attached: true });
+  } catch (err) {
+    logger.warn('Failed to mark uploads attached', { error: err.message });
+  }
+}
+
 async function phoneCapExceeded(phoneNumber) {
   const phoneHash = contactHash(phoneNumber);
   if (!phoneHash) return false; // non-normalizable numbers fail validation elsewhere
@@ -222,6 +239,11 @@ exports.initiateListing = async (req, res, next) => {
       return res.status(429).json(PHONE_CAP_429);
     }
 
+    // Mark this listing's images attached (FIX-5c) before the SDK call.
+    if (Array.isArray(listingData.images) && listingData.images.length > 0) {
+      await markUploadsAttached(listingData.images);
+    }
+
     // Ownership token: the raw token is returned ONCE in this response (the
     // frontend saves it in localStorage) and is never stored server-side —
     // only its sha256 hash persists on the Payment record. The webhook later
@@ -362,6 +384,9 @@ exports.initiateStorePlan = async (req, res, next) => {
     if (await phoneCapExceeded(phoneNumber)) {
       return res.status(429).json(PHONE_CAP_429);
     }
+
+    // Mark this store's logo/cover attached (FIX-5c) before the SDK call.
+    await markUploadsAttached([storeData.logo_url, storeData.cover_url]);
 
     // Generate store owner token
     const rawOwnerToken = crypto.randomBytes(24).toString('hex');
