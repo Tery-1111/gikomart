@@ -30,6 +30,24 @@ function safeCompare(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+// Per-phone STK-push cap: a single number can be prompted at most 3 times per
+// rolling hour and 10 times per rolling day, counted across ALL payment types
+// (listing, boost, store) and all payment statuses. Keyed on the HMAC of the
+// normalized number (phoneHash), not the IP, so rotating IPs cannot circumvent
+// it. Checked BEFORE any IntaSend SDK call; the raw number is never read back.
+const PHONE_CAP = { HOUR: 3, DAY: 10, HOUR_MS: 60 * 60 * 1000, DAY_MS: 24 * 60 * 60 * 1000 };
+const PHONE_CAP_429 = { success: false, error: 'Too many payment requests for this number. Please try again later.' };
+async function phoneCapExceeded(phoneNumber) {
+  const phoneHash = contactHash(phoneNumber);
+  if (!phoneHash) return false; // non-normalizable numbers fail validation elsewhere
+  const now = Date.now();
+  const [lastHour, lastDay] = await Promise.all([
+    Payment.countDocuments({ phoneHash, createdAt: { $gte: new Date(now - PHONE_CAP.HOUR_MS) } }),
+    Payment.countDocuments({ phoneHash, createdAt: { $gte: new Date(now - PHONE_CAP.DAY_MS) } }),
+  ]);
+  return lastHour >= PHONE_CAP.HOUR || lastDay >= PHONE_CAP.DAY;
+}
+
 // The only fields a client may seed a paid listing with. Every key a client
 // sends inside listingData that is not on this list is dropped before the
 // Payment record is written, and createResourceForPayment copies exactly these
@@ -71,6 +89,11 @@ exports.initiateBoost = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    // Per-phone STK-push cap (FIX-4) — before any IntaSend SDK call.
+    if (await phoneCapExceeded(phoneNumber)) {
+      return res.status(429).json(PHONE_CAP_429);
+    }
+
     const apiRef = `boost_${listingId}_${Date.now()}`;
     let response;
     let amount;
@@ -93,6 +116,7 @@ exports.initiateBoost = async (req, res, next) => {
       type: 'boost',
       listingId,
       phoneNumber,
+      phoneHash: contactHash(phoneNumber),
       amount,
       boostType,
       expectedAmount: BOOST_PRICES[boostType],
@@ -192,6 +216,12 @@ exports.initiateListing = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
     }
 
+    // Per-phone STK-push cap (FIX-4) — after validation/blocked-contact checks,
+    // before any IntaSend SDK call or Payment record is written.
+    if (await phoneCapExceeded(phoneNumber)) {
+      return res.status(429).json(PHONE_CAP_429);
+    }
+
     // Ownership token: the raw token is returned ONCE in this response (the
     // frontend saves it in localStorage) and is never stored server-side —
     // only its sha256 hash persists on the Payment record. The webhook later
@@ -245,6 +275,7 @@ exports.initiateListing = async (req, res, next) => {
     await Payment.create({
       type: 'listing',
       phoneNumber,
+      phoneHash: contactHash(phoneNumber),
       amount,
       package: pkg,
       expectedAmount: LISTING_PRICES[pkg].amount,
@@ -326,6 +357,12 @@ exports.initiateStorePlan = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
     }
 
+    // Per-phone STK-push cap (FIX-4) — after validation/blocked-contact checks,
+    // before the slug loop, acceptance record, SDK call or Payment record.
+    if (await phoneCapExceeded(phoneNumber)) {
+      return res.status(429).json(PHONE_CAP_429);
+    }
+
     // Generate store owner token
     const rawOwnerToken = crypto.randomBytes(24).toString('hex');
     const ownerTokenHash = crypto.createHash('sha256').update(rawOwnerToken).digest('hex');
@@ -386,6 +423,7 @@ exports.initiateStorePlan = async (req, res, next) => {
     await Payment.create({
       type: 'store',
       phoneNumber,
+      phoneHash: contactHash(phoneNumber),
       amount,
       storePlan,
       expectedAmount: STORE_PLANS[storePlan].amount,

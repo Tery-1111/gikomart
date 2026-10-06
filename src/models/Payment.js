@@ -6,6 +6,11 @@ const paymentSchema = new mongoose.Schema({
   listingData: { type: mongoose.Schema.Types.Mixed }, // pending sell-form payload, used only for type:'listing'
   package: { type: String, enum: ['quick', 'standard', 'premium'] }, // used only for type:'listing'
   phoneNumber: { type: String, required: true },
+  // HMAC-SHA256 (BLOCK_HASH_SECRET) of the normalized phone number — same
+  // function as utils/phone.contactHash. Never stores the raw number; exists
+  // so the per-phone STK-push cap can count a number's payments without
+  // touching or exposing phoneNumber.
+  phoneHash: { type: String },
   amount: { type: Number, required: true },
   // Canonical price captured at initiation time. The webhook and admin replay
   // prefer THIS over the live price table, so a price change between initiation
@@ -38,5 +43,9 @@ const paymentSchema = new mongoose.Schema({
 // filter on an exact invoiceId (paymentController.js:305, 315, 433, 455).
 // Payment has no other index, and the collection grows one record per payment.
 paymentSchema.index({ invoiceId: 1 });
+
+// Per-phone STK-push cap lookups (paymentController): rolling 60-minute and
+// 24-hour counts for one phoneHash, newest first.
+paymentSchema.index({ phoneHash: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Payment', paymentSchema);
