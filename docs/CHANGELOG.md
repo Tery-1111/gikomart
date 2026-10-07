@@ -1139,6 +1139,20 @@ runs `7654a0e`.)
 - **Coverage:** listingCardHTML is the single card renderer (browse grid,
   my-listings, store page, store listings) — one change, four surfaces.
 
+### docs: record keep-public decision for POST /api/upload (final security doc sweep)
+- **Behavior:** Documentation only — no runtime change. `docs/security/AUDIT_INPUTS.md` §10
+  now records the deliberate keep-public decision for `POST /api/upload` with rationale
+  (sellers upload before any credential exists; no seller-session mechanism exists to gate
+  on), the bounded risk accepted (anonymous Cloudinary storage abuse under the 10/min +
+  100/24h per-IP limits), and the pre-analyzed future options (owner-token pre-issuance or
+  seller auth) if abuse is observed. §10's control table gains the previously undocumented
+  layer 11 (24h orphan sweep). `docs/API_AND_CONFIG.md`'s `/api/upload` row now lists
+  `uploadDailyLimiter` (added in 323cf05 but missing from the row) and links the decision.
+- **Files changed:** `docs/security/AUDIT_INPUTS.md`, `docs/API_AND_CONFIG.md`,
+  `docs/CHANGELOG.md`.
+- **Tests added:** none (documentation-only change; suite remains 60 files / 667 passed /
+  1 skipped).
+
 ## Phase 5 and later
 
 Not documented here until built.

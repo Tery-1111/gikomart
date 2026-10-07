@@ -393,10 +393,11 @@ Command: `grep -rin "rotat" README.md docs/` → **0 hits** (and `README.md` doe
 
 ---
 
-## SECTION 10: Upload security chain — updated 2026-10-06 (`main` @ `ad7d5cb`)
+## SECTION 10: Upload security chain — updated 2026-10-06/07 (`main` @ `6f72614`)
 
-Endpoint: `POST /api/upload` (`src/routes/upload.js`). Public (no auth — deliberate business
-decision, unchanged by the 2026-10-06 update). Layers in execution order:
+Endpoint: `POST /api/upload` (`src/routes/upload.js`). **Public (no auth) — re-affirmed as a
+recorded decision on 2026-10-07 (`main` @ `6f72614`); see "Public-by-decision record" below.**
+Layers in execution order:
 
 | # | Control | Enforcement point | Value / behavior |
 |---|---|---|---|
@@ -410,6 +411,7 @@ decision, unchanged by the 2026-10-06 update). Layers in execution order:
 | 8 | Storage | multer `memoryStorage()` (`upload.js:9`) | no filesystem writes anywhere in the path; `originalname` is never read (no filename surface) |
 | 9 | CDN intake | `cloudinary.uploader.upload` (`upload.js:97-103`) | `allowed_formats: ['jpg','jpeg','png','webp','gif']`, `resource_type: 'image'`, folder `gikomart`, `quality: 'auto'`, `fetch_format: 'auto'` |
 | 10 | Delivery | CSP `imgSrc` (`server.js:36`) | `'self'`, `data:`, `https://res.cloudinary.com`, `https://gikomart.goatcounter.com` only |
+| 11 | Orphan sweep | `destroyOrphanUploads` (`cleanupService.js:83-93`), 30-min scheduler; assets recorded at upload time (`upload.js`, `Upload.create`) | Cloudinary assets never attached to a listing/store are destroyed after 24h (batch of 100 per tick) |
 
 **Defense in depth — why multiple layers exist:**
 - **Magic bytes** (layer 4) prevent MIME spoofing: a request declaring `image/jpeg` with
@@ -424,6 +426,30 @@ decision, unchanged by the 2026-10-06 update). Layers in execution order:
 - **Rate limit + semaphore** (layers 1, 5) prevent resource exhaustion: the per-IP request budget
   bounds upload frequency; the decode semaphore bounds concurrent memory-heavy processing and
   answers 503 (retryable) instead of queueing unboundedly.
+- **Orphan sweep** (layer 11) bounds durable abuse: storage consumed by uploads that are never
+  attached to a paid listing/store is reclaimed within ~24h, so anonymous callers cannot
+  accumulate permanent CDN assets.
+
+**Public-by-decision record (2026-10-07, `main` @ `6f72614`):**
+- **Decision:** `POST /api/upload` intentionally requires **no authentication**. No auth
+  middleware is to be added to the route under the current threat model.
+- **Business requirement:** sellers upload images **before** any credential exists — the
+  sell-form and Free Grant flows upload during listing creation, before an owner token
+  (`X-Owner-Token`) or any session is issued. There is no seller-account/session mechanism in
+  the codebase to gate on (grep for `authenticateUser|requireAuth|requireLogin|sellerAuth` in
+  `src/middleware/` and `src/routes/` → only admin-side `verifySession` hits).
+- **Existing controls (the accepted-risk bound):** per-IP rate limits (`uploadLimiter` 10/min
+  + `uploadDailyLimiter` 100/24h), 3 MB multer cap, magic-byte allowlist, 25 MP decode cap,
+  sharp re-encode to clean JPEG ≤1280px, memory-only storage, decode semaphore, Cloudinary
+  `allowed_formats`, orphan sweep destroying never-attached assets after 24h.
+- **Risk accepted:** Cloudinary storage abuse by anonymous callers (storage bandwidth/cost).
+  Bounded per-IP by the rate limits above; residual multi-IP (distributed) volume remains the
+  accepted exposure.
+- **Future consideration:** if abuse is observed, the pre-analyzed options are (a) pre-issued
+  upload tokens extending the existing owner-token pattern (`X-Owner-Token`, sha256 +
+  timingSafeEqual), or (b) a seller-session mechanism. Either is an authentication-boundary
+  change requiring its own review; the frontend caller (`app.js` `fetchUploadWithRetry`)
+  currently sends no credential and would need a coordinated flow change.
 
 ---
 
