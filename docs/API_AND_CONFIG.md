@@ -7,6 +7,9 @@ route-specific limiter. The single exception is `/api/vitals`, which the global
 limiter skips (the beacon fires once per sampled page view and must not consume
 the human browsing budget); that path carries only its own `vitalsLimiter`.
 
+For how stores, plans, listings and uploads fit together (plan listing-limits,
+image caps, ownership model), see `docs/ARCHITECTURE-store-payments-images.md`.
+
 ## a) Routes
 
 | Method | Path | Auth required | Rate limiter(s) | Purpose |

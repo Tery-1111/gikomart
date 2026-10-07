@@ -1153,6 +1153,20 @@ runs `7654a0e`.)
 - **Tests added:** none (documentation-only change; suite remains 60 files / 667 passed /
   1 skipped).
 
+### docs: add architecture map of the store/payment/listing/upload system
+- **Behavior:** Documentation only — no runtime change. New
+  `docs/ARCHITECTURE-store-payments-images.md` maps the system exactly as found at
+  `342e444`: plan-based **listing** limits (5/10/15, attach-time live count — there is
+  no image-quota system), the flat 6-image/listing cap, payment-born
+  stores/listings with webhook idempotency, the public-by-decision upload pipeline
+  and its 24h orphan sweep, the owner-token auth model, and cleanup/expiry flows.
+  Every claim is line-referenced and the doc carries a verification appendix whose
+  commands re-derive each finding. `API_AND_CONFIG.md` gains a pointer to it.
+- **Files changed:** `docs/ARCHITECTURE-store-payments-images.md` (new),
+  `docs/API_AND_CONFIG.md`, `docs/CHANGELOG.md`.
+- **Tests added:** none (documentation-only change; suite remains 60 files / 667 passed /
+  1 skipped).
+
 ## Phase 5 and later
 
 Not documented here until built.
