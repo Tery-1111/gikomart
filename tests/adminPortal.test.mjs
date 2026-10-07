@@ -2,7 +2,9 @@
 // Drives the REAL public/assets/js/admin.js against the REAL
 // public/admin/index.html with a stubbed fetch, using a manual JSDOM instance on
 // the default node environment (same pattern as tests/domTerms.test.mjs). admin.js
-// initializes immediately on execution, so no DOMContentLoaded dispatch is needed.
+// executes its wire-up on DOMContentLoaded (dispatched by hand below, same
+// convention as the app.js suites — the real event has already fired by the
+// time the dynamic import resolves here).
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 const fetchCalls = [];
@@ -87,6 +89,9 @@ beforeAll(async () => {
   dom.window.addEventListener('error', (e) => console.log('WINDOW-ERROR:', e.error && e.error.stack ? e.error.stack : e.message));
 
   await import('../public/assets/js/admin.js');
+  // admin.js wires up on DOMContentLoaded; dispatch it by hand (the real event
+  // has already fired by the time this import resolves — see app.js suites).
+  document.dispatchEvent(new Event('DOMContentLoaded'));
 });
 
 function tick(ms = 40) {

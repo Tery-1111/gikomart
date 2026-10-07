@@ -5,14 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="referrer" content="no-referrer">
 <title>GikoMart — Sell locally. Reach instantly.</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Inline SVG favicon: kills the /favicon.ico 404 on every load with no
+     extra request and no new file. Fonts are self-hosted (see @font-face in
+     style.css); the two heaviest first-use files are preloaded. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="assets/fonts/space-grotesk-latin-var.woff2">
+<link rel="preload" as="font" type="font/woff2" crossorigin href="assets/fonts/inter-latin-var.woff2">
 <link rel="stylesheet" href="assets/css/style.css">
 <!-- RUM beacon: samples ~15% of tab sessions, sends one POST /api/vitals on
      page hide. Deferred so parsing is never blocked. Same bump discipline as
      app.js: change vitals.js → bump ?v= here. -->
 <script src="assets/js/vitals.js?v=20261006a" defer></script>
+<!-- app.js moved to <head> with defer: the browser starts fetching and
+     compiling it during initial HTML parsing instead of discovering it after
+     the whole body markup. defer keeps execution non-render-blocking and
+     ordered before DOMContentLoaded. This is a metrics-affecting delivery
+     change — see docs/runbook-keep-warm.md "Baseline for future comparison".
+     The ?v= busts the browser cache: app.js is mutable and was previously
+     cached for a week, so a deploy could pair fresh HTML with an old script
+     whose delegated actions silently ignored new buttons. Bump v on every
+     app.js change. -->
+<script src="assets/js/app.js?v=20261006d" defer></script>
 </head>
 <body>
 
@@ -375,11 +388,6 @@
 <!-- ░░░ TOAST ░░░ -->
 <div class="toast" id="toast"></div>
 
-<!-- The ?v= busts the browser cache: app.js is mutable and was previously
-     cached for a week, so a deploy could pair fresh HTML with an old script
-     whose delegated actions silently ignored new buttons. Bump v on every
-     app.js change. -->
-<script src="assets/js/app.js?v=20261006c"></script>
 <script data-goatcounter="https://gikomart.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

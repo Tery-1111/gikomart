@@ -30,9 +30,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "gc.zgo.at", "'sha256-rqVYfj8ffdtUcz9D4+PFMNRtvPCPi1wPxdcs0/GnAw0='"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'", "gc.zgo.at"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      fontSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://gikomart.goatcounter.com"],
       connectSrc: ["'self'", "https://gikomart.goatcounter.com"],
     },

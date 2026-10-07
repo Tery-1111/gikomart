@@ -7,6 +7,14 @@
 <meta name="referrer" content="no-referrer">
 <title>GikoMart Admin</title>
 <link rel="stylesheet" href="/assets/css/admin.css">
+<!-- Inline SVG favicon: kills the /favicon.ico 404 on every load with no
+     extra request and no new file. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
+<!-- Moved to <head> with defer: fetching/compiling starts during HTML
+     parsing instead of after the body. defer keeps execution after the DOM
+     is parsed and before DOMContentLoaded; the wire-up in admin.js also
+     guards itself with a DOMContentLoaded listener. -->
+<script src="/assets/js/admin.js" defer></script>
 </head>
 <body>
 <header class="bar">
@@ -40,6 +48,5 @@
     <div id="viewBody"></div>
   </section>
 </main>
-<script src="/assets/js/admin.js"></script>
 </body>
 </html>

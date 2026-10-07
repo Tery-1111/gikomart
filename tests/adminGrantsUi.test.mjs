@@ -56,6 +56,9 @@ beforeAll(async () => {
 
   vi.stubGlobal('fetch', vi.fn(async (url, options = {}) => fetchHandler(String(url), options)));
   await import('../public/assets/js/admin.js');
+  // admin.js wires up on DOMContentLoaded; dispatch it by hand (the real event
+  // has already fired by the time this import resolves — see app.js suites).
+  document.dispatchEvent(new Event('DOMContentLoaded'));
 });
 
 beforeEach(async () => {

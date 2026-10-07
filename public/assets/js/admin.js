@@ -1179,10 +1179,16 @@
   }
 
   // ── Wire up ──────────────────────────────────────────────────────────────
-  document.getElementById('loginForm').addEventListener('submit', handleLogin);
-  document.getElementById('signOutBtn').addEventListener('click', function () { logout(''); });
-  const tabButtons = document.querySelectorAll('#tabs .tab');
-  for (let i = 0; i < tabButtons.length; i += 1) {
-    tabButtons[i].addEventListener('click', function () { activateView(this.dataset.view); });
-  }
+  // admin.js is loaded with defer from <head>, which already guarantees
+  // execution after the DOM is parsed; the DOMContentLoaded wrapper is a
+  // belt-and-braces guard so element lookup can never race document parsing
+  // regardless of how the script is loaded.
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('loginForm').addEventListener('submit', handleLogin);
+    document.getElementById('signOutBtn').addEventListener('click', function () { logout(''); });
+    const tabButtons = document.querySelectorAll('#tabs .tab');
+    for (let i = 0; i < tabButtons.length; i += 1) {
+      tabButtons[i].addEventListener('click', function () { activateView(this.dataset.view); });
+    }
+  });
 })();

@@ -110,6 +110,18 @@ failure counter in steady state. In the Render logs you will see one
   (see `docs/runbook-deploy-free-grant.md`); the monitor is unaffected and
   will simply show the brief deploy gap.
 
+## Baseline for future comparison
+
+As of 2026-10-07, app.js is loaded with `defer` from `<head>` (cache-buster
+`?v=20261006d`): the browser starts fetching and compiling it during initial
+HTML parsing, while execution remains non-render-blocking and ordered before
+DOMContentLoaded. This is a METRICS-AFFECTING change: any before/after
+comparison of LCP/INP/CLS that spans this change measures the delivery
+change, not a trend — segment `VitalsSample` data at the deploy that carries
+it. (The previous baseline, up to and including the Phase 2 commit:
+render-blocking script at the end of `<body>`, no `defer`, `?v=20261006c`.)
+
+## Rollback
 
 Delete the monitor. Nothing in the app, tests, or CI references it; the app
 behaves identically without it (it just goes back to cold-starting after 15

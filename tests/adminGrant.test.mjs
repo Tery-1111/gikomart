@@ -500,6 +500,9 @@ describe('POST /api/admin/grant-free-access — admin UI (JSDOM)', () => {
 
     try {
       await import('../public/assets/js/admin.js');
+      // admin.js wires up on DOMContentLoaded; dispatch it by hand (the real
+      // event has already fired by the time this import resolves).
+      dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
 
       // Sign in so the app section (and tabs) become active.
       dom.window.document.getElementById('adminKey').value = TEST_ADMIN_KEY;

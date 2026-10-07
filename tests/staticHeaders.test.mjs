@@ -84,7 +84,7 @@ describe('Admin portal source hygiene', () => {
     const html = read('public/admin/index.html');
     const scripts = html.match(/<script/gi) || [];
     expect(scripts).toHaveLength(1);
-    expect(html).toContain('<script src="/assets/js/admin.js"></script>');
+    expect(html).toContain('<script src="/assets/js/admin.js" defer></script>');
     expect(/\son[a-z]+\s*=/i.test(html)).toBe(false);
     expect(html.includes('style=')).toBe(false);
     expect(/name="robots"\s+content="noindex,nofollow"/.test(html)).toBe(true);

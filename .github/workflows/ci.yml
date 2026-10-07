@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Asset version guard
+        run: node scripts/check-asset-version.js
+
       - name: Test
         run: npm test
 

@@ -28,12 +28,15 @@ const ALLOWED_PLACEHOLDERS = [
 ];
 
 // Hashes of the four versioned legal pages as of the institution-neutral baseline
-// (updated when the pages' institution-specific branding/scope wording was removed).
+// (updated when the pages' institution-specific branding/scope wording was removed,
+// and again when the pages' heads were technically updated in the Phase 1
+// frontend batch: inline SVG favicon added, Google Fonts links removed in favor
+// of self-hosted fonts — legal text itself unchanged).
 const EXISTING_LEGAL_HASHES = {
-  'legal/terms-of-service.html': 'c1083065629a554d1a83fef5fc0811c2abff0779b5cbf0f8e6bce9c4afb8ac1d',
-  'legal/store-owner-terms.html': 'a7b906d59bf282e5fbe44d8038b065bd64211ecab043569e2ed5fba53d0ee2d7',
-  'legal/seller-terms.html': '882af638ec673755829c173a1a77945d9c7a525c8d82f1886234f22f0074d7b9',
-  'legal/buyer-terms.html': 'a7bfc7b71e4a47099c250e90600b3bc83c301813c22564f425f9fe99bc0028a2',
+  'legal/terms-of-service.html': 'e808f087c972c10e67cc27dec115dc85a3b469046ac18387de91ea08a0602d85',
+  'legal/store-owner-terms.html': '0f27320a208ba93e846866add862e6091c4e5b3e3d633488774fe3cbf4b31930',
+  'legal/seller-terms.html': 'b0a557faaae841ba745f0f5bdf3fdc52a3bb721eea1962d49aeeafc9de8978a0',
+  'legal/buyer-terms.html': 'dc9cc60cf16234617a4cb01ebc9802b0ab3cf5ac40e35f46b94da19a2cf801d1',
 };
 
 describe('New legal pages are served and well-formed', () => {
