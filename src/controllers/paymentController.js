@@ -9,6 +9,7 @@ const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing, checkStore } = require('../services/moderationService');
 const inputLimits = require('../config/inputLimits');
 const { isOwnerOrAdmin } = require('../middleware/listingAuth');
+const { invalidateListingsCache } = require('../utils/ttlCache');
 const { initiateBoostPayment, initiateListingPayment, initiateStorePlanPayment, BOOST_PRICES, LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
 const {
@@ -509,6 +510,10 @@ async function createResourceForPayment(payment) {
         throw err;
       }
     }
+    // A new listing may enter the public browse set the moment it is created
+    // (webhook completion, admin replay, or free-grant provision all funnel
+    // through this shared creator) — drop the cached browse page 1.
+    invalidateListingsCache();
     return { type: 'listing', doc: listing };
   }
 
@@ -730,6 +735,9 @@ exports.handleWebhook = async (req, res, next) => {
             listing.broadcastSent = true;
           }
           await listing.save();
+          // Boosts change the browse ORDER (featured/priorityBroadcast sort
+          // fields) — drop the cached page 1.
+          invalidateListingsCache();
           if (payment.boostType === 'priority_broadcast') {
             broadcastListing(listing).catch(err =>
               logger.warn('Priority broadcast skipped (Whapi unavailable)', { error: err.message })

@@ -48,4 +48,9 @@ paymentSchema.index({ invoiceId: 1 });
 // 24-hour counts for one phoneHash, newest first.
 paymentSchema.index({ phoneHash: 1, createdAt: -1 });
 
+// Supports metricsService.js status + createdAt filters (countDocuments for
+// pending, completed 24h, failed 24h, and the 30d revenue aggregation) which
+// neither the invoiceId nor the phoneHash index serves.
+paymentSchema.index({ status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Payment', paymentSchema);

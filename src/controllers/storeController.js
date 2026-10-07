@@ -10,6 +10,9 @@ const mongoose = require('mongoose');
 const inputLimits = require('../config/inputLimits');
 const { storeView } = require('../utils/publicView');
 const { authenticateAdmin } = require('../middleware/adminAuth');
+// Store state drives listing visibility on the browse endpoint (listings of a
+// suspended/flagged/removed store are hidden), so these writes clear it.
+const { invalidateListingsCache } = require('../utils/ttlCache');
 
 // Constant-time comparison (same pattern as listingController.js)
 function safeEqual(a, b) {
@@ -266,6 +269,10 @@ exports.deleteStore = async (req, res, next) => {
 
     await session.commitTransaction();
 
+    // Committed: the store and its listings have left the browse set
+    // (in-memory, post-commit so a rolled-back transaction clears nothing).
+    invalidateListingsCache();
+
     // Post-commit best-effort Cloudinary cleanup (failures log, never throw).
     for (const imageUrl of imagesToDelete) {
       await deleteCloudinaryImage(imageUrl);
@@ -434,6 +441,9 @@ exports.moderateStore = async (req, res, next) => {
     }
 
     const updated = await Store.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
+    // Flagged/removed stores hide their listings from browse (the listing
+    // rows themselves did not change, but the store gate did).
+    invalidateListingsCache();
     emit({
       actor: adminActor(req),
       action: 'store.moderate',
@@ -455,6 +465,8 @@ exports.suspendStore = async (req, res, next) => {
   try {
     const store = await Store.findByIdAndUpdate(req.params.id, { status: 'suspended' }, { returnDocument: 'after' });
     if (!store) return res.status(404).json({ success: false, error: 'Store not found' });
+    // Suspension hides the store's listings from browse within the gate.
+    invalidateListingsCache();
 
     emit({
       actor: adminActor(req),

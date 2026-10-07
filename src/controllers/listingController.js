@@ -10,6 +10,7 @@ const { isHttpUrl } = require('../utils/safeUrl');
 const inputLimits = require('../config/inputLimits');
 const { listingView } = require('../utils/publicView');
 const { checkListing } = require('../services/moderationService');
+const { listingsCache, invalidateListingsCache } = require('../utils/ttlCache');
 
 // Escape special regex characters in user input so it can be safely embedded
 // in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
@@ -22,12 +23,23 @@ function escapeRegex(str) {
 exports.getListings = async (req, res, next) => {
   try {
     const { category, condition, search, page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
+    // Browse cache: only the plain category browse (no search/condition/store
+    // scoping) at page 1 is cacheable — those variants are intersected subsets
+    // whose keys would multiply cache size, and a store-filtered or searched
+    // page 1 would otherwise serve results for a different query shape.
+    const cacheKey = pageNum === 1 && !search && !condition && !req.query.store_id
+      ? `browse:${category || 'all'}`
+      : null;
+    if (cacheKey) {
+      const hit = listingsCache.get(cacheKey);
+      if (hit !== undefined) return res.json(hit);
+    }
     await Listing.updateMany(
       { featured: true, featuredUntil: { $ne: null, $lt: new Date() } },
       { $set: { featured: false, boostType: null } }
     );
-    const pageNum = Math.max(1, Number.parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 50));
     // Store-scoped browsing: resolve the store's visibility BEFORE building the
     // listing query, so the inventory of a suspended, flagged or removed store
     // is hidden. A malformed or unknown store id returns an empty envelope (and
@@ -82,6 +94,17 @@ exports.getListings = async (req, res, next) => {
       totalPages: Math.ceil(total / limitNum),
       listings: sanitized,
     });
+    // Store the exact payload just sent so a hit replays it byte-identically.
+    if (cacheKey) {
+      listingsCache.set(cacheKey, {
+        success: true,
+        count: sanitized.length,
+        total,
+        page: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        listings: sanitized,
+      });
+    }
   } catch (err) {
     return next(err);
   }
@@ -92,6 +115,9 @@ exports.getListing = async (req, res, next) => {
   try {
     const listing = await Listing.findOneAndUpdate(
       { _id: req.params.id, status: 'active', moderationStatus: 'approved' },
+      // Not cache-invalidated by design: a ≤60s-stale view count is inside the
+      // browse-cache contract, and invalidating on every view defeats the
+      // purpose of the cache (high-frequency write).
       { $inc: { views: 1 } },
       { returnDocument: 'after' }
     ).select('+ownerTokenHash');
@@ -178,6 +204,9 @@ exports.updateListing = async (req, res, next) => {
       updates.moderationStatus = 'flagged';
     }
     const listing = await Listing.findByIdAndUpdate(req.params.id, updates, { returnDocument: 'after' });
+    // A visible-content write invalidates the browse cache (title/category/
+    // condition changes alter the page-1 set; flagging removes a listing).
+    invalidateListingsCache();
     // Audit the edit by field NAME only — never a value. `moderationStatus` is
     // reported through autoFlagged instead of the field list.
     const actor = authz.credential === 'owner' ? ownerActor(req) : adminActor(req);
@@ -234,6 +263,8 @@ exports.deleteListing = async (req, res, next) => {
     }
 
     await Listing.deleteOne({ _id: req.params.id });
+    // The listing is gone from the browse set — drop the cached page 1.
+    invalidateListingsCache();
     emit({
       actor: authz.credential === 'owner' ? ownerActor(req) : adminActor(req),
       action: 'listing.delete',
@@ -264,6 +295,9 @@ exports.moderateListing = async (req, res, next) => {
       { returnDocument: 'after' }
     );
     if (!listing) return res.status(404).json({ success: false, error: 'Listing not found' });
+    // Moderation changes visibility (especially approved/removed) — the browse
+    // cache must never outlive it.
+    invalidateListingsCache();
     emit({
       actor: adminActor(req),
       action: 'listing.moderate',

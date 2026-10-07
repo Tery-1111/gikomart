@@ -126,7 +126,13 @@ if (require.main === module) {
   // Fail fast when the database is not configured — the API is useless without
   // it, and a silent start would leave the health check flapping forever.
   assertStartupConfig();
-  mongoose.connect(process.env.MONGO_URI)
+  // Pool sizing tuned for the current Atlas tier (assumed M0); re-tune if the
+  // tier changes. serverSelectionTimeoutMS bounds the failure window when the
+  // cluster is unreachable instead of hanging drivers' default 30s.
+  mongoose.connect(process.env.MONGO_URI, {
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+  })
     .then(() => {
       logger.info('MongoDB connected');
       startCleanupScheduler();

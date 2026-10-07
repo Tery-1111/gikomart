@@ -61,6 +61,11 @@ async function deleteExpiredListings() {
           }
         }
       }
+      // Not cache-invalidated by design: the browse cache contract treats this
+      // as the same staleness browse already has — expired listings stay
+      // visible on /api/listings until this 30-min sweep removes them, and a
+      // ≤60s cache window is inside that cadence rather than representing a new
+      // exposure.
       await Listing.deleteOne({ _id: listing._id });
     }
 

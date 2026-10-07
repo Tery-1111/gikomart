@@ -565,6 +565,10 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  // Cross-test isolation: the browse cache is module state shared by the
+  // whole file. Store-gate tests reuse one store_id key across different
+  // store states within the 60s TTL, so every test starts with it cold.
+  require('../src/utils/ttlCache').invalidateListingsCache();
   h.payments.length = 0;
   h.stores.clear();
   h.listings.length = 0;
