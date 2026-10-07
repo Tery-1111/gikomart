@@ -115,6 +115,7 @@ app.use('/api/grants', require('./src/routes/grants'));
 app.use('/api/stores', require('./src/routes/stores'));
 app.use('/api/terms', require('./src/routes/terms'));
 app.use('/api/reports', require('./src/routes/reports'));
+app.use('/api/vitals', require('./src/routes/vitals'));
 app.use('/health', require('./src/routes/health'));
 
 // Central error handler — must be the LAST middleware so every thrown/

@@ -47,6 +47,7 @@ const fakeLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(
 const pass = () => (req, res, next) => next();
 const fakeRateLimiterModule = {
   globalLimiter: pass(),
+  vitalsLimiter: pass(),
   uploadLimiter: pass(),
   uploadDailyLimiter: pass(),
   paymentLimiter: pass(),

@@ -3,7 +3,9 @@
 Derived from `server.js`, `src/routes/*.js`, `src/middleware/rateLimiter.js` and
 `.env.example`. The `globalLimiter` is applied app-wide in `server.js` before the
 routers (line ~74), so it applies to every route below in addition to any
-route-specific limiter.
+route-specific limiter. The single exception is `/api/vitals`, which the global
+limiter skips (the beacon fires once per sampled page view and must not consume
+the human browsing budget); that path carries only its own `vitalsLimiter`.
 
 ## a) Routes
 
@@ -55,6 +57,7 @@ route-specific limiter.
 | GET | `/api/terms/versions` | None (public) | globalLimiter | Current terms versions |
 | POST | `/api/terms/contact-acceptance` | None (public; acceptance token required) | globalLimiter + contactLimiter + contactReleaseLimiter | Record buyer acceptance and release seller contact |
 | POST | `/api/reports` | None (public) | globalLimiter + reportLimiter (+ honeypot) | Submit a user report against a listing or store |
+| POST | `/api/vitals` | None (public) | vitalsLimiter only (globalLimiter skipped for this path) | RUM beacon ingestion: CWV sample → `VitalsSample` (30-day TTL); 1 KB cap; no PII stored |
 | GET | `/health` | None (public) | globalLimiter | Public health: 200 `{ status: 'healthy' }` / 503 `{ status: 'unhealthy' }`, MongoDB only |
 
 ## b) Environment variables

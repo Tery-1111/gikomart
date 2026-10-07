@@ -10,13 +10,27 @@
 
 const rateLimit = require('express-rate-limit');
 
-// Global: 100 requests per minute per IP
+// Global: 100 requests per minute per IP. POST /api/vitals is exempt here:
+// the RUM beacon fires once per sampled page view from every visitor and must
+// not consume the human browsing budget — the route carries its own tighter
+// vitalsLimiter instead.
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => /^\/api\/vitals\/?$/.test(req.path),
   message: { success: false, error: 'Too many requests — please try again later' },
+});
+
+// RUM beacon ingestion: 30 per minute per IP. The beacon sends at most one
+// POST per sampled page view, so this only binds abuse, not real traffic.
+const vitalsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many vitals reports — please try again later' },
 });
 
 // Upload: 10 per minute per IP
@@ -111,4 +125,4 @@ const reportLimiter = rateLimit({
   message: { success: false, error: 'Too many reports — please try again later' },
 });
 
-module.exports = { globalLimiter, uploadLimiter, uploadDailyLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };
+module.exports = { globalLimiter, vitalsLimiter, uploadLimiter, uploadDailyLimiter, paymentLimiter, listingCreateLimiter, contactLimiter, adminLimiter, statusLimiter, contactReleaseLimiter, reportLimiter };

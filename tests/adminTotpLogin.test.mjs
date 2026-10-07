@@ -47,6 +47,7 @@ const fakeAuditEvent = { create: vi.fn(async (data) => data) };
 const pass = () => (req, res, next) => next();
 const fakeRateLimiterModule = {
   globalLimiter: pass(),
+  vitalsLimiter: pass(),
   uploadLimiter: pass(),
   uploadDailyLimiter: pass(),
   paymentLimiter: pass(),
