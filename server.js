@@ -114,6 +114,7 @@ app.use('/api/admin', require('./src/routes/adminGrants'));
 app.use('/api/grants', require('./src/routes/grants'));
 app.use('/api/stores', require('./src/routes/stores'));
 app.use('/api/terms', require('./src/routes/terms'));
+app.use('/api/support-contact', require('./src/routes/supportContact'));
 app.use('/api/reports', require('./src/routes/reports'));
 app.use('/api/vitals', require('./src/routes/vitals'));
 app.use('/health', require('./src/routes/health'));

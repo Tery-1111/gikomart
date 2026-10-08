@@ -181,6 +181,35 @@ function categoryIcon(id) {
   return '📦';
 }
 
+// Admin/support contact metadata, served from the backend's central config
+// (src/config/supportContact.js via GET /api/support-contact). Populated at
+// init and used by the payment-recovery copy. Failure is non-fatal: recovery
+// messages fall back to the reference-only wording.
+let supportContactInfo = null;
+
+async function loadSupportContact() {
+  if (supportContactInfo) return supportContactInfo;
+  try {
+    const res = await fetch(`${API_BASE}/support-contact`);
+    if (!res.ok) throw httpError(res, null);
+    const data = await res.json();
+    if (data && data.success && data.support && data.support.phoneLocal) {
+      supportContactInfo = data.support;
+    }
+  } catch (err) { /* stay null — the recovery copy degrades gracefully */ }
+  return supportContactInfo;
+}
+
+// Recovery copy for a payment that is still pending after the manual check.
+// Includes the support WhatsApp number from the central config when available;
+// the invoiceId is always the reference the client can quote.
+function supportReferenceMessage(invoiceId) {
+  const phone = supportContactInfo && supportContactInfo.phoneLocal;
+  return phone
+    ? `Still processing. Please contact support on WhatsApp at ${phone} with reference: ${invoiceId}.`
+    : `Still processing. Please contact support with reference: ${invoiceId}.`;
+}
+
 async function loadCategories() {
   try {
     const res = await fetch(`${API_BASE}/listings/categories`);
@@ -315,6 +344,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // (pills, sell select) is built; the loader builds both on success and
   // renders a retry affordance on failure. Never invents a fallback taxonomy.
   await loadCategories();
+  // Support-contact metadata for payment-recovery copy — fire-and-forget so a
+  // slow endpoint never delays init; the recovery paths also await it lazily.
+  loadSupportContact();
   // No covers exist on first paint (they arrive via openStorePage); this is
   // a cheap no-op that keeps the lazy-background lifecycle point wired.
   initLazyBackgrounds();
@@ -654,7 +686,8 @@ async function checkListingStatusManually(invoiceId) {
   }
   if (statusEl) {
     statusEl.className = 'form-status error';
-    statusEl.textContent = `Still processing. Please contact support with reference: ${invoiceId}.`;
+    await loadSupportContact();
+    statusEl.textContent = supportReferenceMessage(invoiceId);
   }
 }
 
@@ -2264,7 +2297,8 @@ async function checkStoreStatusManually(invoiceId) {
   }
   if (statusEl) {
     statusEl.className = 'form-status error';
-    statusEl.textContent = `Still processing. Please contact support with reference: ${invoiceId}.`;
+    await loadSupportContact();
+    statusEl.textContent = supportReferenceMessage(invoiceId);
   }
 }
 

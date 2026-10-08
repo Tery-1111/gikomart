@@ -20,6 +20,10 @@ const fetchCalls = [];
 // What GET /api/payments/status/:invoiceId answers. Flipped to a completed
 // payload just before the manual check, to prove Recovery → Success.
 let statusPayload = { success: true, status: 'pending' };
+// GET /api/support-contact — served from the backend's central config (the
+// successful-path response; the unavailable-endpoint fallback is covered in
+// tests/paymentRecoveryFallback.test.mjs).
+const supportPayload = { success: true, support: { phoneLocal: '0776844298', phoneInternational: '254776844298' } };
 const statusCallCount = () => fetchCalls.filter((c) => c.url.includes('/payments/status/')).length;
 
 // What GET /api/listings?… answers (mutable per test). Default: empty page 1.
@@ -58,6 +62,10 @@ beforeAll(async () => {
     }
     if (u.includes('/payments/status/')) return jsonResponse(statusPayload);
     if (u.includes('/listings/categories')) return jsonResponse({ success: true, categories: canonicalCategories });
+    if (u.includes('/support-contact')) {
+      if (!supportPayload) return { ok: false, status: 404, json: async () => ({ success: false }) };
+      return jsonResponse(supportPayload);
+    }
     if (u.includes('/listings')) return jsonResponse(listingsPayload);
     return { ok: false, status: 404, json: async () => ({ success: false }) };
   }));
@@ -181,7 +189,9 @@ describe('P3 — negative paths', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(statusCallCount()).toBe(base + 6); // 5 automatic + exactly 1 manual
-    expect(statusEl.textContent).toBe(`Still processing. Please contact support with reference: ${INVOICE_ID}.`);
+    // The recovery copy carries the support WhatsApp number from the central
+    // config (GET /api/support-contact), plus the quotable invoice reference.
+    expect(statusEl.textContent).toBe(`Still processing. Please contact support on WhatsApp at 0776844298 with reference: ${INVOICE_ID}.`);
     expect(statusEl.className).toContain('error');
     expect(statusEl.textContent).not.toContain('confirmed');
     expect(statusEl.textContent).not.toContain('failed');
