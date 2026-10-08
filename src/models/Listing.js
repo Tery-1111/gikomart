@@ -18,7 +18,11 @@ const listingSchema = new mongoose.Schema({
   views: { type: Number, default: 0 },
   broadcastSent: { type: Boolean, default: false },
   // Listing lifecycle (paid duration)
-  package: { type: String, enum: ['quick', 'standard', 'premium'], required: true },
+  // 'store' = a Store-included listing (published free via POST
+  // /api/stores/:id/listings under the store plan's listing capacity). It
+  // carries no paid tier of its own and no listing duration: its expiresAt is
+  // adopted from the store it belongs to at creation time.
+  package: { type: String, enum: ['quick', 'standard', 'premium', 'store'], required: true },
   expiresAt: { type: Date, required: true },
   // Monetization fields (boosts — independent of listing expiry)
   featured: { type: Boolean, default: false },

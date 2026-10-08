@@ -560,6 +560,14 @@ async function createResourceForPayment(payment) {
 }
 
 exports.createResourceForPayment = createResourceForPayment;
+// Shared with the store-included listing creation path (storeController), which
+// must apply the exact same contact-block rule and Upload bookkeeping as a
+// payment-initiated listing without routing through the payment machinery.
+exports.isContactBlocked = isContactBlocked;
+exports.markUploadsAttached = markUploadsAttached;
+// The paid creation path's content allowlist, reused by the store-included
+// creation path so BOTH paths accept and persist exactly the same keys.
+exports.LISTING_DATA_ALLOWLIST = LISTING_DATA_ALLOWLIST;
 
 // Webhook: IntaSend calls this when payment status changes
 exports.handleWebhook = async (req, res, next) => {

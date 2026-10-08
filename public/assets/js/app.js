@@ -275,7 +275,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function setupNav() {
   document.querySelectorAll('[data-view]').forEach(el => {
-    el.addEventListener('click', () => switchView(el.dataset.view));
+    el.addEventListener('click', () => {
+      // ANY manual navigation clears a store context and restores the standard
+      // sell form (applySellViewContext rebinds the KES package picker). The
+      // included-listing opener (openSellViewAsStoreFlow) re-arms AFTER this
+      // reset, so a stale context or stale slot count can never leak into an
+      // ordinary sell visit — the decoration always matches the submit branch.
+      if (sellViewContext) {
+        sellViewContext = null;
+        applySellViewContext();
+      }
+      switchView(el.dataset.view);
+    });
   });
 }
 
@@ -292,6 +303,51 @@ function switchView(view) {
   if (view === 'dashboard') renderDashboard();
   if (view === 'mystore') renderMyStore();
   window.scrollTo({ top: document.querySelector('.app-shell').offsetTop - 20, behavior: 'smooth' });
+}
+
+// ─── Store-context sell flow (included listings) ───────────────────────────
+// When the sell form is opened from the store dashboard, the plan's listing
+// capacity is the payment: the package picker disappears, the publish button
+// submits to POST /api/stores/:id/listings, and no M-Pesa flow starts. The
+// context is deliberately reset by every manual sell navigation so a stale
+// entry (or outdated slot count) can never leak into an ordinary visit.
+let sellViewContext = null; // { storeId, available } while publishing into a store
+
+function applySellViewContext() {
+  const pkg = document.getElementById('packageSection');
+  if (!pkg) return;
+  const noteId = 'storeContextNote';
+  if (sellViewContext) {
+    pkg.innerHTML = `
+      <div class="boost-section" style="margin-top:16px;" id="${noteId}">
+        <div class="boost-label">🏪 Publishing into your Store</div>
+        <div style="color:var(--ink-soft); font-size:14px;">
+          Covered by your store plan — no listing payment.
+          <strong>${sellViewContext.available} listing${sellViewContext.available === 1 ? '' : 's'}</strong> remaining.
+        </div>
+      </div>
+    `;
+    const publishBtn = document.getElementById('submitBtn');
+    if (publishBtn) publishBtn.textContent = 'Publish in Store (no charge)';
+  } else if (document.getElementById(noteId)) {
+    // Leaving store context: restore the standard package picker exactly the
+    // way the initial form setup built it, and restore the paid label.
+    document.getElementById('packageSection').innerHTML = packageSectionHTML();
+    document.getElementById('packageOptions').addEventListener('click', (e) => {
+      const opt = e.target.closest('.boost-option');
+      if (opt) setTimeout(updatePublishLabel, 0);
+    });
+    updatePublishLabel();
+  }
+}
+
+// Dispatcher entry for the dashboard's "+ Add Listing" button (data-action).
+// Synchronous by design: set context → switch → decorate, with no awaits in
+// between, so no interleaving navigation can re-shape the form mid-entry.
+function openSellViewAsStoreFlow(storeId, available) {
+  sellViewContext = { storeId, available: Number(available) };
+  switchView('sell');
+  applySellViewContext();
 }
 
 function buildCategoryPills() {
@@ -934,6 +990,9 @@ function setupActionDelegation() {
       // ── Store ──
       case 'open-store-creation': openStoreCreationModal(); break;
       case 'open-store-page': openStorePage(el.dataset.slug); break;
+      // Add Listing from the store dashboard: the sell form opens in store
+      // context and publishes through the store plan's capacity (no payment).
+      case 'add-listing': openSellViewAsStoreFlow(el.dataset.storeId, el.dataset.available); break;
       case 'edit-store': openStoreEditForm(el.dataset.storeId); break;
       case 'attach-listing': openAttachListingModal(el.dataset.storeId); break;
       case 'store-listings': openStoreListings(el.dataset.storeId); break;
@@ -1118,6 +1177,7 @@ function selectPackage(el) {
 function updatePublishLabel() {
   const btn = document.getElementById('submitBtn');
   if (!btn) return;
+  if (sellViewContext) { btn.textContent = 'Publish in Store (no charge)'; return; }
   const selected = document.querySelector('#packageOptions .boost-option.selected');
   const priceText = selected ? selected.querySelector('.boost-option-price') : null;
   const price = priceText ? priceText.textContent.replace(/[^0-9]/g, '') : '';
@@ -1175,6 +1235,7 @@ function setupForm() {
   });
 
   document.getElementById('packageSection').innerHTML = packageSectionHTML();
+  applySellViewContext();            // re-bind the store note if the view re-rendered
   setupImageUpload();
   document.getElementById('sellForm').addEventListener('submit', handleSubmit);
 
@@ -1395,6 +1456,18 @@ async function handleSubmit(e) {
     images: uploadedImageUrl ? [uploadedImageUrl] : [],
   };
 
+  // Store context: the sell form was entered from the store dashboard —
+  // publish through the plan's capacity with NO payment (POST to the store
+  // route), never through the paid listing-payment branch below. The status
+  // element and button are resolved HERE (before the paid branch declares its
+  // own bindings) so the store path never touches the payment-only flow state.
+  if (sellViewContext) {
+    const statusEl = document.getElementById('formStatus');
+    const submitBtn = document.getElementById('submitBtn');
+    await handleStoreListingSubmit(e, listingData, statusEl, submitBtn);
+    return;
+  }
+
   const selectedPackage = document.querySelector('#packageOptions .boost-option.selected');
   const pkg = selectedPackage ? selectedPackage.dataset.package : 'standard';
 
@@ -1461,6 +1534,55 @@ async function handleSubmit(e) {
     console.error('Listing payment failed:', err.message);
     endPaymentWait(false, friendlyFetchError(err));
     showToast('⚠️ Payment request failed');
+  }
+}
+
+// Store-context submit: publish the listing into the seller's store through
+// its plan capacity — no payment initiation, no M-Pesa, no status polling.
+async function handleStoreListingSubmit(e, listingData, statusEl, submitBtn) {
+  if (!sellViewContext) return;
+  const { storeId } = sellViewContext;
+  if (isUploading) return;
+  setBtnBusy(submitBtn, true, 'Publishing…');
+  statusEl.textContent = 'Publishing into your store…';
+  statusEl.className = 'form-status';
+  try {
+    const res = await fetch(`${API_BASE}/stores/${storeId}/listings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Store-Owner-Token': getStoreToken(storeId) || '',
+      },
+      body: JSON.stringify({
+        listingData,
+        acceptance: buildSellerAcceptanceToken(),
+        website: (document.getElementById('website') || {}).value || '',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw httpError(res, data);
+
+    statusEl.textContent = '✅ Published in your store — covered by your plan.';
+    statusEl.classList.add('success');
+    showToast('🏪 Listing published in your store');
+    e.target.reset();
+    document.getElementById('f-condition').value = 'Excellent';
+    resetImageUpload();
+    updatePreview();
+    setBtnBusy(submitBtn, false);
+    // Reflect the consumed slot locally and keep the context armed so the
+    // seller can publish again right away; the dashboard count refreshes
+    // whenever the My Store view is next rendered.
+    if (sellViewContext && sellViewContext.storeId === storeId) {
+      sellViewContext.available = Math.max(0, sellViewContext.available - 1);
+      applySellViewContext();
+    }
+    renderMyStore();
+  } catch (err) {
+    statusEl.textContent = friendlyFetchError(err);
+    statusEl.className = 'form-status error';
+    setBtnBusy(submitBtn, false);
+    showToast('⚠️ Publish failed');
   }
 }
 
@@ -1700,6 +1822,9 @@ async function renderMyStore() {
 
 function renderStoreManagementPanel(store, listingCount) {
   const isActive = store.status === 'active';
+  // Capacity derives live from the server's listingCount against the plan limit
+  // — the same active-listing semantics the backend enforces, no local counter.
+  const available = Math.max(0, (store.listing_limit || 0) - (listingCount || 0));
   const daysLeft = Math.max(0, Math.ceil((new Date(store.expires_at) - new Date()) / (1000 * 60 * 60 * 24)));
   const statusBadge = isActive
     ? '<span style="color:var(--success); font-weight:600;">● Active</span>'
@@ -1719,12 +1844,12 @@ function renderStoreManagementPanel(store, listingCount) {
 
       <div class="dash-stats" style="margin-bottom:16px;">
         <div class="dash-stat">
-          <span class="dash-num">${listingCount}</span>
-          <span class="dash-label">listings in store</span>
+          <span class="dash-num">${listingCount} / ${store.listing_limit}</span>
+          <span class="dash-label">listings used (${available} remaining)</span>
         </div>
         <div class="dash-stat">
-          <span class="dash-num">${store.listing_limit}</span>
-          <span class="dash-label">max listings (${store.plan.replace(/_/g, ' ')})</span>
+          <span class="dash-num">${store.plan.replace(/_/g, ' ')}</span>
+          <span class="dash-label">plan capacity</span>
         </div>
         <div class="dash-stat">
           <span class="dash-num">${daysLeft}</span>
@@ -1733,8 +1858,9 @@ function renderStoreManagementPanel(store, listingCount) {
       </div>
 
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-ghost" ${available > 0 && isActive ? `data-action="add-listing" data-store-id="${store._id}" data-available="${available}"` : 'disabled'}>${available > 0 && isActive ? '+ Add Listing' : 'No space — all slots used'}</button>
         <button class="btn btn-ghost" data-action="edit-store" data-store-id="${store._id}">✏️ Edit Store</button>
-        <button class="btn btn-ghost" data-action="attach-listing" data-store-id="${store._id}">🔗 Attach Listing</button>
+        <button class="btn btn-ghost" data-action="attach-listing" data-store-id="${store._id}">🔗 Attach Existing</button>
         <button class="btn btn-ghost" data-action="store-listings" data-store-id="${store._id}">📋 Store Listings</button>
         <button class="btn btn-ghost" data-action="open-store-page" data-slug="${escapeAttr(store.slug)}">🌐 Public Page</button>
         <button class="btn btn-ghost" style="color:var(--danger);" data-action="delete-store" data-store-id="${store._id}">🗑️ Delete Store</button>

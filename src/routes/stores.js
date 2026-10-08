@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const storeAuth = require('../middleware/storeAuth');
-const { getStore, getStoreById, getMyStores, updateStore, deleteStore, attachListing, detachListing } = require('../controllers/storeController');
+const { getStore, getStoreById, getMyStores, updateStore, deleteStore, attachListing, detachListing, createStoreListing } = require('../controllers/storeController');
 
 // Public
 router.get('/slug/:slug', getStore);
@@ -17,5 +17,10 @@ router.put('/:id', storeAuth({ requireActive: true }), updateStore);
 router.delete('/:id', storeAuth({ allowAdmin: true }), deleteStore);
 router.put('/:id/attach-listing', storeAuth({ requireActive: true }), attachListing);
 router.put('/:id/detach-listing', storeAuth({ requireActive: true }), detachListing);
+// Included-listing publication: the store plan's listing capacity is the
+// entitlement — active store + unexpired (requireActive) + server-side capacity
+// check, and the listing is born into the store with NO payment. Kept off the
+// payment limiter on purpose: no STK push happens here.
+router.post('/:id/listings', storeAuth({ requireActive: true }), createStoreListing);
 
 module.exports = router;

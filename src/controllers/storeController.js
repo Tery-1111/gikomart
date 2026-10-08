@@ -4,15 +4,24 @@ const Listing = require('../models/Listing');
 const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
-const { isHttpUrl } = require('../utils/safeUrl');
-const { checkStore } = require('../services/moderationService');
+const { checkStore, checkListing } = require('../services/moderationService');
 const mongoose = require('mongoose');
 const inputLimits = require('../config/inputLimits');
-const { storeView } = require('../utils/publicView');
+const { storeView, listingView } = require('../utils/publicView');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 // Store state drives listing visibility on the browse endpoint (listings of a
 // suspended/flagged/removed store are hidden), so these writes clear it.
 const { invalidateListingsCache } = require('../utils/ttlCache');
+// Included-listing publication (POST /api/stores/:id/listings) reuses the paid
+// path's safeguards verbatim: the acceptance rules, input limits, condition
+// catalog, http(s)-only image URLs, content screen and the payment path's
+// blocked-contact rule + Upload attached-marking (imported indirection only —
+// no payment machinery is invoked).
+const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
+const { validateAcceptanceToken, recordAcceptance } = require('../services/termsAcceptanceService');
+const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { isHttpUrl } = require('../utils/safeUrl');
+const { isContactBlocked, markUploadsAttached, LISTING_DATA_ALLOWLIST } = require('./paymentController');
 
 // Constant-time comparison (same pattern as listingController.js)
 function safeEqual(a, b) {
@@ -414,6 +423,195 @@ exports.detachListing = async (req, res, next) => {
       metadata: { listingId: String(listing._id) },
     });
     res.json({ success: true, message: 'Listing removed from store' });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ─── Owner: Publish a Store-included listing (no payment) ──────────────────
+// The Store plan's listing capacity is an entitlement: while the store is
+// active and unexpired (both enforced by storeAuth requireActive), its owner
+// publishes listings into it WITHOUT paying the standalone listing fee.
+//
+// Capacity enforcement is transactional (same MongoDB startSession pattern as
+// deleteStore): the active-listing count is re-read on the transaction's
+// snapshot IMMEDIATELY before the insert, so two concurrent publications
+// cannot both accept a last slot — one sees the other's committed insert on a
+// fresh snapshot, MongoDB aborts the loser, and nothing is written. This is
+// deliberately NOT a persisted counter (listing_limit stays the one capacity
+// field and remains derivable from listing state at all times).
+//
+// Included-listing expiry ADOPTS THE STORE'S expiry (expiresAt =
+// store.expires_at): a listing published under a plan lives exactly as long
+// as that plan period — there is no separate included-listing duration.
+exports.createStoreListing = async (req, res, next) => {
+  try {
+    const store = req.store;
+    const { listingData } = req.body || {};
+
+    if (!listingData || typeof listingData !== 'object') {
+      return res.status(400).json({ success: false, error: 'Missing listing details' });
+    }
+
+    // Terms: the same seller-publication acceptance the paid initiate-listing
+    // path enforces (LISTING_PUBLICATION), with a zero-fee label because the
+    // publication is covered by the store plan, not a new charge.
+    const acceptValidation = validateAcceptanceToken(req.body.acceptance, ACCEPTANCE_TYPES.LISTING_PUBLICATION);
+    if (!acceptValidation.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Terms acceptance required: ${acceptValidation.error}`,
+      });
+    }
+    const errors = [];
+    // Field validation and caps: identical rules to initiateListing minus the
+    // payment-only fields, so BOTH creation paths accept the same content.
+    if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
+    if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
+    if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
+    // Image entries are rendered into <img src> — reject non-http(s) schemes.
+    if (listingData.images !== undefined
+      && (!Array.isArray(listingData.images) || !listingData.images.every(isHttpUrl))) errors.push('images');
+    const price = Number(listingData.price);
+    if (!Number.isFinite(price) || price < 0) errors.push('price');
+    if (typeof listingData.description !== 'string' || !listingData.description.trim()) errors.push('description');
+    if (typeof listingData.sellerName !== 'string' || !listingData.sellerName.trim()) errors.push('sellerName');
+    if (typeof listingData.sellerWhatsapp !== 'string' || !listingData.sellerWhatsapp.trim()) errors.push('sellerWhatsapp');
+    // Length caps: reject oversized free-text (and too many images) upfront.
+    const listingCaps = inputLimits.listing;
+    for (const [field, cap] of Object.entries(listingCaps)) {
+      if (typeof cap !== 'number') continue;
+      const value = listingData[field];
+      if (typeof value === 'string' && value.trim().length > cap) errors.push(field);
+    }
+    if (Array.isArray(listingData.images) && listingData.images.length > listingCaps.images.maxItems) {
+      errors.push('images');
+    }
+    if (listingData.store_id !== undefined && listingData.store_id !== null && listingData.store_id !== '') {
+      errors.push('store_id');
+    }
+    if (errors.length > 0) {
+      return res.status(400).json({ success: false, error: `Invalid or missing listing details: ${errors.join(', ')}` });
+    }
+    listingData.price = price;
+
+    // Blocked contacts cannot publish, exactly like payment initiation.
+    if (await isContactBlocked([listingData.sellerWhatsapp])) {
+      emit({
+        actor: ownerActor(req),
+        action: 'payment.blocked_contact',
+        resource: 'payment',
+        result: 'failure',
+        metadata: { route: 'store-listing' },
+      });
+      return res.status(403).json({ success: false, error: 'This number cannot be used on GikoMart' });
+    }
+
+    // Mark this listing's images attached BEFORE the insert so the orphan
+    // sweep cannot destroy them while the reference is being written (same
+    // ordering as the paid initiate path).
+    if (Array.isArray(listingData.images) && listingData.images.length > 0) {
+      await markUploadsAttached(listingData.images);
+    }
+
+    // Allowlist-copy: keep exactly the validated content fields and drop every
+    // other client-supplied key before anything is persisted.
+    const cleanListingData = {};
+    for (const key of LISTING_DATA_ALLOWLIST) {
+      if (listingData[key] !== undefined) cleanListingData[key] = listingData[key];
+    }
+
+    const moderation = checkListing(cleanListingData);
+    const session = await mongoose.connection.startSession();
+
+    let listing;
+    try {
+      await session.withTransaction(async () => {
+        // Recount on the transaction snapshot. A rival publication that slips
+        // in before this read is seen here; one that races the insert aborts
+        // on a write conflict, and any driver retry of the callback re-runs
+        // this recount on a fresh snapshot before doing anything else — the
+        // verdict is always re-derived, never inherited.
+        const count = await Listing.countDocuments({ store_id: store._id, status: 'active' }, { session });
+        if (count >= store.listing_limit) {
+          throw new Error(`Store listing limit reached (${store.listing_limit}). Remove a listing or use a standalone listing package.`);
+        }
+        [listing] = await Listing.create([{
+          // Key-by-key copy of the allowlist — no spread — so a crafted payload
+          // cannot inject featured, views, status or boostType here either.
+          title: cleanListingData.title,
+          category: cleanListingData.category,
+          subcategory: cleanListingData.subcategory,
+          condition: cleanListingData.condition,
+          price: cleanListingData.price,
+          description: cleanListingData.description,
+          images: cleanListingData.images || [],
+          sellerName: cleanListingData.sellerName,
+          sellerWhatsapp: cleanListingData.sellerWhatsapp,
+          location: cleanListingData.location,
+          // Born in the store (INV-3): no standalone-then-attach hop.
+          store_id: store._id,
+          // The plan covers publication: no listing charge (INV-2), so this is
+          // NOT routed through payments and carries no paymentId.
+          package: 'store',
+          // Included listings inherit the plan period they were published in:
+          // expiresAt = store.expires_at exactly.
+          expiresAt: store.expires_at,
+          moderationStatus: moderation.approved ? 'approved' : 'flagged',
+          // The store's owner hash governs this listing: the store token is the
+          // single seller credential for everything the store publishes.
+          ownerTokenHash: store.ownerTokenHash,
+        }], { session });
+      }, { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } });
+    } catch (err) {
+      if (err instanceof Error && /Store listing limit reached/.test(err.message)) {
+        return res.status(409).json({ success: false, error: err.message });
+      }
+      // Everything else: the transaction already rolled back atomically.
+      throw err;
+    } finally {
+      session.endSession();
+    }
+
+    await recordAcceptance({
+      acceptanceType: ACCEPTANCE_TYPES.LISTING_PUBLICATION,
+      versions: acceptValidation.versions,
+      action: 'STORE_PUBLISH:' + store.plan,
+      phone: null,
+      whatsapp: cleanListingData.sellerWhatsapp,
+      ownerTokenHash: store.ownerTokenHash,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || '',
+      listingId: listing._id,
+      storeId: store._id,
+      fee: { amount: 0, currency: 'KES', label: 'Included in store plan: ' + store.plan },
+      metadata: {
+        listingTitle: cleanListingData.title || null,
+        listingCategory: cleanListingData.category || null,
+      },
+    });
+
+    // A new listing may enter the public browse set — drop cached page 1.
+    invalidateListingsCache();
+
+    emit({
+      actor: ownerActor(req),
+      action: 'store.create_listing',
+      resource: 'listing',
+      resourceId: String(listing._id),
+      result: 'success',
+      metadata: {
+        storeId: String(store._id),
+        flagged: !moderation.approved,
+        package: 'store',
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Listing published in your store — covered by your plan',
+      listing: listingView(listing, { includeContact: true }),
+    });
   } catch (err) {
     return next(err);
   }
