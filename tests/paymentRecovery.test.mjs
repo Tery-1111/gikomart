@@ -199,6 +199,35 @@ describe('P3 — negative paths', () => {
     await vi.advanceTimersByTimeAsync(60000);
     expect(statusCallCount()).toBe(base + 1);
   });
+
+  it('a FAILED payment with provider code 1032 shows the cancellation message, not the generic failure', async () => {
+    statusPayload = { success: true, status: 'failed', failedCode: '1032' };
+    const base = statusCallCount();
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusCallCount()).toBe(base + 1);
+
+    const statusEl = document.getElementById('formStatus');
+    expect(statusEl.textContent).toBe('Payment cancelled. No listing was created. You can try again.');
+    expect(statusEl.className).toContain('error');
+    expect(statusEl.textContent).not.toContain('Payment failed');
+    // The pending token is dropped so a cancelled payment can never adopt a listing.
+    expect(localStorage.getItem(`gikomart_pendingToken:${INVOICE_ID}`)).toBeNull();
+  });
+
+  it('a FAILED payment with a non-cancellation provider code keeps the generic failure message', async () => {
+    statusPayload = { success: true, status: 'failed', failedCode: '999' };
+    const base = statusCallCount();
+
+    submitListingPayment();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusCallCount()).toBe(base + 1);
+
+    const statusEl = document.getElementById('formStatus');
+    expect(statusEl.textContent).toBe('❌ Payment failed — nothing was listed. Try again.');
+    expect(statusEl.textContent).not.toContain('cancelled');
+  });
 });
 
 describe('P3 — poll lifecycle across navigation', () => {

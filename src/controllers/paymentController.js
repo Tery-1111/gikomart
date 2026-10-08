@@ -130,6 +130,18 @@ exports.initiateBoost = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
+    // Without a valid invoice id the payment can never be correlated with a
+    // webhook or a status lookup — creating the record would strand an
+    // unreferenceable pending payment. Fail with the same response shape as a
+    // payment-start failure.
+    if (!invoiceId) {
+      logger.error('IntaSend initiation response missing invoice_id', { type: 'boost' });
+      return res.status(503).json({
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
+        requestId: req.id,
+      });
+    }
+
     await Payment.create({
       type: 'boost',
       listingId,
@@ -269,6 +281,18 @@ exports.initiateListing = async (req, res, next) => {
     }
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
+
+    // Without a valid invoice id the payment can never be correlated with a
+    // webhook or a status lookup — creating the record (or an acceptance record
+    // pointing at it) would strand an unreferenceable pending payment. Fail
+    // with the same response shape as a payment-start failure.
+    if (!invoiceId) {
+      logger.error('IntaSend initiation response missing invoice_id', { type: 'listing' });
+      return res.status(503).json({
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
+        requestId: req.id,
+      });
+    }
 
     const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
@@ -422,6 +446,18 @@ exports.initiateStorePlan = async (req, res, next) => {
 
     const invoiceId = response?.invoice?.invoice_id || response?.id || null;
 
+    // Without a valid invoice id the payment can never be correlated with a
+    // webhook or a status lookup — creating the record (or an acceptance record
+    // pointing at it) would strand an unreferenceable pending payment. Fail
+    // with the same response shape as a payment-start failure.
+    if (!invoiceId) {
+      logger.error('IntaSend initiation response missing invoice_id', { type: 'store' });
+      return res.status(503).json({
+        error: 'Payment could not be started — check your M-Pesa balance and phone number, then try again.',
+        requestId: req.id,
+      });
+    }
+
     const ip = req.ip;
     const userAgent = req.get('user-agent') || '';
 
@@ -571,6 +607,11 @@ exports.LISTING_DATA_ALLOWLIST = LISTING_DATA_ALLOWLIST;
 
 // Webhook: IntaSend calls this when payment status changes
 exports.handleWebhook = async (req, res, next) => {
+  // Set once the atomic completion claim below succeeds. If anything after that
+  // point throws (resource creation, back-references, saves), the payment is
+  // already marked completed — the catch must emit a high-severity diagnostic
+  // so the completed-without-resource condition is observable for manual repair.
+  let claimedPayment = null;
   try {
     const receivedChallenge = req.body.challenge;
     const expectedChallenge = process.env.INTASEND_WEBHOOK_CHALLENGE;
@@ -672,6 +713,7 @@ exports.handleWebhook = async (req, res, next) => {
         // the only other cause — a deleted record — cannot occur here.)
         return res.status(200).json({ success: true, message: 'Payment already processed' });
       }
+      claimedPayment = payment;
 
       if (payment.type === 'listing') {
         // Content moderation gate: flagged listings are created (payment already
@@ -779,16 +821,81 @@ exports.handleWebhook = async (req, res, next) => {
         });
       }
     } else if (state === 'FAILED') {
+      // Provider failure detail: retain failed_code/failed_reason when present
+      // so the client can distinguish a confirmed user cancellation (failed_code
+      // 1032) from a generic failure. Never stored on a completed payment.
+      const update = { status: 'failed' };
+      if (req.body.failed_code !== undefined && req.body.failed_code !== null) {
+        update.failedCode = String(req.body.failed_code);
+      }
+      if (req.body.failed_reason !== undefined && req.body.failed_reason !== null) {
+        update.failedReason = String(req.body.failed_reason);
+      }
+      // Atomic conditional claim: a FAILED event may only transition a
+      // still-pending payment. Provider webhook events can arrive out of order
+      // or more than once, so a FAILED that lands after COMPLETE must never
+      // downgrade a completed payment (COMPLETE → FAILED is destructive: the
+      // created resource would stay live while the record claims failure).
+      const claimed = await Payment.findOneAndUpdate(
+        { invoiceId: invoice_id, status: 'pending' },
+        update,
+      );
+      if (claimed) {
+        return res.status(200).json({ success: true });
+      }
+      // No pending payment matched: the invoice is unknown, or the payment is
+      // already terminal (completed/failed). Look it up to tell those apart.
       const payment = await Payment.findOne({ invoiceId: invoice_id });
       if (!payment) {
         return res.status(404).json({ success: false, error: 'Payment record not found' });
       }
-      payment.status = 'failed';
-      await payment.save();
+      if (payment.status === 'completed') {
+        // A completed payment's financial state is authoritative — the FAILED
+        // event modifies nothing. The failure detail is kept in logs only.
+        logger.warn('FAILED webhook ignored for completed payment', {
+          invoice_id,
+          state,
+          failed_code: update.failedCode ?? null,
+        });
+      } else if (update.failedCode !== undefined || update.failedReason !== undefined) {
+        // Duplicate FAILED on an already-failed payment: retain the latest
+        // failure detail without touching the (already terminal) status.
+        const metaUpdate = {};
+        if (update.failedCode !== undefined) metaUpdate.failedCode = update.failedCode;
+        if (update.failedReason !== undefined) metaUpdate.failedReason = update.failedReason;
+        await Payment.findOneAndUpdate(
+          { invoiceId: invoice_id, status: 'failed' },
+          metaUpdate,
+        );
+      }
+    } else {
+      // Unsupported provider state (e.g. PENDING, PROCESSING, RETRY, PARTIAL,
+      // CANCELED): grant nothing, transition nothing — the payment simply stays
+      // in its current local state — but make the event observable so an
+      // unhandled provider state is never silently absorbed. Acknowledge with
+      // 200 so the provider does not retry a valid webhook.
+      logger.warn('Webhook received unhandled provider state', {
+        invoice_id,
+        state,
+        api_ref: typeof req.body.api_ref === 'string' ? req.body.api_ref : null,
+      });
     }
 
     res.status(200).json({ success: true });
   } catch (err) {
+    if (claimedPayment) {
+      // High severity: the payment is completed but fulfilment did not finish.
+      // Do NOT mark the payment failed, refund, or retry here — surface the
+      // mismatch for manual repair.
+      logger.error('Payment completed but resource fulfilment failed — manual repair required', {
+        paymentId: String(claimedPayment._id),
+        invoiceId: claimedPayment.invoiceId,
+        paymentType: claimedPayment.type,
+        listingId: claimedPayment.listingId || null,
+        storeId: claimedPayment.storeId || null,
+        error: err.message,
+      });
+    }
     logger.error('Webhook error', { error: err.message });
     return next(err);
   }
@@ -811,6 +918,10 @@ exports.checkPaymentStatus = async (req, res, next) => {
       status: payment.status,
       listingId: payment.listingId || null,
       storeId: payment.storeId || null,
+      // Provider failure detail (present only on failed payments) so the
+      // frontend can distinguish a confirmed user cancellation (1032) from a
+      // generic failure. No other provider material is exposed.
+      failedCode: payment.failedCode || null,
     });
   } catch (err) {
     return next(err);

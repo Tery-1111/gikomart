@@ -27,6 +27,12 @@ const paymentSchema = new mongoose.Schema({
   // response. The raw token is NEVER stored server-side.
   ownerTokenHash: { type: String },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
+  // Provider failure detail from a FAILED webhook event (IntaSend failed_code /
+  // failed_reason), retained when present. Lets the client distinguish a
+  // confirmed user cancellation (failed_code 1032) from a generic failure.
+  // Never written onto a completed payment; no other provider material is kept.
+  failedCode: { type: String },
+  failedReason: { type: String },
   // Set only when an admin grants free access through the admin portal. A real
   // payment completes via the webhook and leaves both null, so the two paths can
   // be told apart (revenue excludes grants; metrics counts them separately).

@@ -481,8 +481,11 @@ function pollListingStatus(invoiceId, attempt = 0) {
       }
       if (data && data.success && data.status === 'failed') {
         try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
-        showToast('❌ Payment failed — nothing was listed');
-        if (isPaymentInFlight) endPaymentWait(false, '❌ Payment failed — nothing was listed. Try again.');
+        // failedCode 1032 is the provider-confirmed user cancellation; every
+        // other failure keeps the generic message.
+        const cancelled = data.failedCode === '1032';
+        showToast(cancelled ? 'Payment cancelled. No listing was created. You can try again.' : '❌ Payment failed — nothing was listed');
+        if (isPaymentInFlight) endPaymentWait(false, cancelled ? 'Payment cancelled. No listing was created. You can try again.' : '❌ Payment failed — nothing was listed. Try again.');
         return;
       }
       listingPollTimer = setTimeout(() => pollListingStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
@@ -555,8 +558,11 @@ async function checkListingStatusManually(invoiceId) {
   }
   if (data && data.success && data.status === 'failed') {
     try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
-    showToast('❌ Payment failed — nothing was listed');
-    endPaymentWait(false, '❌ Payment failed — nothing was listed. Try again.');
+    // failedCode 1032 is the provider-confirmed user cancellation; every
+    // other failure keeps the generic message.
+    const cancelled = data.failedCode === '1032';
+    showToast(cancelled ? 'Payment cancelled. No listing was created. You can try again.' : '❌ Payment failed — nothing was listed');
+    endPaymentWait(false, cancelled ? 'Payment cancelled. No listing was created. You can try again.' : '❌ Payment failed — nothing was listed. Try again.');
     return;
   }
   if (statusEl) {
@@ -2044,7 +2050,9 @@ function pollStoreStatus(invoiceId, attempt = 0) {
       }
       if (data && data.success && data.status === 'failed') {
         try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
-        showToast('❌ Store payment failed');
+        // failedCode 1032 is the provider-confirmed user cancellation; every
+        // other failure keeps the generic message.
+        showToast(data.failedCode === '1032' ? 'Payment cancelled. No store was created. You can try again.' : '❌ Store payment failed');
         return;
       }
       storePollTimer = setTimeout(() => pollStoreStatus(invoiceId, attempt + 1), pollBackoffDelay(attempt));
@@ -2086,10 +2094,13 @@ async function checkStoreStatusManually(invoiceId) {
   }
   if (data && data.success && data.status === 'failed') {
     try { localStorage.removeItem(PENDING_TOKEN_PREFIX + invoiceId); } catch (err) {}
-    showToast('❌ Store payment failed');
+    // failedCode 1032 is the provider-confirmed user cancellation; every
+    // other failure keeps the generic message.
+    const cancelled = data.failedCode === '1032';
+    showToast(cancelled ? 'Payment cancelled. No store was created. You can try again.' : '❌ Store payment failed');
     if (statusEl) {
       statusEl.className = 'form-status error';
-      statusEl.textContent = '❌ Store payment failed. Please try again.';
+      statusEl.textContent = cancelled ? 'Payment cancelled. No store was created. You can try again.' : '❌ Store payment failed. Please try again.';
     }
     return;
   }

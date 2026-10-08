@@ -23,11 +23,11 @@ function makeDoc(obj) {
 }
 
 const fakeListingModel = {
-  create: async (data) => {
+  create: vi.fn(async (data) => {
     const doc = makeDoc({ _id: `lst-${h.listings.length + 1}`, views: 0, status: 'active', store_id: null, broadcastSent: false, priorityBroadcast: false, featured: false, boostType: null, featuredUntil: null, moderationStatus: 'approved', ...data });
     h.listings.push(doc);
     return doc;
-  },
+  }),
   findOne: async () => null,
   findById: () => ({ select: () => Promise.resolve(null), then: (res) => Promise.resolve(null).then(res) }),
   find: () => { const b = { populate: () => b, sort: () => b, skip: () => b, limit: () => b, lean: async () => [], then: (res) => Promise.resolve([]).then(res) }; return b; },
@@ -41,8 +41,19 @@ const fakePaymentModel = {
     return doc;
   },
   findOne: async (filter) => makeDoc(h.payments.find(p => p.invoiceId === filter.invoiceId) || null),
+  // Honors the status condition of real atomic-claim filters (exact match or
+  // { $ne }) so the pending-only FAILED/COMPLETE claims are exercised truly.
   findOneAndUpdate: async (filter, update) => {
-    const p = h.payments.find(x => x.invoiceId === filter.invoiceId && x.status !== 'completed');
+    const statusOk = (x) => {
+      if (filter.status === undefined) return true;
+      if (filter.status !== null && typeof filter.status === 'object') {
+        return filter.status.$ne === undefined || x.status !== filter.status.$ne;
+      }
+      return x.status === filter.status;
+    };
+    const p = h.payments.find(x => x.invoiceId === filter.invoiceId
+      && (filter._id === undefined || String(x._id) === String(filter._id))
+      && statusOk(x));
     if (!p) return null;
     Object.assign(p, update);
     return p;
@@ -62,7 +73,7 @@ const broadcastListing = vi.fn(async () => ({ success: true }));
 const fakeWhatsappService = { broadcastListing, formatMessage: () => 'msg' };
 
 const fakeCloudinary = { api: { ping: async () => ({ status: 'ok' }) }, uploader: { upload: vi.fn(), destroy: vi.fn() } };
-const fakeLogger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
+const fakeLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 const fakeAuditEvent = { create: vi.fn(async (d) => d), find: () => { const b = { sort: () => b, limit: () => b, lean: async () => [], then: (res) => Promise.resolve([]).then(res) }; return b; } };
 
 let whSeq = 0;
@@ -109,6 +120,26 @@ async function initiatePayment() {
   });
   expect(res.status).toBe(200);
   return res.body.invoiceId;
+}
+
+// Seed a pending listing payment directly (same shape the initiate endpoint
+// writes) — used by webhook-only tests so they stay inside the real
+// paymentLimiter/listingCreateLimiter budget (5/min/IP) that this wired-app
+// harness keeps active. The initiate path itself is covered by the tests above.
+function seedListingPayment(invoiceId) {
+  const doc = makeDoc({
+    _id: `pay-${invoiceId}`,
+    type: 'listing',
+    status: 'pending',
+    package: 'standard',
+    invoiceId,
+    amount: 50,
+    expectedAmount: 50,
+    ownerTokenHash: 'c'.repeat(64),
+    listingData: { ...LEGIT },
+  });
+  h.payments.push(doc);
+  return doc;
 }
 
 describe('FIX-3: webhook hardening', () => {
@@ -163,5 +194,173 @@ describe('FIX-3: webhook hardening', () => {
     expect(second.status).toBe(200);
     expect(second.body.message).toBe('Payment already processed');
     expect(h.listings.length - before).toBe(1);
+  });
+});
+
+describe('payment-state ordering safety', () => {
+  it('pending → FAILED: payment becomes failed with provider failure detail retained, nothing provisioned', async () => {
+    const invoiceId = 'INV-ORD-FAILED-1';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    const res = await request(app).post('/api/payments/webhook')
+      .send({
+        challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED',
+        failed_code: '1032', failed_reason: 'Request cancelled by user',
+      });
+    expect(res.status).toBe(200);
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('failed');
+    expect(payment.failedCode).toBe('1032');
+    expect(payment.failedReason).toBe('Request cancelled by user');
+    expect(h.listings.length).toBe(listingsBefore);
+  });
+
+  it('generic FAILED without failure detail does not crash and stores no detail', async () => {
+    const invoiceId = 'INV-ORD-FAILED-2';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    const res = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED' });
+    expect(res.status).toBe(200);
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('failed');
+    expect(payment.failedCode).toBeUndefined();
+    expect(payment.failedReason).toBeUndefined();
+    expect(h.listings.length).toBe(listingsBefore);
+  });
+
+  it('duplicate FAILED events retain the latest failure detail and stay failed', async () => {
+    const invoiceId = 'INV-ORD-FAILED-3';
+    seedListingPayment(invoiceId);
+    const first = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED', failed_code: '1', failed_reason: 'first' });
+    expect(first.status).toBe(200);
+    const second = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED', failed_code: '1032', failed_reason: 'Request cancelled by user' });
+    expect(second.status).toBe(200);
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('failed');
+    expect(payment.failedCode).toBe('1032');
+    expect(payment.failedReason).toBe('Request cancelled by user');
+  });
+
+  it('pending → COMPLETE → FAILED: completed payment is never downgraded, resource intact, no duplicate', async () => {
+    const invoiceId = 'INV-ORD-MIXED-1';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    const complete = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'COMPLETE' });
+    expect(complete.status).toBe(200);
+    expect(h.listings.length - listingsBefore).toBe(1);
+    const created = h.listings[h.listings.length - 1];
+
+    const failed = await request(app).post('/api/payments/webhook')
+      .send({
+        challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED',
+        failed_code: '999', failed_reason: 'out-of-order event',
+      });
+    expect(failed.status).toBe(200);
+
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('completed');
+    expect(payment.failedCode).toBeUndefined();
+    expect(h.listings.length - listingsBefore).toBe(1);
+    expect(created.title).toBe(LEGIT.title);
+    // The ignored late-FAILED event is observable, not silently absorbed.
+    expect(fakeLogger.warn).toHaveBeenCalledWith(
+      'FAILED webhook ignored for completed payment',
+      expect.objectContaining({ invoice_id: invoiceId }),
+    );
+  });
+
+  it('pending → FAILED → COMPLETE: recovery flow still completes and provisions exactly once', async () => {
+    const invoiceId = 'INV-ORD-MIXED-2';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    const failed = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED', failed_code: '1032', failed_reason: 'Request cancelled by user' });
+    expect(failed.status).toBe(200);
+    expect(h.payments.find(p => p.invoiceId === invoiceId).status).toBe('failed');
+
+    const complete = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'COMPLETE' });
+    expect(complete.status).toBe(200);
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('completed');
+    expect(h.listings.length - listingsBefore).toBe(1);
+  });
+
+  it('pending → COMPLETE → COMPLETE → FAILED: still completed, exactly one resource, FAILED is inert', async () => {
+    const invoiceId = 'INV-ORD-MIXED-3';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    const first = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'COMPLETE' });
+    expect(first.status).toBe(200);
+    const second = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'COMPLETE' });
+    expect(second.status).toBe(200);
+    expect(second.body.message).toBe('Payment already processed');
+    const failed = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'FAILED', failed_code: '999', failed_reason: 'late event' });
+    expect(failed.status).toBe(200);
+
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('completed');
+    expect(h.listings.length - listingsBefore).toBe(1);
+  });
+
+  it('unsupported provider states (PENDING/PROCESSING/RETRY/PARTIAL/CANCELED) change nothing, grant nothing, and are logged', async () => {
+    const invoiceId = 'INV-ORD-STATES-1';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    for (const state of ['PENDING', 'PROCESSING', 'RETRY', 'PARTIAL', 'CANCELED']) {
+      const res = await request(app).post('/api/payments/webhook')
+        .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state, api_ref: 'listing_1' });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+      const payment = h.payments.find(p => p.invoiceId === invoiceId);
+      expect(payment.status).toBe('pending');
+      expect(fakeLogger.warn).toHaveBeenCalledWith(
+        'Webhook received unhandled provider state',
+        expect.objectContaining({ invoice_id: invoiceId, state }),
+      );
+    }
+    expect(h.listings.length).toBe(listingsBefore);
+  });
+
+  it('initiation response without a usable invoice id creates no Payment and fails safely', async () => {
+    const paymentsBefore = h.payments.length;
+    mpesaStkPush.mockResolvedValueOnce({ invoice: {} }); // no invoice_id, no id
+    const res = await request(app).post('/api/payments/initiate-listing').send({
+      phoneNumber: '0712345678', package: 'standard', listingData: { ...LEGIT }, acceptance,
+    });
+    expect(res.status).toBe(503);
+    expect(res.body.invoiceId).toBeUndefined();
+    expect(h.payments.length).toBe(paymentsBefore);
+    expect(h.acceptance.length).toBe(0);
+  });
+
+  it('resource creation failure after completion: payment stays completed, no resource, high-severity diagnostic logged, 500 response', async () => {
+    const invoiceId = 'INV-ORD-RESFAIL-1';
+    seedListingPayment(invoiceId);
+    const listingsBefore = h.listings.length;
+    fakeListingModel.create.mockRejectedValueOnce(new Error('listing create failed'));
+
+    const res = await request(app).post('/api/payments/webhook')
+      .send({ challenge: 'whsec-correct-challenge-value', invoice_id: invoiceId, state: 'COMPLETE' });
+    expect(res.status).toBe(500);
+
+    const payment = h.payments.find(p => p.invoiceId === invoiceId);
+    expect(payment.status).toBe('completed');
+    expect(h.listings.length).toBe(listingsBefore);
+    expect(fakeLogger.error).toHaveBeenCalledWith(
+      'Payment completed but resource fulfilment failed — manual repair required',
+      expect.objectContaining({
+        invoiceId,
+        paymentType: 'listing',
+        error: 'listing create failed',
+      }),
+    );
   });
 });
