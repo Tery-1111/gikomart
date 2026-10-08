@@ -3119,7 +3119,7 @@ function showGrantRedeemStep(claimId, type) {
         <div class="image-upload-placeholder" id="g-imageUploadPlaceholder">
           <span class="image-upload-icon">📷</span>
           <span class="image-upload-text">Click to add a photo</span>
-          <span class="image-upload-hint">JPG or PNG, up to 3MB</span>
+          <span class="image-upload-hint">JPG, PNG, WebP or GIF — up to 3MB per photo</span>
         </div>
         <img id="g-imagePreviewImg" class="image-preview-img" alt="" loading="lazy">
         <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" hidden>✕</button>

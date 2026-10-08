@@ -1421,6 +1421,113 @@ describe('POST /api/upload — magic-byte and processing validation', () => {
     expect(busy[0].body.error).toBe('Server busy — please try again in a moment');
     expect(busy[0].body.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  it('accepts a valid WebP and normalizes it through sharp to Cloudinary', async () => {
+    const webp = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'red' } }).webp().toBuffer();
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', webp, { filename: 'ok.webp', contentType: 'image/webp' });
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+    expect(cloudinaryUpload).toHaveBeenCalledTimes(1);
+    // Normalization intact: what reaches Cloudinary is the sharp JPEG output.
+    const [dataURI] = cloudinaryUpload.mock.calls[0];
+    const normalized = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
+    expect(normalized.format).toBe('jpeg');
+  });
+
+  it('accepts a valid GIF (animation flattened to a still JPEG)', async () => {
+    const gif = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'green' } }).gif().toBuffer();
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', gif, { filename: 'ok.gif', contentType: 'image/gif' });
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+    expect(cloudinaryUpload).toHaveBeenCalledTimes(1);
+    const [dataURI] = cloudinaryUpload.mock.calls[0];
+    const normalized = await sharp(Buffer.from(dataURI.split(',')[1], 'base64')).metadata();
+    expect(normalized.format).toBe('jpeg');
+  });
+
+  it('accepts a file of EXACTLY 3 MiB (3,145,728 bytes) at the size boundary', async () => {
+    // Valid decodable PNG padded with trailing bytes to exactly the multer
+    // limit — trailing padding after IEND does not affect decoding.
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'blue' } }).png().toBuffer();
+    const exact = Buffer.concat([png, Buffer.alloc(3 * 1024 * 1024 - png.length)]);
+    expect(exact.length).toBe(3145728);
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', exact, { filename: 'exact.png', contentType: 'image/png' });
+    expect(res.status).toBe(200);
+    expect(res.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+  });
+
+  it('rejects one byte over 3 MiB (3,145,729 bytes) at the size boundary', async () => {
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'blue' } }).png().toBuffer();
+    const over = Buffer.concat([png, Buffer.alloc(3 * 1024 * 1024 + 1 - png.length)]);
+    expect(over.length).toBe(3145729);
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', over, { filename: 'over.png', contentType: 'image/png' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Image must be 3 MB or smaller');
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
+
+  it('decides by magic bytes, not filename or declared MIME (content/extension mismatch)', async () => {
+    // Real JPEG bytes offered as .png with a lying browser MIME: accepted.
+    const jpeg = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'cyan' } }).jpeg().toBuffer();
+    const mislabeled = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', jpeg, { filename: 'photo.png', contentType: 'image/png' });
+    expect(mislabeled.status).toBe(200);
+    expect(mislabeled.body.url).toMatch(/^https:\/\/res\.cloudinary\.com\//);
+
+    // Real PNG bytes offered as .gif with a lying browser MIME: accepted.
+    const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: 'magenta' } }).png().toBuffer();
+    const mislabeled2 = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', png, { filename: 'photo.gif', contentType: 'image/gif' });
+    expect(mislabeled2.status).toBe(200);
+  });
+
+  it('gives the specific 25-megapixel message for images above the pixel cap', async () => {
+    // 6000x5000 = 30 MP: under 3 MiB, fully decodable, but over the 25 MP cap.
+    const bomb = await sharp({ create: { width: 6000, height: 5000, channels: 3, background: 'blue' } }).png().toBuffer();
+    expect(bomb.length).toBeLessThan(3 * 1024 * 1024);
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', bomb, { filename: 'bomb.png', contentType: 'image/png' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Image dimensions are too large — maximum 25 megapixels');
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
+
+  it('keeps the generic processing error for ordinary corrupt images', async () => {
+    // Valid PNG signature + IHDR, but truncated before any image data — sniffs
+    // as image/png so it passes the magic-byte gate, then fails in sharp for a
+    // reason that is NOT the pixel cap.
+    const zlib = await import('node:zlib');
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(20, 0);
+    ihdr.writeUInt32BE(20, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
+    const chunk = Buffer.concat([Buffer.from([0, 0, 0, 13]), Buffer.from('IHDR'), ihdr]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(chunk.subarray(4)) >>> 0, 0);
+    const truncated = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk, crc,
+    ]);
+    const res = await request(app).post('/api/upload')
+      .set('Content-Type', 'multipart/form-data')
+      .attach('image', truncated, { filename: 'broken.png', contentType: 'image/png' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Image could not be processed');
+    expect(res.body.error).not.toContain('megapixels');
+    expect(cloudinaryUpload).not.toHaveBeenCalled();
+  });
 });
 
 // ─── Cleanup service unit (real service, fake Listing model via cache) ──────

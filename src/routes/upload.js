@@ -85,6 +85,14 @@ router.post('/', uploadLimiter, uploadDailyLimiter, upload.single('image'), hand
         .jpeg({ quality: 80 })
         .toBuffer({ resolveWithObject: true }));
     } catch (err) {
+      // Sharp 0.35 reports pixel-cap failures with this exact message (no error
+      // code on this build). Distinguish it so a legitimate, highly compressed
+      // large-resolution photo gets an actionable reason instead of a generic
+      // processing failure. Exact match — never substring — so any other decode
+      // error keeps the generic message below.
+      if (err && err.message === 'Input image exceeds pixel limit') {
+        return res.status(400).json({ success: false, error: 'Image dimensions are too large — maximum 25 megapixels' });
+      }
       // Corrupt/malformed image bytes that passed magic-byte sniffing are the
       // caller's fault — a 4xx bad request, not a 5xx server error.
       return res.status(400).json({ success: false, error: 'Image could not be processed' });
