@@ -5,7 +5,7 @@ const cloudinary = require('../config/cloudinary');
 const logger = require('../config/logger');
 const { emit, adminActor, ownerActor } = require('../services/auditService');
 const { isOwnerOrAdmin } = require('../middleware/listingAuth');
-const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { VALID_CONDITIONS, LISTING_CATEGORIES, isValidListingCategory } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const inputLimits = require('../config/inputLimits');
 const { listingView } = require('../utils/publicView');
@@ -17,6 +17,14 @@ const { listingsCache, invalidateListingsCache } = require('../utils/ttlCache');
 function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+// Canonical listing-category metadata for the frontend — public, read-only,
+// served in the canonical order. The stable `id` is the stored value; `name`
+// and `icon` are display metadata; `legacyNames` lets the UI render records
+// created before the contract without a second frontend taxonomy.
+exports.getCategories = (req, res) => {
+  res.json({ success: true, categories: LISTING_CATEGORIES });
+};
 
 // Get all listings (paginated; default 50/cap 100 — low enough to slow bulk
 // scrapers, high enough for normal browsing). Only approved listings are shown.
@@ -189,6 +197,12 @@ exports.updateListing = async (req, res, next) => {
     // place, not merely escaped on render.
     if (updates.condition !== undefined && !VALID_CONDITIONS.includes(updates.condition)) {
       return res.status(400).json({ success: false, error: 'Invalid condition' });
+    }
+    // Category is the canonical stable ID contract (listingOptions.js) — the
+    // same set every creation path enforces. Legacy display names are not
+    // accepted as new values and are never fuzzy-matched.
+    if (updates.category !== undefined && !isValidListingCategory(updates.category)) {
+      return res.status(400).json({ success: false, error: 'Invalid category' });
     }
     if (updates.images !== undefined
       && (!Array.isArray(updates.images) || !updates.images.every(isHttpUrl))) {

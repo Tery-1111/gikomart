@@ -1,5 +1,6 @@
 const axios = require('axios');
 const logger = require('../config/logger');
+const { categoryDisplayName } = require('../config/listingOptions');
 const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
 const WHAPI_URL = 'https://gate.whapi.cloud';
 
@@ -11,7 +12,7 @@ function formatMessage(listing) {
 
   return `📦 *NEW AT GikoMart*: ${listing.title}
 💰 *Price:* KSh ${listing.price.toLocaleString()}
-📂 *Category:* ${listing.category}
+📂 *Category:* ${categoryDisplayName(listing.category)}
 ✅ *Condition:* ${listing.condition}
 📝 "${listing.description.slice(0, 100)}${listing.description.length > 100 ? '...' : ''}"
 📍 *Location:* ${listing.location}

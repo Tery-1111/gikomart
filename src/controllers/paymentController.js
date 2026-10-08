@@ -4,7 +4,7 @@ const Payment = require('../models/Payment');
 const logger = require('../config/logger');
 const { emit, SYSTEM_ACTOR, ownerActor } = require('../services/auditService');
 const { broadcastListing } = require('../services/whatsappService');
-const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { VALID_CONDITIONS, isValidListingCategory, normalizeLegacyListingCategory } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const { checkListing, checkStore } = require('../services/moderationService');
 const inputLimits = require('../config/inputLimits');
@@ -186,7 +186,8 @@ exports.initiateListing = async (req, res, next) => {
     // failed create at that point would mean the user paid but got nothing.
     const errors = [];
     if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
-    if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
+    // Category must be a canonical stable ID (see src/config/listingOptions.js).
+    if (!isValidListingCategory(listingData.category)) errors.push('category');
     if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
     // Image entries are rendered into <img src> — reject non-http(s) schemes
     // (javascript:, data:, …) before the STK push so they are never stored.
@@ -522,7 +523,12 @@ async function createResourceForPayment(payment) {
         // spread, so a legacy or tampered listingData row cannot inject fields
         // like featured, views, status or boostType here.
         title: payment.listingData.title,
-        category: payment.listingData.category,
+        // Stored payment payloads may predate the canonical category contract;
+        // map unambiguous legacy display names to their canonical ID. Values
+        // with no mapping (e.g. legacy 'Free Stuff') pass through unchanged so
+        // the model-level enum rejects them and the failure stays observable —
+        // never silently reclassified.
+        category: normalizeLegacyListingCategory(payment.listingData.category) || payment.listingData.category,
         subcategory: payment.listingData.subcategory,
         condition: payment.listingData.condition,
         price: payment.listingData.price,

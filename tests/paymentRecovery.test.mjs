@@ -22,6 +22,16 @@ const fetchCalls = [];
 let statusPayload = { success: true, status: 'pending' };
 const statusCallCount = () => fetchCalls.filter((c) => c.url.includes('/payments/status/')).length;
 
+// What GET /api/listings?… answers (mutable per test). Default: empty page 1.
+let listingsPayload = { success: true, count: 0, total: 0, page: 1, totalPages: 1, listings: [] };
+
+// Canonical category metadata built FROM the real backend config — the same
+// module the server serves at /api/listings/categories. Asserting the rendered
+// UI against this (not a hand-copied list) is the frontend/backend drift test:
+// the two layers can only diverge by changing the backend contract itself.
+const { LISTING_CATEGORIES } = await import('../src/config/listingOptions.js');
+const canonicalCategories = LISTING_CATEGORIES.map(({ id, name, icon, legacyNames }) => ({ id, name, icon, legacyNames }));
+
 beforeAll(async () => {
   const { JSDOM, VirtualConsole } = await import('jsdom');
   const { readFileSync } = await import('node:fs');
@@ -47,7 +57,8 @@ beforeAll(async () => {
       return jsonResponse({ success: true, message: 'STK push sent. Check your phone.', amount: 50, invoiceId: INVOICE_ID, ownerToken: OWNER_TOKEN });
     }
     if (u.includes('/payments/status/')) return jsonResponse(statusPayload);
-    if (u.includes('/listings')) return jsonResponse({ success: true, count: 0, total: 0, page: 1, totalPages: 1, listings: [] });
+    if (u.includes('/listings/categories')) return jsonResponse({ success: true, categories: canonicalCategories });
+    if (u.includes('/listings')) return jsonResponse(listingsPayload);
     return { ok: false, status: 404, json: async () => ({ success: false }) };
   }));
 
@@ -72,7 +83,7 @@ afterAll(() => {
 // off to pollListingStatus(invoiceId).
 function submitListingPayment() {
   document.getElementById('f-title').value = 'Backoff Regression Widget';
-  document.getElementById('f-category').value = 'Electronics';
+  document.getElementById('f-category').value = 'electronics';
   document.getElementById('f-condition').value = 'Excellent';
   document.getElementById('f-price').value = '1500';
   document.getElementById('f-description').value = 'Exercises the payment status poll.';
@@ -269,5 +280,109 @@ describe('P3 — poll lifecycle across navigation', () => {
     await vi.advanceTimersByTimeAsync(60000);
     // The retry was cancelled outright — not merely delayed.
     expect(statusCallCount()).toBe(base + 1);
+  });
+});
+
+// ─── Canonical listing-category contract (frontend/backend drift guard) ──
+describe('canonical listing categories — real app.js against the backend contract', () => {
+  it('sell-form select contains EXACTLY the backend canonical categories (id values, name labels)', () => {
+    const select = document.getElementById('f-category');
+    const options = [...select.querySelectorAll('option')].filter((o) => o.value !== '');
+    expect(options).toHaveLength(LISTING_CATEGORIES.length);
+    expect(options.map((o) => o.value)).toEqual(LISTING_CATEGORIES.map((c) => c.id));
+    // Every label shows the canonical display name (icon + name).
+    options.forEach((o, i) => {
+      expect(o.textContent).toContain(LISTING_CATEGORIES[i].name);
+      expect(o.textContent).toContain(LISTING_CATEGORIES[i].icon);
+    });
+  });
+
+  it('sell form has no Property and no Free Stuff option', () => {
+    const values = [...document.querySelectorAll('#f-category option')].map((o) => o.value);
+    const labels = [...document.querySelectorAll('#f-category option')].map((o) => o.textContent);
+    expect(values).not.toContain('property');
+    expect(values).not.toContain('free');
+    expect(labels.join('|')).not.toContain('Property');
+    expect(labels.join('|')).not.toContain('Free Stuff');
+  });
+
+  it('browse pills render the canonical categories in the canonical order after All', () => {
+    const pills = [...document.querySelectorAll('#catPills .cat-pill')].filter((p) => p.textContent.trim() !== 'All');
+    expect(pills).toHaveLength(LISTING_CATEGORIES.length);
+    // Order + labels straight from the backend contract.
+    LISTING_CATEGORIES.forEach((c, i) => {
+      expect(pills[i].textContent).toContain(c.name);
+    });
+  });
+
+  it('renders legacy and unknown categories safely from real listings data', async () => {
+    listingsPayload = {
+      success: true, count: 3, total: 3, page: 1, totalPages: 1,
+      listings: [
+        { _id: 'can-1', title: 'Canonical row', category: 'electronics', condition: 'Good', price: 10, description: 'd', sellerName: 'S', sellerWhatsapp: '07', location: 'Njoro', images: [] },
+        { _id: 'leg-1', title: 'Legacy row', category: 'Furniture', condition: 'Good', price: 20, description: 'd', sellerName: 'S', sellerWhatsapp: '07', location: 'Njoro', images: [] },
+        { _id: 'unk-1', title: 'Unclassified row', category: 'Free Stuff', condition: 'Good', price: 0, description: 'd', sellerName: 'S', sellerWhatsapp: '07', location: 'Njoro', images: [] },
+      ],
+    };
+    // Re-fetch by clicking the All pill (resets category + page 1).
+    const allPill = [...document.querySelectorAll('#catPills .cat-pill')].find((p) => p.textContent.trim() === 'All');
+    allPill.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const grid = document.getElementById('listingGrid').textContent;
+    expect(grid).toContain('Canonical row');
+    // Legacy display name is mapped for display via the backend metadata…
+    expect(grid).toContain('Furniture & Home');
+    // …and the unmapped legacy value renders raw, unclassified, without crashing.
+    expect(grid).toContain('Unclassified row');
+    expect(grid).toContain('Free Stuff');
+  });
+
+  it('category pill selection is sent to the backend and paginated with Load more', async () => {
+    listingsPayload = {
+      success: true, count: 50, total: 55, page: 1, totalPages: 2,
+      listings: Array.from({ length: 50 }, (_, i) => ({
+        _id: `p1-${i}`, title: `Item ${i}`, category: 'food-drinks', condition: 'Good', price: 5,
+        description: 'd', sellerName: 'S', sellerWhatsapp: '07', location: 'Njoro', images: [],
+      })),
+    };
+    const foodPill = [...document.querySelectorAll('#catPills .cat-pill')].find((p) => p.textContent.includes('Food & Drinks'));
+    expect(foodPill).toBeTruthy();
+    const before = fetchCalls.length;
+    foodPill.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Category filter is server-side: the browse request carries the stable id.
+    const browseCall = fetchCalls.slice(before).find((c) => c.url.includes('/listings?'));
+    expect(browseCall).toBeTruthy();
+    expect(browseCall.url).toContain('category=food-drinks');
+    expect(browseCall.url).toContain('page=1');
+
+    // 55 total over 2 pages → the grid offers Load more; clicking requests page 2.
+    const loadMore = document.querySelector('.load-more-btn');
+    expect(loadMore).toBeTruthy();
+    expect(loadMore.textContent).toContain('50 of 55');
+    const beforeMore = fetchCalls.length;
+    loadMore.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const page2Call = fetchCalls.slice(beforeMore).find((c) => c.url.includes('/listings?'));
+    expect(page2Call).toBeTruthy();
+    expect(page2Call.url).toContain('page=2');
+    expect(page2Call.url).toContain('category=food-drinks');
+  });
+
+  it('typing a search term is debounced into a server-side search request combined with the category', async () => {
+    listingsPayload = { success: true, count: 0, total: 0, page: 1, totalPages: 1, listings: [] };
+    const searchInput = document.getElementById('searchInput');
+    searchInput.value = 'textbook';
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    // Within the debounce window nothing is fetched.
+    const before = fetchCalls.length;
+    await vi.advanceTimersByTimeAsync(200);
+    expect(fetchCalls.length).toBe(before);
+    await vi.advanceTimersByTimeAsync(200);
+    const searchCall = fetchCalls.slice(before).find((c) => c.url.includes('/listings?'));
+    expect(searchCall).toBeTruthy();
+    expect(searchCall.url).toContain('search=textbook');
   });
 });

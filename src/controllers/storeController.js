@@ -19,7 +19,7 @@ const { invalidateListingsCache } = require('../utils/ttlCache');
 // no payment machinery is invoked).
 const { ACCEPTANCE_TYPES } = require('../config/termsVersions');
 const { validateAcceptanceToken, recordAcceptance } = require('../services/termsAcceptanceService');
-const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { VALID_CONDITIONS, isValidListingCategory } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const { isContactBlocked, markUploadsAttached, LISTING_DATA_ALLOWLIST } = require('./paymentController');
 
@@ -467,7 +467,9 @@ exports.createStoreListing = async (req, res, next) => {
     // Field validation and caps: identical rules to initiateListing minus the
     // payment-only fields, so BOTH creation paths accept the same content.
     if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
-    if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
+    // Listing category = canonical stable ID (same contract as the paid path);
+    // this is independent of the store's own category taxonomy.
+    if (!isValidListingCategory(listingData.category)) errors.push('category');
     if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
     // Image entries are rendered into <img src> — reject non-http(s) schemes.
     if (listingData.images !== undefined

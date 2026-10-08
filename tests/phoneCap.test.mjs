@@ -132,7 +132,7 @@ beforeAll(async () => { app = (await import('../server.js')).default; });
 const PHONE_A = '0712345678';   // capped number
 const PHONE_B = '0725987632';   // control number
 const LEGIT = {
-  title: 'Phone Cap Item', category: 'Electronics', condition: 'Good', price: 500,
+  title: 'Phone Cap Item', category: 'electronics', condition: 'Good', price: 500,
   description: 'cap test body', sellerName: 'Jane', sellerWhatsapp: '0711111111', location: 'Njoro',
 };
 const acceptance = {

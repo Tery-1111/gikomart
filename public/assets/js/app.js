@@ -60,33 +60,22 @@ const STATUS_POLL_MAX_ATTEMPTS = STATUS_POLL_BACKOFF_MS.length; // 5
 // Transient-failure backoff for the Cloudinary upload (network / 5xx / timeout).
 const UPLOAD_RETRY_DELAYS_MS = [1000, 2000, 4000];
 
-const CATEGORIES = [
-  { id: 'elec',  name: 'Electronics',     icon: '📱' },
-  { id: 'furn',  name: 'Furniture',       icon: '🛋️' },
-  { id: 'cloth', name: 'Clothing',        icon: '👕' },
-  { id: 'auto',  name: 'Vehicles',        icon: '🚗' },
-  { id: 'prop',  name: 'Property',        icon: '🏠' },
-  { id: 'job',   name: 'Jobs & Services', icon: '💼' },
-  { id: 'agri',  name: 'Agriculture',     icon: '🌾' },
-  { id: 'essn',  name: 'Student Essentials', icon: '📚' },
-  { id: 'host',  name: 'Hostel Living',   icon: '🛏️' },
-  { id: 'free',  name: 'Free Stuff',      icon: '🎁' },
-];
+// Listing categories come from the backend's canonical contract
+// (GET /api/listings/categories, backed by src/config/listingOptions.js).
+// The frontend maintains NO independent taxonomy: this array is populated at
+// init and drives the pills, selects, display names and icons.
+let CATEGORIES = [];
+let categoryById = new Map();      // stable id → metadata
+let legacyCategoryToId = new Map(); // pre-contract display name → stable id
 
 const DEMO_LISTINGS = [
-  { _id: 'demo1', title: 'Samsung Galaxy S22', category: 'Electronics', condition: 'Excellent', price: 38000, description: '128GB, no cracks, charger included.', location: 'Njoro', sellerName: 'Brian', sellerWhatsapp: '+254712345678', views: 42, icon: '📱', broadcastSent: true },
-  { _id: 'demo2', title: 'Study Desk + Chair', category: 'Furniture', condition: 'Good', price: 6500, description: 'Wooden desk, adjustable chair. Minor scratches.', location: 'Nakuru CBD', sellerName: 'Grace', sellerWhatsapp: '+254723456789', views: 19, icon: '🛋️', broadcastSent: true },
-  { _id: 'demo3', title: 'Calculus Textbook Bundle', category: 'Student Essentials', condition: 'Good', price: 1200, description: 'MATH 111 + 112 textbooks plus past papers.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '📚', broadcastSent: true },
-  { _id: 'demo4', title: 'Mattress — 4x6', category: 'Hostel Living', condition: 'Like New', price: 3500, description: 'Used one semester only, no stains.', location: 'Hostel C', sellerName: 'James', sellerWhatsapp: '+254745678901', views: 88, icon: '🛏️', broadcastSent: true },
-  { _id: 'demo5', title: 'Maize — 2 bags 90kg', category: 'Agriculture', condition: 'New', price: 9000, description: 'Freshly harvested, dry. Ready for collection.', location: 'Njoro', sellerName: 'Wanjiru', sellerWhatsapp: '+254756789012', views: 14, icon: '🌾', broadcastSent: false },
-  { _id: 'demo6', title: 'Leather Jacket', category: 'Clothing', condition: 'Like New', price: 2800, description: 'Medium size, worn twice only.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '👕', broadcastSent: true },
+  { _id: 'demo1', title: 'Samsung Galaxy S22', category: 'electronics', condition: 'Excellent', price: 38000, description: '128GB, no cracks, charger included.', location: 'Njoro', sellerName: 'Brian', sellerWhatsapp: '+254712345678', views: 42, icon: '📱', broadcastSent: true },
+  { _id: 'demo2', title: 'Study Desk + Chair', category: 'furniture-home', condition: 'Good', price: 6500, description: 'Wooden desk, adjustable chair. Minor scratches.', location: 'Nakuru CBD', sellerName: 'Grace', sellerWhatsapp: '+254723456789', views: 19, icon: '🛋️', broadcastSent: true },
+  { _id: 'demo3', title: 'Calculus Textbook Bundle', category: 'student-essentials', condition: 'Good', price: 1200, description: 'MATH 111 + 112 textbooks plus past papers.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '📚', broadcastSent: true },
+  { _id: 'demo4', title: 'Mattress — 4x6', category: 'hostel-living', condition: 'Like New', price: 3500, description: 'Used one semester only, no stains.', location: 'Hostel C', sellerName: 'James', sellerWhatsapp: '+254745678901', views: 88, icon: '🛏️', broadcastSent: true },
+  { _id: 'demo5', title: 'Maize — 2 bags 90kg', category: 'agriculture', condition: 'New', price: 9000, description: 'Freshly harvested, dry. Ready for collection.', location: 'Njoro', sellerName: 'Wanjiru', sellerWhatsapp: '+254756789012', views: 14, icon: '🌾', broadcastSent: false },
+  { _id: 'demo6', title: 'Leather Jacket', category: 'clothing-fashion', condition: 'Like New', price: 2800, description: 'Medium size, worn twice only.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '👕', broadcastSent: true },
 ];
-
-const CATEGORY_ICONS = {
-  'Electronics': '📱', 'Furniture': '🛋️', 'Clothing': '👕', 'Vehicles': '🚗',
-  'Property': '🏠', 'Jobs & Services': '💼', 'Agriculture': '🌾',
-  'Student Essentials': '📚', 'Hostel Living': '🛏️', 'Free Stuff': '🎁',
-};
 
 const BOOST_OPTIONS = [
   { id: 'featured', label: 'Featured (24h)', desc: 'Pin to top of category & search', price: 50 },
@@ -137,7 +126,6 @@ const STORE_PLANS = [
 
 let allListings = [];
 let myListings = [];
-let activeCategory = '';
 let usingDemoData = false;
 let uploadedImageUrl = null;
 let browseFetchFailed = false;   // last /listings fetch failed → show retry banner
@@ -147,6 +135,80 @@ let isUploading = false;         // a Cloudinary upload is in flight
 let isPaymentInFlight = false;   // an M-Pesa initiate/poll is in progress
 let listingPollTimer = null;     // pending listing-status poll retry timer
 let storePollTimer = null;       // pending store-status poll retry timer
+let searchDebounceTimer = null;  // debounced server-side search fetch
+
+// Browse state: the server owns category/search filtering and pagination
+// (GET /api/listings?category=&search=&page=&limit=). `listings` holds every
+// page loaded so far so "Load more" can append without re-fetching.
+const BROWSE_PAGE_SIZE = 50;     // matches the API default (cap 100)
+const browseState = {
+  category: '',                  // canonical category id; '' = All
+  search: '',
+  page: 1,
+  totalPages: 1,
+  total: 0,
+  listings: [],
+};
+
+// ─── Canonical category metadata (loaded from the backend) ────────────────
+
+function setCategoryMetadata(list) {
+  CATEGORIES = list;
+  categoryById = new Map(list.map((c) => [c.id, c]));
+  legacyCategoryToId = new Map();
+  for (const c of list) {
+    for (const legacy of (c.legacyNames || [])) legacyCategoryToId.set(legacy, c.id);
+  }
+}
+
+// Display name for any stored category value: canonical name, legacy-mapped
+// name, or the raw value. Unknown/legacy values (e.g. old 'Free Stuff' rows)
+// render safely and are never reclassified.
+function categoryName(id) {
+  const meta = categoryById.get(id);
+  if (meta) return meta.name;
+  const mappedId = legacyCategoryToId.get(id);
+  if (mappedId && categoryById.get(mappedId)) return categoryById.get(mappedId).name;
+  return String(id == null ? '' : id);
+}
+
+// Icon for any stored category value with a safe fallback for unknown values.
+function categoryIcon(id) {
+  const meta = categoryById.get(id);
+  if (meta) return meta.icon;
+  const mappedId = legacyCategoryToId.get(id);
+  if (mappedId && categoryById.get(mappedId)) return categoryById.get(mappedId).icon;
+  return '📦';
+}
+
+async function loadCategories() {
+  try {
+    const res = await fetch(`${API_BASE}/listings/categories`);
+    if (!res.ok) throw httpError(res, null);
+    const data = await res.json();
+    if (!data || !Array.isArray(data.categories) || data.categories.length === 0) {
+      throw new Error('Invalid category metadata');
+    }
+    setCategoryMetadata(data.categories);
+    buildCategoryPills();
+    buildCategorySelect();
+  } catch (err) {
+    // No fallback taxonomy is invented: without the canonical metadata the
+    // category-dependent UI stays empty and offers a retry.
+    console.warn('Could not load listing categories:', err.message);
+    renderCategoryLoadError();
+  }
+}
+
+function renderCategoryLoadError() {
+  const container = document.getElementById('catPills');
+  if (!container) return;
+  container.innerHTML =
+    `<span class="cat-pill" style="cursor:default;">Couldn't load categories.</span>` +
+    `<button type="button" class="cat-pill cat-retry-btn">↻ Retry</button>`;
+  const retryBtn = container.querySelector('.cat-retry-btn');
+  if (retryBtn) retryBtn.addEventListener('click', loadCategories);
+}
 
 let TERMS_VERSIONS = null;
 
@@ -249,11 +311,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // null — the resulting TypeError aborted the rest of the init chain on cold
   // load (store modal + delegated actions + listings never initialized).
   await loadTermsVersions();
-  buildCategoryPills();
+  // Canonical category metadata must be loaded before category-dependent UI
+  // (pills, sell select) is built; the loader builds both on success and
+  // renders a retry affordance on failure. Never invents a fallback taxonomy.
+  await loadCategories();
   // No covers exist on first paint (they arrive via openStorePage); this is
   // a cheap no-op that keeps the lazy-background lifecycle point wired.
   initLazyBackgrounds();
-  buildCategorySelect();
   buildPulseTicker();
   setupNav();
   setupForm();
@@ -300,9 +364,14 @@ function switchView(view) {
   document.getElementById('view-' + view).classList.add('active');
   document.querySelectorAll(`.nav-link[data-view="${view}"]`).forEach(n => n.classList.add('active'));
 
-  if (view === 'dashboard') renderDashboard();
+  if (view === 'dashboard') { renderDashboard(); loadMyListings(); }
   if (view === 'mystore') renderMyStore();
-  window.scrollTo({ top: document.querySelector('.app-shell').offsetTop - 20, behavior: 'smooth' });
+  // View-driven scroll relocation must never break the rest of the view setup:
+  // environments without window.scrollTo (older embedders, some automated
+  // browsers) would otherwise throw past renderDashboard/renderMyStore.
+  try {
+    window.scrollTo({ top: document.querySelector('.app-shell').offsetTop - 20, behavior: 'smooth' });
+  } catch (_e) { /* scroll is a presentation nicety, not a required action */ }
 }
 
 // ─── Store-context sell flow (included listings) ───────────────────────────
@@ -352,6 +421,7 @@ function openSellViewAsStoreFlow(storeId, available) {
 
 function buildCategoryPills() {
   const container = document.getElementById('catPills');
+  container.innerHTML = ''; // rebuildable: init, category-metadata retry
   const allPill = document.createElement('button');
   allPill.className = 'cat-pill active';
   allPill.textContent = 'All';
@@ -361,30 +431,47 @@ function buildCategoryPills() {
   CATEGORIES.forEach(cat => {
     const pill = document.createElement('button');
     pill.className = 'cat-pill';
-    pill.innerHTML = `${cat.icon} ${cat.name}`;
-    pill.addEventListener('click', () => filterByCategory(cat.name, pill));
+    pill.innerHTML = `${cat.icon} ${escapeHTML(cat.name)}`;
+    pill.addEventListener('click', () => filterByCategory(cat.id, pill));
     container.appendChild(pill);
   });
 
-  document.getElementById('searchInput').addEventListener('input', renderListings);
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput && !searchInput.dataset.serverSearchWired) {
+    // Search is now server-side: debounce keystrokes into one fetch.
+    searchInput.dataset.serverSearchWired = '1';
+    searchInput.addEventListener('input', () => {
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        searchDebounceTimer = null;
+        browseState.search = searchInput.value.trim();
+        browseState.page = 1;
+        loadListings();
+      }, 300);
+    });
+  }
 }
 
 function buildCategorySelect() {
   const select = document.getElementById('f-category');
+  // Rebuildable: keep only the placeholder, then re-add canonical options
+  // (value = stable id, label = display name).
+  select.innerHTML = '<option value="">Choose a category</option>';
   CATEGORIES.forEach(cat => {
     const opt = document.createElement('option');
-    opt.value = cat.name;
+    opt.value = cat.id;
     opt.textContent = `${cat.icon} ${cat.name}`;
     select.appendChild(opt);
   });
   document.getElementById('statCats').textContent = CATEGORIES.length;
 }
 
-function filterByCategory(catName, el) {
-  activeCategory = catName;
+function filterByCategory(catId, el) {
+  browseState.category = catId;
+  browseState.page = 1;
   document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
-  renderListings();
+  loadListings();
 }
 
 function buildPulseTicker() {
@@ -392,8 +479,8 @@ function buildPulseTicker() {
     { item: 'Samsung Galaxy S22', dest: 'Electronics group + Campus Channel' },
     { item: 'Mattress — 4x6', dest: 'Hostel Living group' },
     { item: 'Calculus Textbook Bundle', dest: 'Student Essentials group' },
-    { item: 'Study Desk + Chair', dest: 'Furniture group + Campus Channel' },
-    { item: 'Leather Jacket', dest: 'Clothing group' },
+    { item: 'Study Desk + Chair', dest: 'Furniture & Home group + Campus Channel' },
+    { item: 'Leather Jacket', dest: 'Clothing & Fashion group' },
   ];
   const track = document.getElementById('pulseTrack');
   const html = [...items, ...items].map(i => `
@@ -601,33 +688,61 @@ function recoverPendingTokens() {
   });
 }
 
-async function loadListings() {
+async function loadListings(append = false) {
   const grid = document.getElementById('listingGrid');
   const requestId = ++gridRequestId;
-  showGridSkeleton(grid);
+  if (!append) showGridSkeleton(grid);
+
+  // Server-side category/search filtering + pagination: category '' (All)
+  // omits the parameter entirely, matching the API's no-filter convention.
+  const params = new URLSearchParams();
+  params.set('page', String(browseState.page));
+  params.set('limit', String(BROWSE_PAGE_SIZE));
+  if (browseState.category) params.set('category', browseState.category);
+  if (browseState.search) params.set('search', browseState.search);
 
   try {
-    const res = await fetch(`${API_BASE}/listings`);
+    const res = await fetch(`${API_BASE}/listings?${params.toString()}`);
     if (requestId !== gridRequestId) return; // superseded by a newer fetch
     if (!res.ok) throw httpError(res, null);
     const data = await res.json();
-    allListings = data.listings.map(l => ({
+    const pageListings = (data.listings || []).map(l => ({
       ...l,
-      icon: CATEGORY_ICONS[l.category] || '📦',
+      icon: categoryIcon(l.category),
     }));
+    allListings = append ? allListings.concat(pageListings) : pageListings;
+    browseState.listings = allListings;
+    browseState.total = data.total || 0;
+    browseState.totalPages = data.totalPages || 1;
     usingDemoData = false;
     browseFetchFailed = false;
+    document.getElementById('statListings').textContent = browseState.total;
   } catch (err) {
     if (requestId !== gridRequestId) return;
     console.warn('API not reachable — showing demo listings:', err.message);
     allListings = DEMO_LISTINGS;
+    browseState.listings = DEMO_LISTINGS;
+    browseState.totalPages = 1;
+    browseState.total = DEMO_LISTINGS.length;
     usingDemoData = true;
     browseFetchFailed = true;
     browseFetchErrorMsg = friendlyFetchError(err);
+    document.getElementById('statListings').textContent = DEMO_LISTINGS.length;
   }
-  myListings = allListings.filter(l => hasOwnerToken(l._id));
-  document.getElementById('statListings').textContent = allListings.length;
   renderListings();
+}
+
+// Dashboard data is fetched independently of the browse filters so the
+// seller's own stats never depend on the category/search currently browsed.
+// Unfiltered page 1 at the API's safe maximum (100), owner-filtered locally.
+async function loadMyListings() {
+  try {
+    const res = await fetch(`${API_BASE}/listings?page=1&limit=100`);
+    if (!res.ok) throw httpError(res, null);
+    const data = await res.json();
+    myListings = (data.listings || []).filter(l => hasOwnerToken(l._id));
+  } catch (err) { /* keep whatever myListings currently holds */ }
+  renderDashboard();
 }
 
 // Render a row of shimmer skeleton cards matching the real card layout
@@ -730,16 +845,10 @@ function httpError(res, data) {
 }
 
 function renderListings() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const filtered = allListings.filter(l => {
-    const matchCat = !activeCategory || l.category === activeCategory;
-    const matchSearch = !search ||
-      l.title.toLowerCase().includes(search) ||
-      l.description.toLowerCase().includes(search);
-    return matchCat && matchSearch;
-  });
-
-  filtered.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+  // The server already applied category + search + pagination + ordering to
+  // browseState.listings — no client-side re-filtering (which previously hid
+  // every listing beyond the first page).
+  const filtered = browseState.listings;
 
   const grid = document.getElementById('listingGrid');
   grid.removeAttribute('aria-busy');
@@ -763,11 +872,26 @@ function renderListings() {
     ? `<div class="grid-error"><span>${escapeHTML(browseFetchErrorMsg)} — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
     : '';
 
-  grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('');
+  // Appendable pagination: when more pages exist, offer one "Load more" that
+  // fetches the next page and appends it to the loaded set.
+  const hasMore = !usingDemoData && browseState.page < browseState.totalPages;
+  const loadMoreHTML = hasMore
+    ? `<div class="load-more-wrap" style="grid-column:1/-1; text-align:center; padding:12px;">` +
+      `<button type="button" class="btn btn-ghost load-more-btn">Load more listings (${browseState.listings.length} of ${browseState.total})</button></div>`
+    : '';
+
+  grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('') + loadMoreHTML;
 
   grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, filtered));
+    card.addEventListener('click', () => openListingModal(card.dataset.id, browseState.listings));
   });
+  const loadMoreBtn = grid.querySelector('.load-more-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', () => {
+      browseState.page += 1;
+      loadListings(true);
+    });
+  }
 }
 
 function listingCardHTML(l) {
@@ -799,6 +923,7 @@ function listingCardHTML(l) {
       <div class="listing-body">
         ${storeBadgeHTML}
         <div class="listing-title">${escapeHTML(l.title)}</div>
+        <div class="listing-category">${escapeHTML(categoryName(l.category))}</div>
         <div class="listing-price">KSh ${Number(l.price).toLocaleString()}</div>
         <div class="listing-meta">
           <span>📍 ${escapeHTML(l.location || 'Njoro')}</span>
@@ -843,7 +968,7 @@ function openListingModal(id, source) {
   const hasImage = listing.images && listing.images.length > 0;
   const modalImageContent = hasImage
     ? `<img src="${escapeAttr(cloudinaryResize(listing.images[0], 'w_800,q_auto,f_auto'))}"${responsiveImageAttrs(listing.images[0], [400, 800, 1280], (w) => `w_${w},q_auto,f_auto`, DETAIL_IMAGE_SIZES)} alt="${escapeAttr(listing.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
-    : (listing.icon || CATEGORY_ICONS[listing.category] || '📦');
+    : (listing.icon || categoryIcon(listing.category));
   const card = document.getElementById('modalCard');
   card.innerHTML = `
     <button class="modal-close" data-action="close-modal">✕</button>
@@ -852,7 +977,7 @@ function openListingModal(id, source) {
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
     <div class="modal-price">KSh ${Number(listing.price).toLocaleString()}</div>
     <div class="modal-meta-row">
-      <span>📂 ${escapeHTML(listing.category)}</span>
+      <span>📂 ${escapeHTML(categoryName(listing.category))}</span>
       <span>📍 ${escapeHTML(listing.location || 'Njoro')}</span>
       <span>👤 ${escapeHTML(listing.sellerName)}</span>
       <span>👁️ ${listing.views || 0} views</span>
@@ -1430,7 +1555,7 @@ function resetImageUpload() {
 
 function updatePreview() {
   const title = document.getElementById('f-title').value || 'Your item title';
-  const category = document.getElementById('f-category').value || 'Category';
+  const category = categoryName(document.getElementById('f-category').value) || 'Category';
   const price = document.getElementById('f-price').value || '0';
   const desc = document.getElementById('f-description').value;
   const location = document.getElementById('f-location').value || 'Njoro';
@@ -1645,7 +1770,7 @@ async function editListing(id) {
     if (!res.ok || !data.success) throw httpError(res, data);
 
     const idx = allListings.findIndex(l => l._id === id);
-    if (idx !== -1) allListings[idx] = { ...allListings[idx], ...data.listing, icon: CATEGORY_ICONS[data.listing.category] || allListings[idx].icon };
+    if (idx !== -1) allListings[idx] = { ...allListings[idx], ...data.listing, icon: categoryIcon(data.listing.category) };
     renderListings();
     closeModal();
     showToast('✅ Listing updated');
@@ -1683,6 +1808,7 @@ async function deleteListing(id) {
     if (!res.ok || !data.success) throw httpError(res, data);
 
     allListings = allListings.filter(l => l._id !== id);
+    browseState.listings = allListings;
     myListings = myListings.filter(l => l._id !== id);
     try { localStorage.removeItem(OWNER_TOKEN_PREFIX + id); } catch (err) {}
     document.getElementById('statListings').textContent = allListings.length;
@@ -2228,7 +2354,7 @@ async function openAttachListingModal(storeId) {
     <div class="boost-option" data-action="attach-listing-to-store" data-store-id="${storeId}" data-listing-id="${l._id}" style="cursor:pointer;">
       <div class="boost-option-info">
         <strong>${escapeHTML(l.title)}</strong>
-        <span>KSh ${Number(l.price).toLocaleString()} · ${escapeHTML(l.category)}</span>
+        <span>KSh ${Number(l.price).toLocaleString()} · ${escapeHTML(categoryName(l.category))}</span>
       </div>
     </div>
   `).join('');
@@ -2971,7 +3097,7 @@ function showGrantRedeemStep(claimId, type) {
   const card = document.getElementById('grantModalCard');
   if (!card) return;
 
-  const listingCategories = CATEGORIES.map((c) => `<option value="${escapeAttr(c.name)}">${c.icon} ${escapeHTML(c.name)}</option>`).join('');
+  const listingCategories = CATEGORIES.map((c) => `<option value="${escapeAttr(c.id)}">${c.icon} ${escapeHTML(c.name)}</option>`).join('');
   const storeCategories = STORE_CATEGORIES.map((c) => `<option value="${escapeAttr(c.name)}">${c.icon} ${escapeHTML(c.name)}</option>`).join('');
   const conditions = ['New', 'Like New', 'Excellent', 'Good', 'Fair', 'Poor']
     .map((c) => `<option value="${escapeAttr(c)}"${c === 'Excellent' ? ' selected' : ''}>${escapeHTML(c)}</option>`).join('');

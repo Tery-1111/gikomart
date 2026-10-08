@@ -9,7 +9,7 @@ const { LISTING_PRICES, STORE_PLANS } = require('../services/paymentService');
 const { broadcastListing } = require('../services/whatsappService');
 const { evaluateGrantMintVolume } = require('../services/grantMintAlert');
 const { createResourceForPayment } = require('./paymentController');
-const { VALID_CONDITIONS } = require('../config/listingOptions');
+const { VALID_CONDITIONS, isValidListingCategory } = require('../config/listingOptions');
 const { isHttpUrl } = require('../utils/safeUrl');
 const inputLimits = require('../config/inputLimits');
 const { normalizeContactNumber, contactHash } = require('../utils/phone');
@@ -50,7 +50,8 @@ function buildListingPayload(listingData) {
   if (!listingData || typeof listingData !== 'object') return { error: 'Missing listing details' };
   const errors = [];
   if (typeof listingData.title !== 'string' || !listingData.title.trim()) errors.push('title');
-  if (typeof listingData.category !== 'string' || !listingData.category.trim()) errors.push('category');
+  // Canonical listing-category stable ID — same contract as the paid path.
+  if (!isValidListingCategory(listingData.category)) errors.push('category');
   if (!VALID_CONDITIONS.includes(listingData.condition)) errors.push('condition');
   if (listingData.images !== undefined
     && (!Array.isArray(listingData.images) || !listingData.images.every(isHttpUrl))) errors.push('images');

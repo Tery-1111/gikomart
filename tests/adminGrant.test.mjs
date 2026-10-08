@@ -213,7 +213,7 @@ function listingPayment(overrides = {}) {
     amount: 50,
     listingData: {
       title: 'Textbook for sale',
-      category: 'Books',
+      category: 'student-essentials',
       condition: 'Good',
       price: 500,
       description: 'A gently used textbook.',

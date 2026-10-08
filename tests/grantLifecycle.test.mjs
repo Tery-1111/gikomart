@@ -189,7 +189,7 @@ function session() {
 const LISTING_ACCEPTANCE = { accepted: true, gikomartTermsVersion: '1.0.0', sellerTermsVersion: '1.0.0' };
 const STORE_ACCEPTANCE = { accepted: true, gikomartTermsVersion: '1.0.0', storeOwnerTermsVersion: '1.0.0' };
 const LISTING_DATA = {
-  title: 'Free textbook', category: 'Books', condition: 'Good', price: 300,
+  title: 'Free textbook', category: 'student-essentials', condition: 'Good', price: 300,
   description: 'A gently used textbook.', sellerName: 'Seller', sellerWhatsapp: '254700000001',
 };
 

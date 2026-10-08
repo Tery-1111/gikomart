@@ -95,7 +95,7 @@ beforeAll(async () => {
     }
     if (u.includes('/reports')) return reportResponse;
     if (u.includes('/stores/slug/')) return storeResponse;
-    if (u.includes('/listings')) return listingsResponse;
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return listingsResponse;
     return jsonResponse({ success: true });
   }));
 

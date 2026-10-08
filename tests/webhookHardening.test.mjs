@@ -105,7 +105,7 @@ let app;
 beforeAll(async () => { app = (await import('../server.js')).default; });
 
 const LEGIT = {
-  title: 'Webhook Test Item', category: 'Electronics', condition: 'Good', price: 500,
+  title: 'Webhook Test Item', category: 'electronics', condition: 'Good', price: 500,
   description: 'wh test body', sellerName: 'Jane', sellerWhatsapp: '0711111111', location: 'Njoro',
 };
 const acceptance = {

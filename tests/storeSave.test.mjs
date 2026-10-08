@@ -76,7 +76,7 @@ beforeAll(async () => {
       if (storesGetMode === 'fail') return { ok: false, status: 500, json: async () => ({ success: false }) };
       return jsonResponse({ success: true, store: STORE, listingCount: 2 });
     }
-    if (u.includes('/listings')) return jsonResponse({ success: true, listings: [] });
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return jsonResponse({ success: true, listings: [] });
     return jsonResponse({ success: true });
   }));
 

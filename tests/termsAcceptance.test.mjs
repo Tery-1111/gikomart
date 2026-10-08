@@ -264,7 +264,7 @@ describe('Payment initiation — server validates acceptance (frontend not trust
     package: validListingPackage,
     listingData: {
       title: 'Test Book',
-      category: 'Books',
+      category: 'student-essentials',
       condition: 'Good',
       price: 500,
       description: 'Used calc textbook',

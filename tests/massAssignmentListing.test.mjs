@@ -104,7 +104,7 @@ const ATTACK_KEYS = {
 };
 
 const LEGIT = {
-  title: 'Hasselblad 500C/M', category: 'Electronics', condition: 'Good', price: 45000,
+  title: 'Hasselblad 500C/M', category: 'electronics', condition: 'Good', price: 45000,
   description: 'Medium format body, light seals replaced.', sellerName: 'Jane Kamau',
   sellerWhatsapp: '0712345678', location: 'Njoro',
 };

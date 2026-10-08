@@ -49,7 +49,7 @@ beforeAll(async () => {
         },
       });
     }
-    if (u.includes('/listings')) return OK_LISTINGS;
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return OK_LISTINGS;
     return jsonResponse({ success: true });
   }));
 

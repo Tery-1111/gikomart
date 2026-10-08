@@ -75,7 +75,7 @@ beforeAll(async () => {
     }
     if (u.includes('/payments/status/')) return jsonResponse({ success: true, storeId: 'sto-9' });
     if (u.includes('/terms/contact-acceptance')) return contactAcceptanceResponse;
-    if (u.includes('/listings')) return listingsResponse;
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return listingsResponse;
     if (u.includes('/upload')) return uploadResponse;
     return { ok: false, status: 404, json: async () => ({ success: false }) };
   }));

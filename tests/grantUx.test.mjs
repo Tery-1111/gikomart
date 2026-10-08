@@ -41,7 +41,7 @@ beforeAll(async () => {
     if (u.includes('/terms/versions')) {
       return jsonResponse({ success: true, versions: { GIKOMART_TERMS_OF_SERVICE: '1.0.0', STORE_OWNER_TERMS: '1.0.0', SELLER_TERMS: '1.0.0', BUYER_TERMS: '1.0.0' } });
     }
-    if (u.includes('/listings')) return jsonResponse({ success: true, listings: [] });
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return jsonResponse({ success: true, listings: [] });
     if (u.includes('/api/grants/status/')) return grantStatusResult();
     if (u.includes('/api/grants') && method === 'POST') {
       if (grantSubmitDeferred) return grantSubmitDeferred;

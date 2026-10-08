@@ -63,7 +63,7 @@ beforeAll(async () => {
     if (u.includes('/stores/slug/')) {
       return json({ success: true, store: STORE, listingCount: 0 });
     }
-    if (u.includes('/listings')) {
+    if (u.includes('/listings') && !u.includes('/listings/categories')) {
       return json({ success: true, count: 0, total: 0, page: 1, totalPages: 1, listings: [] });
     }
     return { ok: false, status: 404, json: async () => ({ success: false }) };

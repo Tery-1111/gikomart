@@ -120,7 +120,7 @@ async function bootApp() {
       return jsonResponse({ success: true, amount: 50, invoiceId: 'INV-LST-1', ownerToken: 'tok-lst' });
     }
     if (u.includes('/payments/status/')) return jsonResponse({ success: true, listingId: 'lst-new' });
-    if (u.includes('/listings')) return jsonResponse({ success: true, listings: [] });
+    if (u.includes('/listings') && !u.includes('/listings/categories')) return jsonResponse({ success: true, listings: [] });
     if (u.includes('/upload')) {
       const next = uploadQueue.length ? uploadQueue.shift() : lastUpload;
       return typeof next === 'function' ? next() : next;

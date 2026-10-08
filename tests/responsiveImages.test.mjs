@@ -62,7 +62,7 @@ beforeAll(async () => {
         versions: { GIKOMART_TERMS_OF_SERVICE: '1.0.0', STORE_OWNER_TERMS: '1.0.0', SELLER_TERMS: '1.0.0', BUYER_TERMS: '1.0.0' },
       });
     }
-    if (u.includes('/listings')) {
+    if (u.includes('/listings') && !u.includes('/listings/categories')) {
       return json({ success: true, count: 2, total: 2, page: 1, totalPages: 1, listings: [cloudinaryListing, foreignListing] });
     }
     return { ok: false, status: 404, json: async () => ({ success: false }) };

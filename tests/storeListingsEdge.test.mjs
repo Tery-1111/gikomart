@@ -323,7 +323,7 @@ function seedStore(overrides = {}) {
 
 const validListingData = (over = {}) => ({
   title: 'Edge camera',
-  category: 'Electronics',
+  category: 'electronics',
   condition: 'Good',
   price: 4000,
   description: 'Works perfectly.',
@@ -738,7 +738,9 @@ describe('validation attacks', () => {
     const xss = await postListing(store, validBody({ listingData: validListingData({ title: '<script>alert(1)</script>', description: '<img src=x onerror=alert(2)>' }) }));
     expect(xss.status).toBe(201); // stored verbatim; XSS safety lives in escapeHTML at render time (existing model)
     expect(h.listings[0].title).toBe('<script>alert(1)</script>');
-    const proto = await postListing(store, validBody({ listingData: JSON.parse('{"title":"P","category":"C","condition":"Good","price":1,"description":"D","sellerName":"S","sellerWhatsapp":"0711111111","__proto__":{"admin":true},"constructor":{"prototype":{"admin":true}}}') }));
+    // category uses a canonical stable id — 'C' is no longer a valid value and
+    // the test targets prototype-pollution inertness, not category validation.
+    const proto = await postListing(store, validBody({ listingData: JSON.parse('{"title":"P","category":"electronics","condition":"Good","price":1,"description":"D","sellerName":"S","sellerWhatsapp":"0711111111","__proto__":{"admin":true},"constructor":{"prototype":{"admin":true}}}') }));
     expect(proto.status).toBe(201);
     expect({}.admin).toBeUndefined();
     expect(h.listings[h.listings.length - 1].admin).toBeUndefined();

@@ -9,6 +9,11 @@
 /* eslint-disable no-undef -- document/localStorage/Event are provided by the JSDOM instance constructed below */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
+// Canonical listing-category metadata built FROM the real backend config — the
+// payload /api/listings/categories serves — so the UI contract cannot drift.
+const { LISTING_CATEGORIES } = await import('../src/config/listingOptions.js');
+const canonicalListingCategories = LISTING_CATEGORIES.map(({ id, name, icon, legacyNames }) => ({ id, name, icon, legacyNames }));
+
 const STORE = {
   _id: 'sto-ui',
   name: 'UI Contract Store',
@@ -57,6 +62,10 @@ beforeAll(async () => {
     if (u.includes(`/stores/${STORE._id}`)) {
       // Server-derived capacity: 3 active of 5.
       return jsonResponse({ success: true, store: STORE, listingCount: 3 });
+    }
+    // Canonical category metadata from the real backend config (drift guard).
+    if (u.includes('/listings/categories')) {
+      return jsonResponse({ success: true, categories: canonicalListingCategories });
     }
     if (u.includes('/listings')) return jsonResponse({ success: true, listings: [] });
     return jsonResponse({ success: true });
@@ -115,7 +124,7 @@ describe('included-listing publish flow (no payment, no attach)', () => {
     await openMyStore();
     document.querySelector('[data-action="add-listing"]').click();
     document.getElementById('f-title').value = 'UI Contract Camera';
-    document.getElementById('f-category').value = 'Electronics';
+    document.getElementById('f-category').value = 'electronics';
     document.getElementById('f-condition').value = 'Good';
     document.getElementById('f-price').value = '4000';
     document.getElementById('f-description').value = 'Works perfectly.';
@@ -138,7 +147,7 @@ describe('included-listing publish flow (no payment, no attach)', () => {
     await openMyStore();
     document.querySelector('[data-action="add-listing"]').click();
     document.getElementById('f-title').value = 'Overflow item';
-    document.getElementById('f-category').value = 'Electronics';
+    document.getElementById('f-category').value = 'electronics';
     document.getElementById('f-condition').value = 'Good';
     document.getElementById('f-price').value = '10';
     document.getElementById('f-description').value = 'Should be rejected.';

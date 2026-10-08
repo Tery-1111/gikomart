@@ -763,7 +763,7 @@ describe('Webhook COMPLETE (listing) → Listing created, broadcast, broadcastSe
 
   it('flagged listing is created but NOT broadcast and NOT marked broadcastSent', async () => {
     h.payments.push(makeDoc(listingPayment({
-      listingData: { title: 'M-Pesa PIN here, pay first then deliver', category: 'Electronics', condition: 'Good', price: 10, description: 'x', sellerName: 'S', sellerWhatsapp: '07', location: 'E', images: [] },
+      listingData: { title: 'M-Pesa PIN here, pay first then deliver', category: 'electronics', condition: 'Good', price: 10, description: 'x', sellerName: 'S', sellerWhatsapp: '07', location: 'E', images: [] },
     })));
     const res = await webhook({ invoice_id: 'INV-LISTING-1', state: 'COMPLETE' });
 
@@ -1511,7 +1511,7 @@ describe('Payment error UX (Task 2)', () => {
       package: 'quick',
       listingData: {
         title: 'Test Book',
-        category: 'Books',
+        category: 'student-essentials',
         condition: 'Good',
         price: 500,
         description: 'Used calc textbook',
@@ -2066,7 +2066,7 @@ describe('Input length caps — server-side enforcement', () => {
     website: '',
     listingData: {
       title: 'Test Book',
-      category: 'Books',
+      category: 'student-essentials',
       condition: 'Good',
       price: 500,
       description: 'Used calc textbook',
@@ -2148,7 +2148,7 @@ describe('initiate-listing rejects store_id (attach after publish)', () => {
     },
     listingData: {
       title: 'Test Book',
-      category: 'Books',
+      category: 'student-essentials',
       condition: 'Good',
       price: 500,
       description: 'Used calc textbook',
@@ -2751,7 +2751,7 @@ describe('Payment initiation refuses blocked contacts (Phase 5A, Step 3)', () =>
     acceptance: listingAcceptance(),
     website: '',
     listingData: {
-      title: 'Test Book', category: 'Books', condition: 'Good', price: 500,
+      title: 'Test Book', category: 'student-essentials', condition: 'Good', price: 500,
       description: 'Used calc textbook', sellerName: 'Jane',
       sellerWhatsapp: '0711111111', location: 'Njoro', images: [],
       ...overrides,

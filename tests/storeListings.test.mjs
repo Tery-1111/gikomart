@@ -336,7 +336,7 @@ function seedStore(overrides = {}) {
 
 const validListingData = () => ({
   title: 'Barely used camera',
-  category: 'Electronics',
+  category: 'electronics',
   condition: 'Good',
   price: 4000,
   description: 'Works perfectly, all accessories included.',

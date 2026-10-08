@@ -149,7 +149,7 @@ function listingPayment(overrides = {}) {
     package: 'standard',
     phoneNumber: '254700000001',
     amount: 50,
-    listingData: { title: 'Textbook for sale', category: 'Books', condition: 'Good', price: 500, description: 'x', sellerName: 'Seller', sellerWhatsapp: '254700000001' },
+    listingData: { title: 'Textbook for sale', category: 'student-essentials', condition: 'Good', price: 500, description: 'x', sellerName: 'Seller', sellerWhatsapp: '254700000001' },
     ownerTokenHash: sha256hex('raw-token'),
     invoiceId: 'INV-GRANT-1',
     ...overrides,

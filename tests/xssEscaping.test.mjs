@@ -95,7 +95,7 @@ beforeAll(async () => {
     if (u.includes('/stores/slug/')) {
       return json({ success: true, store: MALICIOUS_STORE, listingCount: 0 });
     }
-    if (u.includes('/listings')) {
+    if (u.includes('/listings') && !u.includes('/listings/categories')) {
       if (u.includes('store_id=')) {
         return json({ success: true, count: 0, total: 0, page: 1, totalPages: 1, listings: [] });
       }

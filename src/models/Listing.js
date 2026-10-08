@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
+const { VALID_CATEGORY_IDS } = require('../config/listingOptions');
 const listingSchema = new mongoose.Schema({
   title: { type: String, required: true, maxlength: 120 },
-  category: { type: String, required: true, maxlength: 60 },
+  // Canonical stable category ID from src/config/listingOptions.js (single
+  // source of truth). Legacy pre-contract display names still present on old
+  // documents read fine; enum only constrains writes.
+  category: { type: String, required: true, maxlength: 60, enum: VALID_CATEGORY_IDS },
   subcategory: { type: String, maxlength: 60 },
   condition: { type: String, required: true, maxlength: 20 },
   price: { type: Number, required: true },
