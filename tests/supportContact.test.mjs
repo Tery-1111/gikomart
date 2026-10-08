@@ -76,12 +76,16 @@ describe('legal pages — placeholders resolved, email withheld', () => {
     expect(read('public/legal/terms-of-service.html')).toContain('Njoro, Nakuru County, Kenya');
   });
 
-  it('resolves every support/identity placeholder (only [EFFECTIVE_DATE] may remain)', () => {
+  it('resolves every placeholder — no bracket tokens remain on any legal page', () => {
     for (const rel of LEGAL_PAGES) {
       const placeholders = [...new Set([...read(rel).matchAll(/\[[A-Z][A-Z_]+\]/g)].map((m) => m[0]))];
-      for (const token of placeholders) {
-        expect(token, rel).toBe('[EFFECTIVE_DATE]');
-      }
+      expect(placeholders, rel).toEqual([]);
+    }
+  });
+
+  it('states the effective date (October 22, 2026) on the three newer pages', () => {
+    for (const rel of ['public/legal/privacy-policy.html', 'public/legal/prohibited-items.html', 'public/legal/data-requests.html']) {
+      expect(read(rel), rel).toContain('Effective October 22, 2026');
     }
   });
 

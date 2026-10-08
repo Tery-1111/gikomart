@@ -23,10 +23,10 @@ app.use(express.static(PUBLIC));
 
 const NEW_PAGES = ['legal/privacy-policy.html', 'legal/prohibited-items.html', 'legal/data-requests.html'];
 
-// Only [EFFECTIVE_DATE] may remain: the four contact/identity placeholders
-// ([OPERATOR_NAME], [OPERATOR_ADDRESS], [SUPPORT_EMAIL], [SUPPORT_WHATSAPP])
-// were resolved to the approved admin support contact — enforced below and in
-// tests/supportContact.test.mjs.
+// Every bracket placeholder has been resolved: the four contact/identity
+// placeholders ([OPERATOR_NAME], [OPERATOR_ADDRESS], [SUPPORT_EMAIL],
+// [SUPPORT_WHATSAPP]) were replaced with the approved admin support contact,
+// and [EFFECTIVE_DATE] with the effective date October 22, 2026.
 
 // Hashes of the four versioned legal pages as of the institution-neutral baseline
 // (updated when the pages' institution-specific branding/scope wording was removed,
@@ -102,17 +102,23 @@ describe('New legal pages are served and well-formed', () => {
     expect(read('legal/privacy-policy.html')).toContain('Data Protection Act, 2019');
   });
 
-  it('uses no contact or operator placeholders; only [EFFECTIVE_DATE] may remain', () => {
-    // The support-contact ([SUPPORT_EMAIL]/[SUPPORT_WHATSAPP]) and operator
-    // identity ([OPERATOR_NAME]/[OPERATOR_ADDRESS]) placeholders were resolved
-    // to the approved admin support contact (WhatsApp 0776844298 via the
-    // homepage footer; operator "GikoMart, Njoro, Nakuru County, Kenya").
-    // [EFFECTIVE_DATE] is a versioning marker, not a contact, and remains.
+  it('uses no placeholders at all — every bracket token is resolved', () => {
+    // All five original placeholders are resolved: the contact/identity ones
+    // with the approved admin support contact (WhatsApp 0776844298 via the
+    // homepage footer; operator "GikoMart, Njoro, Nakuru County, Kenya") and
+    // [EFFECTIVE_DATE] with the effective date October 22, 2026. Any bracket
+    // token reappearing — old or new — now fails.
     const found = new Set();
     for (const rel of NEW_PAGES) {
       for (const match of read(rel).matchAll(/\[[A-Z][A-Z_]+\]/g)) found.add(match[0]);
     }
-    expect([...found].sort()).toEqual(['[EFFECTIVE_DATE]']);
+    expect([...found]).toEqual([]);
+  });
+
+  it('states the effective date on each new page', () => {
+    for (const rel of NEW_PAGES) {
+      expect(read(rel), rel).toContain('Effective October 22, 2026');
+    }
   });
 
   it('contains no Cloudflare reference, no 64-hex string and no unexpected 9+ digit run', () => {

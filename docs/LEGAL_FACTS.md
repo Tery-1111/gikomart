@@ -55,7 +55,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | A request is answered within 14 days; the Data Requests page is at /legal/data-requests.html. | Operator commitment; `public/legal/data-requests.html` | Privacy Policy §7 |
 | Complaints may be made to the Office of the Data Protection Commissioner of Kenya. | Operator commitment; Data Protection Act, 2019 (Kenya) | Privacy Policy §8 |
 | Support contact is WhatsApp 0776844298 (wa.me/254776844298); the email is centralized in `src/config/supportContact.js` and not rendered publicly. | `public/index.html` footer, `public/legal/privacy-policy.html` §8 | Privacy Policy §8 |
-| The effective date is a placeholder shown at the top of the page. | `public/legal/privacy-policy.html` (`[EFFECTIVE_DATE]`) | Privacy Policy (header) |
+| The effective date is October 22, 2026, shown at the top of the page. | `public/legal/privacy-policy.html` (header version tag) | Privacy Policy (header) |
 | The prohibited categories follow the Terms of Service Prohibited Content & Conduct section. | `public/legal/terms-of-service.html:51-60` | Prohibited Items §1 |
 | The list is not exhaustive. | `src/services/moderationService.js:12-13` | Prohibited Items §1 |
 | New listings and stores are screened automatically at creation. | `src/services/moderationService.js:26-38,41-67` | Prohibited Items §2 |
@@ -67,7 +67,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | The automatic filter is a first pass, not a human review of every listing, and no response time is promised. | `src/services/moderationService.js:1-9` | Prohibited Items §2 |
 | Fees are governed by the Fees & Payments section of the Terms of Service. | `public/legal/terms-of-service.html:63-64` | Prohibited Items §2 |
 | Use the Report button on any listing or store page and choose a reason. You can also send the listing title and a short reason to [SUPPORT_WHATSAPP] or [SUPPORT_EMAIL]. | `public/assets/js/app.js:744,2093` (report buttons), `public/assets/js/app.js:828` (POST /reports) | prohibited-items.html |
-| The effective date is a placeholder shown at the top of the page. | `public/legal/prohibited-items.html` (`[EFFECTIVE_DATE]`) | Prohibited Items (header) |
+| The effective date is October 22, 2026, shown at the top of the page. | `public/legal/prohibited-items.html` (header version tag) | Prohibited Items (header) |
 | GikoMart has no user accounts; browsing needs no registration. | `public/legal/terms-of-service.html:49` | Data Requests §1 |
 | Sellers and store owners receive a one-time ownership token as their credential. | `public/legal/terms-of-service.html:49`, `public/assets/js/app.js:12-16` | Data Requests §1 |
 | Data subject rights: to be informed, access, correction, deletion. | Operator commitment; Data Protection Act, 2019 (Kenya) | Data Requests §2 |
@@ -84,4 +84,4 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | Audit events are kept for their retention window as an operational record. | `docs/DECISIONS.md` 17 | Data Requests §6 |
 | The blocked-contact list keeps a keyed hash so a banned number cannot pay again. | `src/models/BlockedContact.js:1-15`, `docs/DECISIONS.md` 18 | Data Requests §6 |
 | Payment amounts are kept for the dispute window after the contact PII is erased at 90 days. | `src/services/cleanupService.js:186-207`, `docs/DECISIONS.md` 15 | Data Requests §6 |
-| The effective date is a placeholder shown at the top of the page. | `public/legal/data-requests.html` (`[EFFECTIVE_DATE]`) | Data Requests (header) |
+| The effective date is October 22, 2026, shown at the top of the page. | `public/legal/data-requests.html` (header version tag) | Data Requests (header) |
