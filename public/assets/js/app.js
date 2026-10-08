@@ -1120,6 +1120,7 @@ function setupActionDelegation() {
       case 'initiate-boost': initiateBoost(el.dataset.listingId); break;
       // ── Store ──
       case 'open-store-creation': openStoreCreationModal(); break;
+      case 'toggle-store-faq': toggleStoreFaq(el); break;
       case 'open-store-page': openStorePage(el.dataset.slug); break;
       // Add Listing from the store dashboard: the sell form opens in store
       // context and publishes through the store plan's capacity (no payment).
@@ -1921,17 +1922,46 @@ function responsiveImageAttrs(url, widths, transformFor, sizes) {
 
 // ─── My Store view ──────────────────────────────────────────────────────────
 
+// Expand/collapse the Store FAQ in the My Store empty state. The button keeps
+// aria-expanded in sync with the panel's hidden attribute so the disclosure is
+// keyboard/screen-reader correct through the plain native button.
+function toggleStoreFaq(el) {
+  const faq = document.getElementById('storeFaq');
+  if (!faq) return;
+  const nowOpen = faq.hasAttribute('hidden');
+  if (nowOpen) faq.removeAttribute('hidden');
+  else faq.setAttribute('hidden', '');
+  el.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+}
+
 async function renderMyStore() {
   const container = document.getElementById('mystoreContent');
   const myStoreIds = getAllMyStoreIds();
 
   if (myStoreIds.length === 0) {
+    // Plan capacity lines derive from the single STORE_PLANS source of truth —
+    // the same list the creation modal renders as authoritative plan cards.
+    const planLines = STORE_PLANS.map((p) =>
+      `<li><strong>${p.label}</strong> — up to ${p.maxListings} listings (${p.duration})</li>`).join('');
     container.innerHTML = `
       <div class="empty-state">
         <span class="empty-icon">🏪</span>
         <p><strong>You don't have a store yet.</strong></p>
         <p>Open a storefront on GikoMart to organize your listings and build your brand on campus.</p>
         <button class="btn btn-primary" data-action="open-store-creation" style="margin-top:16px;">Open a Store →</button>
+        <div style="margin-top:14px;">
+          <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-store-faq" aria-expanded="false" aria-controls="storeFaq">ⓘ How does the Store work?</button>
+        </div>
+        <div id="storeFaq" hidden style="margin-top:12px; text-align:left; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; font-size:14px; color:var(--ink-soft);">
+          <p style="margin:0 0 8px;"><strong style="color:var(--ink);">What is a Store?</strong> A Store gives you one place to showcase and manage the items you're selling on GikoMart.</p>
+          <p style="margin:0 0 8px;"><strong style="color:var(--ink);">Do I need a Store to sell?</strong> No — you can post standalone listings without opening one.</p>
+          <p style="margin:0 0 8px;"><strong style="color:var(--ink);">How do Store listings work?</strong> Your Store plan gives you listing slots. Listings published through your Store use those slots and follow the Store's plan expiry — they're included in the plan, with no separate listing payment.</p>
+          <p style="margin:0 0 4px;"><strong style="color:var(--ink);">How many listings can I have?</strong></p>
+          <ul style="margin:0 0 8px; padding-left:18px;">${planLines}</ul>
+          <p style="margin:0 0 8px;"><strong style="color:var(--ink);">Where can I see my remaining listings?</strong> Once your Store is open, the Store dashboard shows listings used, remaining slots, your plan, and days until expiry — e.g. “3 / 10 · 7 remaining”.</p>
+          <p style="margin:0 0 8px;"><strong style="color:var(--ink);">Store vs standalone listing?</strong> A Store organizes and showcases multiple listings; a standalone listing is a single item sold on its own.</p>
+          <p style="margin:0; color:var(--danger);"><strong>Deleting a Store</strong> also deletes the listings that belong to it — detach anything you want to keep first.</p>
+        </div>
       </div>`;
     return;
   }
@@ -2057,7 +2087,9 @@ function openStoreCreationModal() {
 
       <div class="boost-section" style="margin-top:16px;">
         <div class="boost-label">💳 Choose a store plan</div>
+        <p style="margin:4px 0 8px; color:var(--ink-soft); font-size:13px;">Your Store plan determines how many listings you can publish through your Store and how long the Store stays active.</p>
         <div class="boost-options" id="storePlanOptions">${plansHTML}</div>
+        <p style="margin:8px 0 0; color:var(--ink-soft); font-size:13px;">You can also sell individual items without opening a Store.</p>
       </div>
 
       <div class="field-group" style="margin-top:12px;">
