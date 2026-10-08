@@ -10,7 +10,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | GikoMart operates a local marketplace and introduction platform for students, residents, and surrounding communities. | `public/legal/terms-of-service.html:35` | Privacy Policy §1 |
 | GikoMart is an introduction platform only and is not a party to user transactions. | `public/legal/terms-of-service.html:36` | Privacy Policy §1 |
 | The minimum age to use GikoMart is 18, or the age of majority in your jurisdiction. | `public/legal/terms-of-service.html:43` | Privacy Policy §1 |
-| The operator name and address are placeholders. | `public/legal/privacy-policy.html` (`[OPERATOR_NAME]`, `[OPERATOR_ADDRESS]`) | Privacy Policy §1 |
+| Operator is "GikoMart", located at the broad locality Njoro, Nakuru County, Kenya (no physical premises claimed). | `public/legal/privacy-policy.html` §1, `src/config/supportContact.js` | Privacy Policy §1 |
 | Listing details collected: title, category, condition, price, description, location and images. | `src/models/Listing.js:3-12` | Privacy Policy §2 |
 | The seller's WhatsApp number is stored but is not shown publicly; it is released only through the contact-acceptance endpoint. | `src/utils/publicView.js:24`, `src/controllers/termsController.js:24-25,69-101` | Privacy Policy §2 |
 | Listing photos are stored on Cloudinary. | `src/routes/upload.js:97` | Privacy Policy §2 |
@@ -54,7 +54,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | Data subject rights: to be informed, access, correction, erasure, objection. | Operator commitment (mandated content); Data Protection Act, 2019 (Kenya) | Privacy Policy §7 |
 | A request is answered within 14 days; the Data Requests page is at /legal/data-requests.html. | Operator commitment; `public/legal/data-requests.html` | Privacy Policy §7 |
 | Complaints may be made to the Office of the Data Protection Commissioner of Kenya. | Operator commitment; Data Protection Act, 2019 (Kenya) | Privacy Policy §8 |
-| Contact email and WhatsApp are placeholders. | `public/legal/privacy-policy.html` (`[SUPPORT_EMAIL]`, `[SUPPORT_WHATSAPP]`) | Privacy Policy §8 |
+| Support contact is WhatsApp 0776844298 (wa.me/254776844298); the email is centralized in `src/config/supportContact.js` and not rendered publicly. | `public/index.html` footer, `public/legal/privacy-policy.html` §8 | Privacy Policy §8 |
 | The effective date is a placeholder shown at the top of the page. | `public/legal/privacy-policy.html` (`[EFFECTIVE_DATE]`) | Privacy Policy (header) |
 | The prohibited categories follow the Terms of Service Prohibited Content & Conduct section. | `public/legal/terms-of-service.html:51-60` | Prohibited Items §1 |
 | The list is not exhaustive. | `src/services/moderationService.js:12-13` | Prohibited Items §1 |
@@ -76,7 +76,7 @@ resolved in `docs/LEGAL_PLACEHOLDERS.md`.
 | The WhatsApp hashes on acceptance records are erased after 30 days. | `src/services/cleanupService.js:135-160` | Data Requests §2 |
 | Report IP addresses are erased after 30 days. | `src/services/cleanupService.js:165-180` | Data Requests §2 |
 | Audit events are deleted after 365 days by default. | `src/services/cleanupService.js:211-225`, `.env.example:73-74` | Data Requests §2 |
-| Requests are sent by email or WhatsApp (placeholders). | `public/legal/data-requests.html` (`[SUPPORT_EMAIL]`, `[SUPPORT_WHATSAPP]`) | Data Requests §3 |
+| Requests are sent via the support WhatsApp 0776844298 (email kept in backend config only). | `public/legal/data-requests.html` §3, `src/config/supportContact.js` | Data Requests §3 |
 | To find records we need the phone number used and the listing title or store name, and we may ask for proof of ownership. | Operator process; `src/models/Listing.js:11`, `src/models/Store.js:5` | Data Requests §4 |
 | A request is answered within 14 days, and nothing else is promised about timing. | Operator commitment | Data Requests §5 |
 | A seller can delete their own listing or store in the app. | `public/assets/js/app.js:1355-1375,1832-1845`, `src/routes/listings.js:18`, `src/routes/stores.js:17` | Data Requests §6 |

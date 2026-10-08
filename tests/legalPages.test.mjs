@@ -23,9 +23,10 @@ app.use(express.static(PUBLIC));
 
 const NEW_PAGES = ['legal/privacy-policy.html', 'legal/prohibited-items.html', 'legal/data-requests.html'];
 
-const ALLOWED_PLACEHOLDERS = [
-  '[OPERATOR_NAME]', '[OPERATOR_ADDRESS]', '[SUPPORT_EMAIL]', '[SUPPORT_WHATSAPP]', '[EFFECTIVE_DATE]',
-];
+// Only [EFFECTIVE_DATE] may remain: the four contact/identity placeholders
+// ([OPERATOR_NAME], [OPERATOR_ADDRESS], [SUPPORT_EMAIL], [SUPPORT_WHATSAPP])
+// were resolved to the approved admin support contact — enforced below and in
+// tests/supportContact.test.mjs.
 
 // Hashes of the four versioned legal pages as of the institution-neutral baseline
 // (updated when the pages' institution-specific branding/scope wording was removed,
@@ -33,7 +34,10 @@ const ALLOWED_PLACEHOLDERS = [
 // frontend batch: inline SVG favicon added, Google Fonts links removed in favor
 // of self-hosted fonts — legal text itself unchanged).
 const EXISTING_LEGAL_HASHES = {
-  'legal/terms-of-service.html': 'e808f087c972c10e67cc27dec115dc85a3b469046ac18387de91ea08a0602d85',
+  // terms-of-service re-pinned when the [OPERATOR_ADDRESS] placeholder was
+  // resolved to the approved broad locality "Njoro, Nakuru County, Kenya"
+  // (admin support-contact implementation; legal wording otherwise unchanged).
+  'legal/terms-of-service.html': 'a940b9a52d6b0174d773e2defbdbe9285070d0eafeac0bde8873ab78ab2669e1',
   'legal/store-owner-terms.html': '0f27320a208ba93e846866add862e6091c4e5b3e3d633488774fe3cbf4b31930',
   'legal/seller-terms.html': 'b0a557faaae841ba745f0f5bdf3fdc52a3bb721eea1962d49aeeafc9de8978a0',
   'legal/buyer-terms.html': 'dc9cc60cf16234617a4cb01ebc9802b0ab3cf5ac40e35f46b94da19a2cf801d1',
@@ -98,20 +102,31 @@ describe('New legal pages are served and well-formed', () => {
     expect(read('legal/privacy-policy.html')).toContain('Data Protection Act, 2019');
   });
 
-  it('uses only the five allowed placeholders across the three pages', () => {
+  it('uses no contact or operator placeholders; only [EFFECTIVE_DATE] may remain', () => {
+    // The support-contact ([SUPPORT_EMAIL]/[SUPPORT_WHATSAPP]) and operator
+    // identity ([OPERATOR_NAME]/[OPERATOR_ADDRESS]) placeholders were resolved
+    // to the approved admin support contact (WhatsApp 0776844298 via the
+    // homepage footer; operator "GikoMart, Njoro, Nakuru County, Kenya").
+    // [EFFECTIVE_DATE] is a versioning marker, not a contact, and remains.
     const found = new Set();
     for (const rel of NEW_PAGES) {
       for (const match of read(rel).matchAll(/\[[A-Z][A-Z_]+\]/g)) found.add(match[0]);
     }
-    expect([...found].sort()).toEqual([...ALLOWED_PLACEHOLDERS].sort());
+    expect([...found].sort()).toEqual(['[EFFECTIVE_DATE]']);
   });
 
-  it('contains no Cloudflare reference, no 64-hex string and no 9+ digit run', () => {
+  it('contains no Cloudflare reference, no 64-hex string and no unexpected 9+ digit run', () => {
+    // The approved support-contact number is deliberately exempted: its local
+    // form (0776844298) and international wa.me form (254776844298) are the
+    // ONLY permitted 9+ digit runs. Every other long digit run remains a
+    // failure, so accidental leakage of secrets/hashes/IDs stays blocked.
+    const APPROVED_CONTACT_DIGIT_RUNS = ['0776844298', '254776844298'];
+    const scrub = (text) => text.replace(new RegExp(APPROVED_CONTACT_DIGIT_RUNS.join('|'), 'g'), '');
     for (const rel of NEW_PAGES) {
       const html = read(rel);
       expect(html.toLowerCase(), rel).not.toContain('cloudflare');
       expect(html, rel).not.toMatch(/[0-9a-f]{64}/);
-      expect(html, rel).not.toMatch(/[0-9]{9,}/);
+      expect(scrub(html), rel).not.toMatch(/[0-9]{9,}/);
     }
   });
 
