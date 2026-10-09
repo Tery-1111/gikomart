@@ -493,3 +493,24 @@ new numbers; existing entries are never edited.
   and — if a genuine revoke need ever appears — a NEW terminal state (e.g.
   `revoked`) with its own audit event and explicit resource handling, never
   an edge back to `pending`.
+
+## 37. Buyer gate: when the server returns no seller contact, re-enable the Continue button and show a toast. Backend requirement for sellerWhatsapp at listing creation is intentionally NOT changed; it is a product decision awaiting the owner.
+
+- **Decision:** In `_handleBuyerGateContinue` (public/assets/js/app.js), an OK
+  response from `POST /api/terms/contact-acceptance` whose body carries no
+  `sellerWhatsapp` now takes the new `else` branch: the Continue button is
+  re-enabled with its original label and the toast "⚠️ This seller hasn't
+  shared a contact number. Try another listing." is shown. Previously the
+  only re-enable path was the error `catch`, so the missing-contact case left
+  the button disabled on "Checking…" indefinitely with no message.
+- **Scope boundary:** The backend was NOT changed. A listing can still be
+  created without a `sellerWhatsapp` (the sell form's `f-whatsapp` field is
+  client-side `required` only); making the number a server-side requirement
+  would change creation contracts and is deliberately deferred to the product
+  owner. The missing-contact case therefore remains possible and now degrades
+  gracefully instead of dead-ending.
+- **Alternative rejected:** Hiding the "Contact seller on WhatsApp" button in
+  the listing modal when no contact exists. The pre-gate modal never knows
+  whether a contact exists (contact PII is stripped from all public list and
+  detail responses), so the UI cannot make that call without an extra probe
+  request; the gate flow is the only place the truth is revealed.

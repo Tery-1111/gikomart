@@ -1167,6 +1167,25 @@ runs `7654a0e`.)
 - **Tests added:** none (documentation-only change; suite remains 60 files / 667 passed /
   1 skipped).
 
+## Phase 11 — Buyer gate
+
+### fix(buyer-gate): re-enable Continue when the seller has no contact
+- **Behavior:** Before, if `POST /api/terms/contact-acceptance` returned OK with
+  no `sellerWhatsapp`, `_handleBuyerGateContinue` took no action: the Continue
+  button stayed disabled on "Checking…" forever with no message (the only
+  re-enable path was the error `catch`). After, an added `else` branch
+  re-enables the button ("Continue & Contact Seller") and shows the toast
+  "⚠️ This seller hasn't shared a contact number. Try another listing." The
+  success branch renders the "Open WhatsApp" anchor unchanged; the 404 path is
+  unchanged. Backend requirement for `sellerWhatsapp` at listing creation is
+  intentionally NOT changed (see docs/DECISIONS.md entry 37).
+- **Files changed:** `public/assets/js/app.js`, `public/index.html`
+  (cache tag `20261006d` → `20261007a`), `.asset-hashes.json`,
+  `tests/domTerms.test.mjs`, `docs/DECISIONS.md`, `docs/CHANGELOG.md`.
+- **Tests added:** `tests/domTerms.test.mjs` — "an OK response with no
+  sellerWhatsapp re-enables the Continue button with a toast" (812 total:
+  811 passed, 1 skipped).
+
 ## Phase 5 and later
 
 Not documented here until built.

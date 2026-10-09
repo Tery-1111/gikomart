@@ -253,4 +253,18 @@ describe('Buyer contact release (Phase 3, Step 3)', () => {
     expect(document.getElementById('toast').textContent).toContain('Listing not found');
     expect(waOpens).not.toHaveBeenCalled();
   });
+
+  it('an OK response with no sellerWhatsapp re-enables the Continue button with a toast', async () => {
+    contactAcceptanceResponse = { ok: true, status: 200, json: async () => ({ success: true }) };
+    await openContactGate();
+
+    document.querySelector('[data-action="buyer-gate-continue"]').click();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const continueBtn = document.querySelector('[data-action="buyer-gate-continue"]');
+    expect(continueBtn.disabled).toBe(false);
+    expect(continueBtn.textContent).toBe('Continue & Contact Seller');
+    expect(document.getElementById('buyerGateActions').querySelector('a')).toBeNull();
+    expect(waOpens).not.toHaveBeenCalled();
+  });
 });

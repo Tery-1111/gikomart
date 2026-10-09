@@ -1269,6 +1269,9 @@ async function _handleBuyerGateContinue() {
       <p class="buyer-gate-ready" style="margin:0 0 8px; flex-basis:100%;">Seller contact ready</p>
       <a class="btn btn-primary" href="${href}" target="_blank" rel="noopener noreferrer" style="flex:1; text-align:center;">Open WhatsApp</a>
     `;
+  } else {
+    if (continueBtn) { continueBtn.disabled = false; continueBtn.textContent = 'Continue & Contact Seller'; }
+    showToast("⚠️ This seller hasn't shared a contact number. Try another listing.");
   }
 }
 
