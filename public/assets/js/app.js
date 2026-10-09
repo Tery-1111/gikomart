@@ -2091,33 +2091,33 @@ function openStoreCreationModal() {
     <h3 style="font-family:var(--font-display); margin:0 0 16px;">Open a Store</h3>
     <form id="storeCreationForm">
       <div class="field-group">
-        <label>Store name</label>
+        <label for="sc-name">Store name</label>
         <input type="text" id="sc-name" placeholder="e.g. Teryl's Tech Shop" required>
       </div>
       <div class="field-group">
-        <label>Store category</label>
+        <label for="sc-category">Store category</label>
         <select id="sc-category" required>${categoriesHTML}</select>
       </div>
       <div class="field-group">
-        <label>Description</label>
+        <label for="sc-description">Description</label>
         <textarea id="sc-description" placeholder="What does your store sell?" rows="3"></textarea>
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label>Contact phone</label>
+          <label for="sc-phone">Contact phone</label>
           <input type="text" id="sc-phone" placeholder="0712345678" required>
         </div>
         <div class="field-group">
-          <label>WhatsApp number</label>
+          <label for="sc-whatsapp">WhatsApp number</label>
           <input type="text" id="sc-whatsapp" placeholder="0712345678" required>
         </div>
       </div>
       <div class="field-group">
-        <label>Email (optional)</label>
+        <label for="sc-email">Email (optional)</label>
         <input type="email" id="sc-email" placeholder="you@email.com">
       </div>
       <div class="field-group">
-        <label>Location / campus area</label>
+        <label for="sc-location">Location / campus area</label>
         <input type="text" id="sc-location" placeholder="e.g. Njoro, near Main Gate">
       </div>
 
@@ -2129,7 +2129,7 @@ function openStoreCreationModal() {
       </div>
 
       <div class="field-group" style="margin-top:12px;">
-        <label>M-Pesa number to pay with</label>
+        <label for="sc-phoneNumber">M-Pesa number to pay with</label>
         <input type="text" id="sc-phoneNumber" placeholder="e.g. 0712345678" required>
       </div>
 
@@ -3172,16 +3172,16 @@ function showGrantRedeemStep(claimId, type) {
     .map((c) => `<option value="${escapeAttr(c)}"${c === 'Excellent' ? ' selected' : ''}>${escapeHTML(c)}</option>`).join('');
 
   const listingFields = `
-    <div class="field-group"><label>What are you selling?</label><input type="text" id="g-title" placeholder="e.g. Samsung Galaxy S22" required></div>
+    <div class="field-group"><label for="g-title">What are you selling?</label><input type="text" id="g-title" placeholder="e.g. Samsung Galaxy S22" required></div>
     <div class="field-row">
-      <div class="field-group"><label>Category</label><select id="g-category" required><option value="">Choose a category</option>${listingCategories}</select></div>
-      <div class="field-group"><label>Condition</label><select id="g-condition" required>${conditions}</select></div>
+      <div class="field-group"><label for="g-category">Category</label><select id="g-category" required><option value="">Choose a category</option>${listingCategories}</select></div>
+      <div class="field-group"><label for="g-condition">Condition</label><select id="g-condition" required>${conditions}</select></div>
     </div>
     <div class="field-row">
-      <div class="field-group"><label>Price (KSh)</label><input type="number" id="g-price" min="0" required></div>
-      <div class="field-group"><label>Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
+      <div class="field-group"><label for="g-price">Price (KSh)</label><input type="number" id="g-price" min="0" required></div>
+      <div class="field-group"><label for="g-location">Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
     </div>
-    <div class="field-group"><label>Description</label><textarea id="g-description" required></textarea></div>
+    <div class="field-group"><label for="g-description">Description</label><textarea id="g-description" required></textarea></div>
     <div class="field-group"><label>Photo (optional)</label>
       <div class="image-upload" id="g-imageUploadBox">
         <input type="file" id="g-image" accept="image/*" hidden>
@@ -3196,20 +3196,20 @@ function showGrantRedeemStep(claimId, type) {
       <div class="image-upload-status" id="g-imageUploadStatus"></div>
     </div>
     <div class="field-row">
-      <div class="field-group"><label>Your name</label><input type="text" id="g-seller" required></div>
-      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
+      <div class="field-group"><label for="g-seller">Your name</label><input type="text" id="g-seller" required></div>
+      <div class="field-group"><label for="g-whatsapp">WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
     </div>`;
 
   const storeFields = `
-    <div class="field-group"><label>Store name</label><input type="text" id="g-store-name" required></div>
-    <div class="field-group"><label>Store category</label><select id="g-store-category" required>${storeCategories}</select></div>
-    <div class="field-group"><label>Description</label><textarea id="g-store-description" rows="3"></textarea></div>
+    <div class="field-group"><label for="g-store-name">Store name</label><input type="text" id="g-store-name" required></div>
+    <div class="field-group"><label for="g-store-category">Store category</label><select id="g-store-category" required>${storeCategories}</select></div>
+    <div class="field-group"><label for="g-store-description">Description</label><textarea id="g-store-description" rows="3"></textarea></div>
     <div class="field-row">
-      <div class="field-group"><label>Contact phone</label><input type="text" id="g-store-phone" required></div>
-      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-store-whatsapp" required></div>
+      <div class="field-group"><label for="g-store-phone">Contact phone</label><input type="text" id="g-store-phone" required></div>
+      <div class="field-group"><label for="g-store-whatsapp">WhatsApp number</label><input type="text" id="g-store-whatsapp" required></div>
     </div>
-    <div class="field-group"><label>Email (optional)</label><input type="email" id="g-store-email"></div>
-    <div class="field-group"><label>Location</label><input type="text" id="g-store-location" placeholder="e.g. Njoro, near Main Gate"></div>`;
+    <div class="field-group"><label for="g-store-email">Email (optional)</label><input type="email" id="g-store-email"></div>
+    <div class="field-group"><label for="g-store-location">Location</label><input type="text" id="g-store-location" placeholder="e.g. Njoro, near Main Gate"></div>`;
 
   const acceptance = resolvedType === 'store' ? storeCreationAcceptanceHTML() : sellerListingAcceptanceHTML();
   card.innerHTML = `

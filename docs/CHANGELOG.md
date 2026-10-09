@@ -1188,6 +1188,35 @@ runs `7654a0e`.)
 
 ## UI verification rig
 
+### fix(ui): associate remaining form labels with controls
+- **Behavior:** Completes the label-association work started for the sell form
+  (previous entry) for the three surfaces found deficient in the Phase 2D
+  investigation. In the grant-redeem modal (`showGrantRedeemStep()`), visible
+  labels gain explicit `for` targeting the existing ids — listing branch:
+  `g-title`/`g-category`/`g-condition`/`g-price`/`g-location`/
+  `g-description`/`g-seller`/`g-whatsapp`; store branch:
+  `g-store-name`/`g-store-category`/`g-store-description`/`g-store-phone`/
+  `g-store-whatsapp`/`g-store-email`/`g-store-location`. In the store-creation
+  modal (`openStoreCreationModal()`), the same for `sc-name`/`sc-category`/
+  `sc-description`/`sc-phone`/`sc-whatsapp`/`sc-email`/`sc-location`/
+  `sc-phoneNumber`. Browse search gains `aria-label="Search listings"` (it
+  previously resolved placeholder-only). No markup restructuring, no CSS, no
+  validation/conditional-rendering/submit changes; plan cards, terms
+  acceptance, and required attributes unchanged.
+- **Verification:** rig DOM probe — all 15 grant + 8 store-creation controls
+  resolve via `label[for]`; search name persists before/during/after typing and
+  on Enter-key search; no duplicate document ids; grant listing/store branches
+  render independently without field leakage; close/reopen paths preserve
+  names; store-creation required-field validation and payment-pending submit
+  status render unchanged; server search/filter/empty-state behave as before
+  (24 cards unfiltered, correct empty state for non-matching terms, 1 card for
+  "Earbuds"/"Guitar"). App cache tag `20261009b` → `20261009c` (style.css
+  unchanged this phase).
+- **Files changed:** `public/assets/js/app.js`, `public/index.html` (one
+  `aria-label` + cache tag), `.asset-hashes.json`.
+- **Tests added:** none (no test asserts markup attributes; the automated
+  suite is unchanged and remains green).
+
 ### fix(ui): associate sell form labels with controls
 - **Behavior:** Visible labels gain explicit `for`/`id` associations — no
   markup restructuring, no CSS change, no dynamic-template change (the sell
