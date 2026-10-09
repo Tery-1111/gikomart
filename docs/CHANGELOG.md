@@ -1188,6 +1188,34 @@ runs `7654a0e`.)
 
 ## UI verification rig
 
+### fix(ui): associate sell form labels with controls
+- **Behavior:** Visible labels gain explicit `for`/`id` associations — no
+  markup restructuring, no CSS change, no dynamic-template change (the sell
+  form is static in `public/index.html`; `setupForm()` only binds listeners to
+  existing DOM, and the only re-rendered section, `packageSection`, has no
+  labeled fields; verified across navigation and the store-context
+  decoration/restore path). The eight sell-form labels
+  (What are you selling?/Category/Condition/Price (KSh)/Location/Description/
+  Your name/WhatsApp number) now point at `f-title`/`f-category`/`f-condition`/
+  `f-price`/`f-location`/`f-description`/`f-seller`/`f-whatsapp`; the JS-rendered
+  "M-Pesa number to pay with" label points at `listingPhone`. Rendered
+  accessible names via `label[for]` for all ten controls (previously two
+  selects and five inputs depended on placeholders, and two selects had no
+  name at all). Option values/order/defaults, validation, and the sell flow
+  itself unchanged (rig re-verified end to end). Report-modal labels were
+  already correct and were left untouched. App cache tag `20261009a` →
+  `20261009b` (style.css unchanged this phase).
+- **Verification:** rig DOM probe — `label[for]`-resolved accessible names for
+  all controls, no duplicate document ids, names survive close/reopen and the
+  store-context packageSection rebuild, category/condition selection and
+  required-field validation intact, sell flow reaches the M-Pesa prompt
+  status, report-modal labels resolve. Full suite green (811 passed,
+  1 skipped, 812 total).
+- **Files changed:** `public/index.html`, `public/assets/js/app.js`
+  (one label `for`), `.asset-hashes.json`.
+- **Tests added:** none (no test asserts label associations; suite stays
+  unchanged and green).
+
 ### fix(ui): mobile nav overflow, reduced-motion coverage, and accessible status semantics
 - **Behavior:** Four targeted fixes, no palette/typography change. (1) At ≤640px
   viewports the four `.nav-link` paddings shrink 20px→12px so the 325px of link

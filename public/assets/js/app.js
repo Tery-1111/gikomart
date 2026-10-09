@@ -1329,7 +1329,7 @@ function packageSectionHTML() {
           <div class="boost-option-price">KSh 150</div>
         </div>
       </div>
-      <label style="display:block; margin-top:12px; font-size:14px; font-weight:600;">M-Pesa number to pay with</label>
+      <label for="listingPhone" style="display:block; margin-top:12px; font-size:14px; font-weight:600;">M-Pesa number to pay with</label>
       <input type="text" class="boost-phone-input" id="listingPhone" placeholder="e.g. 0712345678">
       <span style="font-size:12px; color:var(--ink-soft); display:block; margin-top:4px;">Can be different from your WhatsApp contact number above</span>
     </div>
