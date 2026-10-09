@@ -514,3 +514,27 @@ new numbers; existing entries are never edited.
   whether a contact exists (contact PII is stripped from all public list and
   detail responses), so the UI cannot make that call without an extra probe
   request; the gate flow is the only place the truth is revealed.
+
+## 38. UI verification uses a mock-API rig on express
+
+- **Decision:** Browser verification of the frontend runs against
+  `tools/ui-rig/server.js` (`npm run rig`), a plain express server that serves
+  the real `public/` folder and answers the routes the frontend calls with
+  response shapes copied from the real controllers. Scenario behaviour
+  (empty, slow, offline, 500, 503, payment outcomes, grant states) is
+  controlled at runtime from a control page; localStorage seeding buttons
+  write the same token prefixes app.js reads.
+- **Reason:** The test suite uses in-memory model fakes injected into
+  `require.cache` — there is no mongod, no mongodb-memory-server and no seed
+  script in the repo — so a real backend needs a database plus real Cloudinary
+  and IntaSend credentials, none of which should be required to verify UI
+  behaviour. The rig also exercises the real `app.js` against real markup
+  over real HTTP, which source-level audits and jsdom tests cannot: viewport
+  layout, console errors, network failure banners and scenario transitions.
+- **Alternative rejected:** Real Mongo via Docker. It would couple UI
+  verification to container availability, credentials and data seeding, and
+  would still not cover IntaSend/Cloudinary-dependent surfaces without double
+  staging. The controllers' response shapes are copied, not re-invented, so
+  the rig stays honest about what the real API actually returns. eslint.config.js
+  gained a tools/** block mirroring the src/** block so the rig lints under
+  the same rules; no rules were relaxed.

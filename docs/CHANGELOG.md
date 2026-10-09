@@ -1186,6 +1186,35 @@ runs `7654a0e`.)
   sellerWhatsapp re-enables the Continue button with a toast" (812 total:
   811 passed, 1 skipped).
 
+## UI verification rig
+
+### chore(ui): add mock-API verification rig `npm run rig`
+- **Behavior:** Tooling only — no runtime change to the shipped app. New
+  `tools/ui-rig/` adds a plain-express mock API (`npm run rig`, 127.0.0.1,
+  `RIG_PORT` or 4173) serving the real `public/` folder and the routes the
+  frontend calls, with response shapes copied from the real controllers
+  (`GET /api/support-contact`, `/api/listings/categories`, `/api/terms/versions`,
+  `/api/listings` with category/search/page/limit/store_id, contact-acceptance,
+  reports, the three payment-initiation routes, `/api/payments/status/:id`,
+  listing/store CRUD, grant submit/status/redeem). Runtime scenarios
+  (normal, empty, slow, offline, server-error, busy, no-contact, pay-success,
+  pay-pending, pay-failed, pay-cancelled) and injected latency are set from a
+  control page at `/__rig/`, which also seeds the same localStorage token
+  prefixes app.js reads (owner/store/grant token + meta) with value `rig-token`
+  and clears every `gikomart_*` key. Unhandled /api requests return 404
+  `Not simulated by the rig` with the method + path logged to the rig console.
+  Listing photos are five generated SVG aspect placeholders under
+  `/__rig/img/`; uploads deliberately answer 503 (Cloudinary is not
+  simulated). `eslint.config.js` gains a `tools/**` block mirroring the `src/**`
+  block (same CommonJS + Node globals and security-plugin ruleset; no rules
+  relaxed) so the rig lints under identical rules. Documented in
+  `docs/UI_RIG.md`; decision recorded as `docs/DECISIONS.md` entry 38.
+- **Files changed:** `tools/ui-rig/fixtures.js` (new), `tools/ui-rig/server.js`
+  (new), `docs/UI_RIG.md` (new), `docs/DECISIONS.md`, `docs/CHANGELOG.md`,
+  `package.json` (one new script: `rig`).
+- **Tests added:** none (the rig is a manual verification tool; the automated
+  suite is unchanged and remains green).
+
 ## Phase 5 and later
 
 Not documented here until built.

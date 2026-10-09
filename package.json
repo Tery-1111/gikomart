@@ -11,7 +11,8 @@
     "prepare": "git config core.hooksPath .githooks",
     "audit": "npm audit --omit=dev",
     "audit:institution": "node scripts/audit-institution-refs.js",
-    "backup": "node scripts/backup.js"
+    "backup": "node scripts/backup.js",
+    "rig": "node tools/ui-rig/server.js"
   },
   "keywords": [
     "marketplace",
