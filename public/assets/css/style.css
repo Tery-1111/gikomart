@@ -1431,6 +1431,10 @@ img { max-width: 100%; display: block; }
 @media (max-width: 640px) {
   .topbar-inner { flex-wrap: wrap; gap: 12px; }
   .topnav { order: 3; width: 100%; justify-content: space-between; }
+  /* The 4 nav links (325px total) overflow the full-width 296px flex track at
+     360px viewports, pushing "My Store" ~20px off-screen and widening the
+     document to 364px. Padding 20px→12px saves 64px, so every link fits. */
+  .nav-link { padding: 9px 12px; }
   .campus-tag { display: none; }
   .hero { padding: 40px 20px 56px; }
   .hero-title { font-size: 32px; }
@@ -1631,7 +1635,9 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after,
   .btn-spinner,
-  .image-upload.uploading::after { animation: none; }
+  .image-upload.uploading::after,
+  .view.active,
+  .modal-card { animation: none; }
 }
 
 /* ============================================

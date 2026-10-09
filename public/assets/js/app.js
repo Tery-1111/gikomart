@@ -1004,7 +1004,7 @@ function openListingModal(id, source) {
     : (listing.icon || categoryIcon(listing.category));
   const card = document.getElementById('modalCard');
   card.innerHTML = `
-    <button class="modal-close" data-action="close-modal">✕</button>
+    <button class="modal-close" data-action="close-modal" aria-label="Close">✕</button>
     <div class="modal-image">${modalImageContent}</div>
     <span class="condition-badge ${escapeAttr(condClass)}">${escapeHTML(listing.condition)}</span>
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
@@ -1223,7 +1223,7 @@ function contactSeller(title, listingId) {
   _buyerGateSavedListingId = listingId;
 
   card.innerHTML = `
-    <button class="modal-close" data-action="buyer-gate-cancel">✕</button>
+    <button class="modal-close" data-action="buyer-gate-cancel" aria-label="Cancel">✕</button>
     <h3 style="font-family:var(--font-display); font-size:18px; margin:0 0 12px;">Contact Seller</h3>
     ${buyerContactAcceptanceHTML()}
     <div id="buyerGateActions" style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
@@ -1292,7 +1292,7 @@ function boostSectionHTML(listingId) {
       <div class="boost-options" id="boostOptions">${optionsHTML}</div>
       <input type="text" class="boost-phone-input" id="boostPhone" placeholder="M-Pesa number e.g. 0712345678">
       <button class="boost-pay-btn" id="boostPayBtn" data-action="initiate-boost" data-listing-id="${listingId}">Pay with M-Pesa</button>
-      <div class="boost-status" id="boostStatus"></div>
+      <div class="boost-status" id="boostStatus" role="status"></div>
     </div>
   `;
 }
@@ -2087,7 +2087,7 @@ function openStoreCreationModal() {
   `).join('');
 
   card.innerHTML = `
-    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 16px;">Open a Store</h3>
     <form id="storeCreationForm">
       <div class="field-group">
@@ -2136,7 +2136,7 @@ function openStoreCreationModal() {
       ${storeCreationAcceptanceHTML()}
 
       <button type="submit" class="btn btn-primary btn-block" id="storeSubmitBtn" style="margin-top:12px;">Pay & Open Store</button>
-      <div class="form-status" id="storeFormStatus"></div>
+      <div class="form-status" id="storeFormStatus" role="status"></div>
     </form>
   `;
   document.getElementById('storeModalOverlay').classList.add('open');
@@ -2319,7 +2319,7 @@ async function openStoreEditForm(storeId) {
 
     const card = document.getElementById('storeModalCard');
     card.innerHTML = `
-      <button class="modal-close" data-action="close-store-modal">✕</button>
+      <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
       <h3 style="font-family:var(--font-display); margin:0 0 16px;">Edit Store</h3>
       <div class="field-group">
         <label>Store name</label>
@@ -2429,7 +2429,7 @@ async function openAttachListingModal(storeId) {
   `).join('');
 
   card.innerHTML = `
-    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 16px;">Attach a Listing</h3>
     <p style="color:var(--ink-soft); margin-bottom:12px;">Select a listing to add to your store:</p>
     ${listHTML}
@@ -2681,7 +2681,7 @@ function renderGrantRejectedState(claimId) {
   const card = document.getElementById('grantModalCard');
   if (!card) return;
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 8px;">Grant request not approved</h3>
     <div class="form-status error" style="margin-bottom:16px;">
       Your request wasn't approved at this time. Please contact the GikoMart admin if you need clarification.
@@ -2816,7 +2816,7 @@ function showGrantContinuationDialog(claimId) {
         <button type="button" class="btn btn-primary btn-sm" id="grCopyLinkBtn">Copy link</button>
         <button type="button" class="btn btn-ghost btn-sm" id="grHideLinkBtn">Hide</button>
       </div>
-      <div class="form-status" id="grLinkStatus" style="margin-top:8px;"></div>
+      <div class="form-status" id="grLinkStatus" role="status" style="margin-top:8px;"></div>
     </div>`;
   const copyBtn = document.getElementById('grCopyLinkBtn');
   copyBtn.addEventListener('click', async () => {
@@ -2915,7 +2915,7 @@ function openGrantModal() {
   if (!card) return;
   activeGrant = null;
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 8px;">Request a Free Grant</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Ask the GikoMart admin for a free package. First message the admin on WhatsApp, then submit this request.
@@ -2942,7 +2942,7 @@ function openGrantModal() {
         <input type="text" id="gr-website" tabindex="-1" autocomplete="off" aria-hidden="true">
       </div>
       <button type="submit" class="btn btn-primary btn-block" id="grSubmitBtn" style="margin-top:8px;">Submit request</button>
-      <div class="form-status" id="grStatus"></div>
+      <div class="form-status" id="grStatus" role="status"></div>
     </form>
     <div id="grContinuation"></div>
   `;
@@ -3069,7 +3069,7 @@ function showGrantPendingState(claimId, meta) {
   const resolvedType = (meta && meta.type) || 'listing';
   activeGrant = { claimId, type: resolvedType };
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 4px;">Request submitted ✓</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Your free grant request has been sent to the GikoMart admin for review.
@@ -3094,7 +3094,7 @@ function showGrantPendingState(claimId, meta) {
       <button type="button" class="btn btn-ghost btn-sm" id="grContinueBtn">Continue on another device</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-grant-modal">Close</button>
     </div>
-    <div class="form-status" id="grPendingStatus" style="margin-top:10px;"></div>
+    <div class="form-status" id="grPendingStatus" role="status" style="margin-top:10px;"></div>
     <div id="grDevicePanel"></div>`;
   const checkBtn = document.getElementById('grCheckBtn');
   if (checkBtn) {
@@ -3191,7 +3191,7 @@ function showGrantRedeemStep(claimId, type) {
           <span class="image-upload-hint">JPG, PNG, WebP or GIF — up to 3MB per photo</span>
         </div>
         <img id="g-imagePreviewImg" class="image-preview-img" alt="" loading="lazy">
-        <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" hidden>✕</button>
+        <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" aria-label="Remove photo" hidden>✕</button>
       </div>
       <div class="image-upload-status" id="g-imageUploadStatus"></div>
     </div>
@@ -3213,7 +3213,7 @@ function showGrantRedeemStep(claimId, type) {
 
   const acceptance = resolvedType === 'store' ? storeCreationAcceptanceHTML() : sellerListingAcceptanceHTML();
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 4px;">Your free grant was approved 🎉</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Your grant is approved and ready. Complete the form below to publish your ${escapeHTML(resolvedType === 'store' ? 'store' : 'listing')} — no payment needed.
@@ -3222,7 +3222,7 @@ function showGrantRedeemStep(claimId, type) {
       ${resolvedType === 'store' ? storeFields : listingFields}
       ${acceptance}
       <button type="submit" class="btn btn-primary btn-block" id="grRedeemBtn" style="margin-top:8px;">Publish with Free Grant</button>
-      <div class="form-status" id="grRedeemStatus"></div>
+      <div class="form-status" id="grRedeemStatus" role="status"></div>
     </form>`;
   // Fresh photo state per render, and wire the optional image upload
   // (listing grants only — stores have no image field).

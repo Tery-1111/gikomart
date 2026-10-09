@@ -1188,6 +1188,34 @@ runs `7654a0e`.)
 
 ## UI verification rig
 
+### fix(ui): mobile nav overflow, reduced-motion coverage, and accessible status semantics
+- **Behavior:** Four targeted fixes, no palette/typography change. (1) At ≤640px
+  viewports the four `.nav-link` paddings shrink 20px→12px so the 325px of link
+  content fits the full-width flex track — at 360px the document previously
+  scrolled to 364px and clipped "My Store". (2) The existing
+  `prefers-reduced-motion` block now also disables the `.view.active` fade-in
+  and `.modal-card` modal-pop entrance animations (previously only
+  pulse-track/floaty/skeleton/spinner were covered). (3) All rendered
+  `.modal-close` buttons get `aria-label` ("Close", or "Cancel" for the
+  buyer-gate variant whose action is cancel) and both image-removal buttons
+  get `aria-label="Remove photo"`; no visual or click-behavior change. (4)
+  `#toast` becomes `role="status" aria-live="polite"` and every rendered
+  `.form-status`/`.boost-status` output gains `role="status"` so asynchronous
+  outcomes (payment status, grant status, report/store results) are announced
+  without changing message text, timing, or retry behavior. Cache tags
+  `20261007a` → `20261009a` (style.css link gains its first `?v=`).
+- **Findings not confirmed:** the Phase 2A report suspected unassociated form
+  labels; the rendered check showed labels are visually juxtaposed but neither
+  nested nor `for`-associated — changing that is deferred (see next entry) and
+  no markup was changed for labels. The 2A footer-contract finding also did
+  not reproduce: `.footer-platform-muted` is dead CSS (the rendered footer uses
+  `.footer-platform`, which inherits `--ink-soft` at 5.68:1); the dead rule was
+  left intact rather than removed.
+- **Files changed:** `public/assets/css/style.css`, `public/assets/js/app.js`,
+  `public/index.html`, `.asset-hashes.json`.
+- **Tests added:** none (no test asserts markup attributes; the automated suite
+  is unchanged and remains green).
+
 ### chore(ui): add mock-API verification rig `npm run rig`
 - **Behavior:** Tooling only — no runtime change to the shipped app. New
   `tools/ui-rig/` adds a plain-express mock API (`npm run rig`, 127.0.0.1,
