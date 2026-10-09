@@ -2322,25 +2322,25 @@ async function openStoreEditForm(storeId) {
       <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
       <h3 style="font-family:var(--font-display); margin:0 0 16px;">Edit Store</h3>
       <div class="field-group">
-        <label>Store name</label>
+        <label for="se-name">Store name</label>
         <input type="text" id="se-name" value="${escapeAttr(store.name)}">
       </div>
       <div class="field-group">
-        <label>Description</label>
+        <label for="se-description">Description</label>
         <textarea id="se-description" rows="3">${escapeHTML(store.description)}</textarea>
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label>Phone</label>
+          <label for="se-phone">Phone</label>
           <input type="text" id="se-phone" value="${escapeAttr(store.phone)}">
         </div>
         <div class="field-group">
-          <label>WhatsApp</label>
+          <label for="se-whatsapp">WhatsApp</label>
           <input type="text" id="se-whatsapp" value="${escapeAttr(store.whatsapp)}">
         </div>
       </div>
       <div class="field-group">
-        <label>Location</label>
+        <label for="se-location">Location</label>
         <input type="text" id="se-location" value="${escapeAttr(store.location)}">
       </div>
       <button class="btn btn-primary btn-block" data-action="save-store-edit" data-store-id="${storeId}" style="margin-top:12px;">Save Changes</button>
@@ -2923,18 +2923,18 @@ function openGrantModal() {
     </p>
     <form id="grantRequestForm" novalidate>
       <div class="field-group">
-        <label>What do you need?</label>
+        <label for="gr-type">What do you need?</label>
         <select id="gr-type">
           <option value="listing">A listing package</option>
           <option value="store">A store plan</option>
         </select>
       </div>
       <div class="field-group">
-        <label>Package</label>
+        <label for="gr-package">Package</label>
         <select id="gr-package"></select>
       </div>
       <div class="field-group">
-        <label>Your WhatsApp number</label>
+        <label for="gr-whatsapp">Your WhatsApp number</label>
         <input type="text" id="gr-whatsapp" placeholder="e.g. 0712345678" required>
       </div>
       <div style="position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden;">

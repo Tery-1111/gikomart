@@ -328,6 +328,45 @@ describe('Free Grant request — reload behaviour', () => {
   });
 });
 
+describe('Free Grant request — request-form label associations (a11y)', () => {
+  // Each visible label must be programmatically associated with its control
+  // via label[for] pointing at the control's real id inside the rendered card.
+  const EXPECTED_PAIRS = [
+    ['gr-type', 'What do you need?'],
+    ['gr-package', 'Package'],
+    ['gr-whatsapp', 'Your WhatsApp number'],
+  ];
+
+  it('associates the visible labels with gr-type, gr-package and gr-whatsapp when the form renders', () => {
+    const card = openGrantModal();
+    for (const [id, labelText] of EXPECTED_PAIRS) {
+      const control = card.querySelector(`#${id}`);
+      expect(control, `#${id} must exist in the rendered request form`).not.toBeNull();
+      const label = card.querySelector(`label[for="${id}"]`);
+      expect(label, `a label[for="${id}"] must exist in the rendered request form`).not.toBeNull();
+      // The association must resolve: the label's for targets the control's actual id,
+      // and the label is the one carrying the intended visible text.
+      expect(label.getAttribute('for')).toBe(id);
+      expect(control.id).toBe(id);
+      expect(label.textContent.trim()).toBe(labelText);
+    }
+  });
+
+  it('keeps the associations intact after the type change repopulates gr-package', async () => {
+    const card = openGrantModal();
+    const typeSel = card.querySelector('#gr-type');
+    typeSel.value = 'store';
+    typeSel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 10));
+    for (const [id] of EXPECTED_PAIRS) {
+      const label = card.querySelector(`label[for="${id}"]`);
+      expect(label, `after a type change, label[for="${id}"] must still exist and point at #${id}`).not.toBeNull();
+      expect(label.getAttribute('for')).toBe(id);
+      expect(card.querySelector(`#${id}`)).not.toBeNull();
+    }
+  });
+});
+
 // Last on purpose: it leaves a submit in flight, and its afterEach resolves it
 // so the app's in-flight guard is cleared for any later test.
 describe('Free Grant request — submitting state', () => {

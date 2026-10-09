@@ -1188,6 +1188,28 @@ runs `7654a0e`.)
 
 ## UI verification rig
 
+### fix(ui): associate grant request and store edit form labels
+- **Behavior:** Completes the Phase 2D/2F label-association work for the two
+  remaining forms. In the grant-request modal (`openGrantModal()`), visible
+  labels gain explicit `for` targeting the existing ids — `gr-type` ("What do
+  you need?"), `gr-package` ("Package"), `gr-whatsapp` ("Your WhatsApp
+  number"). In the store-edit modal (`openStoreEditForm()`), the same for
+  `se-name`/`se-description`/`se-phone`/`se-whatsapp`/`se-location`. The
+  `gr-website` honeypot was left untouched (correctly named and correctly
+  hidden). No markup restructuring, no CSS, no validation, submission,
+  continuation, or API changes; both forms were rendered-DOM-verified in the
+  rig including close/reopen, type-change repopulation, and duplicate-ID
+  checks. App cache tag `20261009c` → `20261009d` (style.css unchanged).
+- **Tests added:** `tests/grantUx.test.mjs` — two assertions: all three
+  grant-request labels resolve `for`→id with the intended visible text when
+  the form renders via the real trigger, and the associations survive the
+  `gr-type`-driven `gr-package` repopulation. `tests/storeSave.test.mjs` — one
+  assertion: all five store-edit labels resolve `for`→id in the modal rendered
+  through the real My Store → Edit path.
+- **Files changed:** `public/assets/js/app.js` (eight `for` attributes),
+  `tests/grantUx.test.mjs`, `tests/storeSave.test.mjs`, `public/index.html`
+  (cache tag), `.asset-hashes.json`.
+
 ### fix(ui): associate remaining form labels with controls
 - **Behavior:** Completes the label-association work started for the sell form
   (previous entry) for the three surfaces found deficient in the Phase 2D

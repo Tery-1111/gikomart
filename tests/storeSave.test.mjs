@@ -182,6 +182,28 @@ describe('Phase 8 Step 2 — store save and retry states', () => {
     expect(putCalls()[1].options.headers['X-Store-Owner-Token']).toBe(STORE_TOKEN);
   });
 
+  // Phase 2G — the visible labels in the edit modal must be programmatically
+  // associated with their controls (label[for] → real ids in the rendered modal).
+  it('associates the visible labels with the se-name/se-description/se-phone/se-whatsapp/se-location controls', async () => {
+    const card = document.getElementById('storeModalCard');
+    const pairs = [
+      ['se-name', 'Store name'],
+      ['se-description', 'Description'],
+      ['se-phone', 'Phone'],
+      ['se-whatsapp', 'WhatsApp'],
+      ['se-location', 'Location'],
+    ];
+    for (const [id, labelText] of pairs) {
+      const control = card.querySelector(`#${id}`);
+      expect(control, `#${id} must exist in the rendered edit modal`).not.toBeNull();
+      const label = card.querySelector(`label[for="${id}"]`);
+      expect(label, `a label[for="${id}"] must exist in the rendered edit modal`).not.toBeNull();
+      expect(label.getAttribute('for')).toBe(id);
+      expect(control.id).toBe(id);
+      expect(label.textContent.trim()).toBe(labelText);
+    }
+  });
+
   it('a rejected fetch shows the offline message and leaves the button as Retry', async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url, options = {}) => {
