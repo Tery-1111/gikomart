@@ -1186,6 +1186,210 @@ runs `7654a0e`.)
   sellerWhatsapp re-enables the Continue button with a toast" (812 total:
   811 passed, 1 skipped).
 
+## UI verification rig
+
+### fix(ui): modal focus management (Package A, Phase 4A)
+- **Behavior:** All four modals (listing, report, store, grant) now manage
+  focus meaningfully and safely. On open, the overlay's card heading receives
+  initial focus (heading gets a temporary `tabindex="-1"` removed on close; a
+  non-focusable heading falls back to the first interactive control). While a
+  modal is open a single global Tab handler (`_modalTabTrap`, wired at the top
+  of the existing keydown handler) keeps keyboard focus cycling inside the
+  topmost open overlay in both directions; a modal with no focusable controls
+  pins focus rather than letting Tab escape. Shift+Tab and wrapping from
+  first/last control are handled. Opening a second modal (report over listing,
+  both supported user flows) records its parent's opener; closing the child
+  returns focus to the parent's heading, and closing the parent then restores
+  the original page trigger. On close, focus restores to the opener element
+  when it is still connected, rendered, not disabled/aria-hidden, and neither
+  body/html; listing cards (non-focusable divs) receive a temporary
+  `tabindex="-1"` marked `data-modal-focus-opener` so they can be focused,
+  left in place until the next cycle. Removed/disabled/hidden openers degrade
+  to leaving focus in place — never a thrown error. Escape behavior preserved
+  exactly (report → grant → listing; store modal deliberately excluded as
+  before); non-Tab keys pass through (`_modalTabTrap` returns false). Opener
+  plumbing: the four listing-card render sites pass the clicked card to
+  `openListingModal` explicitly. App cache tag `20261009d` → `20261010a`
+  (style.css unchanged).
+- **Tests added:** `tests/modalFocus.test.mjs` — 15 assertions driving the
+  real app.js against real index.html: heading-first focus per overlay, Tab
+  wrap both directions, no-escape asserts incl. the search input behind the
+  modal, non-Tab key passthrough, zero-focusable non-throw/pin, restore via
+  Escape/control/removed opener, reopen re-trap, and the previous-phase
+  chained B-over-A semantic with both close orders.
+- **Files changed:** `public/assets/js/app.js` (focus system + opener plumbing),
+  `tests/modalFocus.test.mjs` (new), `public/index.html` (cache tag),
+  `.asset-hashes.json`.
+
+### fix(ux): require sell-form fields before payment errors; browse empty-state CTA; public store browse link (Phase 4B)
+- **Sell form:** `handleSubmit` now calls the native `reportValidity()` on the
+  form at entry, so required listing/seller field errors (title, category,
+  condition, price, description, name, WhatsApp) surface before the
+  payment-phone error could mask them; when all required fields are valid it
+  is a silent no-op and the existing payment validation runs unchanged.
+  There are no new plotted requirements: the required attributes already on
+  the form inputs are the single source of truth, matching the server-side
+  initiate-listing field checks.
+- **Browse empty state:** a genuine empty result (no listings after
+  successful search/category fetch) now renders a primary
+  "Create a listing" button; activation routes through the app's existing
+  `switchView('sell')` path. The CTA is suppressed when the grid shows the
+  demo/sample listings after a failed fetch, so a network failure never looks
+  like a clean empty state; loading skeletons, error banners, and populated
+  grids are unchanged.
+- **Public store page:** the store header block gains a `← Browse listings`
+  ghost button (same style row as the existing "Report this store" control)
+  routing via `switchView('browse')`; it works for direct store opens and
+  inherits the existing button focus treatment.
+- Delegated `data-view` clicks rendered after boot (the CTA and store browse
+  link) are handled centrally in `setupActionDelegation` so no per-render
+  listener duplication is introduced. App cache tag `20261010a` →
+  `20261010b` (style.css unchanged).
+- **Tests added:** `tests/journeyFriction.test.mjs` — 9 assertions driving the
+  real app.js: form-vs-payment ordering (paid branch blocked before an M-Pesa
+  error fires when a required field plus the fallback number are missing),
+  payment-phone flow still caught after required fields valid, fully valid
+  submission still initiates payment, empty-grid CTA renders and reaches the
+  sell view, failed-fetch/demo state shows no CTA, populated grids show none,
+  and the public store page exposes the browse link that reaches the browse
+  view.
+- **Files changed:** `public/assets/js/app.js`, `tests/journeyFriction.test.mjs`
+  (new), `public/index.html` (cache tag), `.asset-hashes.json`.
+
+### fix(ui): associate grant request and store edit form labels
+- **Behavior:** Completes the Phase 2D/2F label-association work for the two
+  remaining forms. In the grant-request modal (`openGrantModal()`), visible
+  labels gain explicit `for` targeting the existing ids — `gr-type` ("What do
+  you need?"), `gr-package` ("Package"), `gr-whatsapp` ("Your WhatsApp
+  number"). In the store-edit modal (`openStoreEditForm()`), the same for
+  `se-name`/`se-description`/`se-phone`/`se-whatsapp`/`se-location`. The
+  `gr-website` honeypot was left untouched (correctly named and correctly
+  hidden). No markup restructuring, no CSS, no validation, submission,
+  continuation, or API changes; both forms were rendered-DOM-verified in the
+  rig including close/reopen, type-change repopulation, and duplicate-ID
+  checks. App cache tag `20261009c` → `20261009d` (style.css unchanged).
+- **Tests added:** `tests/grantUx.test.mjs` — two assertions: all three
+  grant-request labels resolve `for`→id with the intended visible text when
+  the form renders via the real trigger, and the associations survive the
+  `gr-type`-driven `gr-package` repopulation. `tests/storeSave.test.mjs` — one
+  assertion: all five store-edit labels resolve `for`→id in the modal rendered
+  through the real My Store → Edit path.
+- **Files changed:** `public/assets/js/app.js` (eight `for` attributes),
+  `tests/grantUx.test.mjs`, `tests/storeSave.test.mjs`, `public/index.html`
+  (cache tag), `.asset-hashes.json`.
+
+### fix(ui): associate remaining form labels with controls
+- **Behavior:** Completes the label-association work started for the sell form
+  (previous entry) for the three surfaces found deficient in the Phase 2D
+  investigation. In the grant-redeem modal (`showGrantRedeemStep()`), visible
+  labels gain explicit `for` targeting the existing ids — listing branch:
+  `g-title`/`g-category`/`g-condition`/`g-price`/`g-location`/
+  `g-description`/`g-seller`/`g-whatsapp`; store branch:
+  `g-store-name`/`g-store-category`/`g-store-description`/`g-store-phone`/
+  `g-store-whatsapp`/`g-store-email`/`g-store-location`. In the store-creation
+  modal (`openStoreCreationModal()`), the same for `sc-name`/`sc-category`/
+  `sc-description`/`sc-phone`/`sc-whatsapp`/`sc-email`/`sc-location`/
+  `sc-phoneNumber`. Browse search gains `aria-label="Search listings"` (it
+  previously resolved placeholder-only). No markup restructuring, no CSS, no
+  validation/conditional-rendering/submit changes; plan cards, terms
+  acceptance, and required attributes unchanged.
+- **Verification:** rig DOM probe — all 15 grant + 8 store-creation controls
+  resolve via `label[for]`; search name persists before/during/after typing and
+  on Enter-key search; no duplicate document ids; grant listing/store branches
+  render independently without field leakage; close/reopen paths preserve
+  names; store-creation required-field validation and payment-pending submit
+  status render unchanged; server search/filter/empty-state behave as before
+  (24 cards unfiltered, correct empty state for non-matching terms, 1 card for
+  "Earbuds"/"Guitar"). App cache tag `20261009b` → `20261009c` (style.css
+  unchanged this phase).
+- **Files changed:** `public/assets/js/app.js`, `public/index.html` (one
+  `aria-label` + cache tag), `.asset-hashes.json`.
+- **Tests added:** none (no test asserts markup attributes; the automated
+  suite is unchanged and remains green).
+
+### fix(ui): associate sell form labels with controls
+- **Behavior:** Visible labels gain explicit `for`/`id` associations — no
+  markup restructuring, no CSS change, no dynamic-template change (the sell
+  form is static in `public/index.html`; `setupForm()` only binds listeners to
+  existing DOM, and the only re-rendered section, `packageSection`, has no
+  labeled fields; verified across navigation and the store-context
+  decoration/restore path). The eight sell-form labels
+  (What are you selling?/Category/Condition/Price (KSh)/Location/Description/
+  Your name/WhatsApp number) now point at `f-title`/`f-category`/`f-condition`/
+  `f-price`/`f-location`/`f-description`/`f-seller`/`f-whatsapp`; the JS-rendered
+  "M-Pesa number to pay with" label points at `listingPhone`. Rendered
+  accessible names via `label[for]` for all ten controls (previously two
+  selects and five inputs depended on placeholders, and two selects had no
+  name at all). Option values/order/defaults, validation, and the sell flow
+  itself unchanged (rig re-verified end to end). Report-modal labels were
+  already correct and were left untouched. App cache tag `20261009a` →
+  `20261009b` (style.css unchanged this phase).
+- **Verification:** rig DOM probe — `label[for]`-resolved accessible names for
+  all controls, no duplicate document ids, names survive close/reopen and the
+  store-context packageSection rebuild, category/condition selection and
+  required-field validation intact, sell flow reaches the M-Pesa prompt
+  status, report-modal labels resolve. Full suite green (811 passed,
+  1 skipped, 812 total).
+- **Files changed:** `public/index.html`, `public/assets/js/app.js`
+  (one label `for`), `.asset-hashes.json`.
+- **Tests added:** none (no test asserts label associations; suite stays
+  unchanged and green).
+
+### fix(ui): mobile nav overflow, reduced-motion coverage, and accessible status semantics
+- **Behavior:** Four targeted fixes, no palette/typography change. (1) At ≤640px
+  viewports the four `.nav-link` paddings shrink 20px→12px so the 325px of link
+  content fits the full-width flex track — at 360px the document previously
+  scrolled to 364px and clipped "My Store". (2) The existing
+  `prefers-reduced-motion` block now also disables the `.view.active` fade-in
+  and `.modal-card` modal-pop entrance animations (previously only
+  pulse-track/floaty/skeleton/spinner were covered). (3) All rendered
+  `.modal-close` buttons get `aria-label` ("Close", or "Cancel" for the
+  buyer-gate variant whose action is cancel) and both image-removal buttons
+  get `aria-label="Remove photo"`; no visual or click-behavior change. (4)
+  `#toast` becomes `role="status" aria-live="polite"` and every rendered
+  `.form-status`/`.boost-status` output gains `role="status"` so asynchronous
+  outcomes (payment status, grant status, report/store results) are announced
+  without changing message text, timing, or retry behavior. Cache tags
+  `20261007a` → `20261009a` (style.css link gains its first `?v=`).
+- **Findings not confirmed:** the Phase 2A report suspected unassociated form
+  labels; the rendered check showed labels are visually juxtaposed but neither
+  nested nor `for`-associated — changing that is deferred (see next entry) and
+  no markup was changed for labels. The 2A footer-contract finding also did
+  not reproduce: `.footer-platform-muted` is dead CSS (the rendered footer uses
+  `.footer-platform`, which inherits `--ink-soft` at 5.68:1); the dead rule was
+  left intact rather than removed.
+- **Files changed:** `public/assets/css/style.css`, `public/assets/js/app.js`,
+  `public/index.html`, `.asset-hashes.json`.
+- **Tests added:** none (no test asserts markup attributes; the automated suite
+  is unchanged and remains green).
+
+### chore(ui): add mock-API verification rig `npm run rig`
+- **Behavior:** Tooling only — no runtime change to the shipped app. New
+  `tools/ui-rig/` adds a plain-express mock API (`npm run rig`, 127.0.0.1,
+  `RIG_PORT` or 4173) serving the real `public/` folder and the routes the
+  frontend calls, with response shapes copied from the real controllers
+  (`GET /api/support-contact`, `/api/listings/categories`, `/api/terms/versions`,
+  `/api/listings` with category/search/page/limit/store_id, contact-acceptance,
+  reports, the three payment-initiation routes, `/api/payments/status/:id`,
+  listing/store CRUD, grant submit/status/redeem). Runtime scenarios
+  (normal, empty, slow, offline, server-error, busy, no-contact, pay-success,
+  pay-pending, pay-failed, pay-cancelled) and injected latency are set from a
+  control page at `/__rig/`, which also seeds the same localStorage token
+  prefixes app.js reads (owner/store/grant token + meta) with value `rig-token`
+  and clears every `gikomart_*` key. Unhandled /api requests return 404
+  `Not simulated by the rig` with the method + path logged to the rig console.
+  Listing photos are five generated SVG aspect placeholders under
+  `/__rig/img/`; uploads deliberately answer 503 (Cloudinary is not
+  simulated). `eslint.config.js` gains a `tools/**` block mirroring the `src/**`
+  block (same CommonJS + Node globals and security-plugin ruleset; no rules
+  relaxed) so the rig lints under identical rules. Documented in
+  `docs/UI_RIG.md`; decision recorded as `docs/DECISIONS.md` entry 38.
+- **Files changed:** `tools/ui-rig/fixtures.js` (new), `tools/ui-rig/server.js`
+  (new), `docs/UI_RIG.md` (new), `docs/DECISIONS.md`, `docs/CHANGELOG.md`,
+  `package.json` (one new script: `rig`).
+- **Tests added:** none (the rig is a manual verification tool; the automated
+  suite is unchanged and remains green).
+
 ## Phase 5 and later
 
 Not documented here until built.

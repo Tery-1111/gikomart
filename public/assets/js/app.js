@@ -892,11 +892,18 @@ function renderListings() {
     const errorBanner = browseFetchFailed
       ? `<div class="grid-error"><span>${escapeHTML(browseFetchErrorMsg)} — showing sample listings.</span><button type="button" class="grid-retry-btn">↻ Retry</button></div>`
       : '';
+    // "Be the first to list" is only honest on a truly empty result: when a
+    // fetch failed we are showing demo/sample listings, so the creation CTA
+    // would misrepresent a failed network as a clean, listable empty state.
+    const createCta = browseFetchFailed
+      ? ''
+      : `<button type="button" class="btn btn-primary" data-view="sell" style="margin-top:14px;">Create a listing</button>`;
     grid.innerHTML = errorBanner + `
       <div class="empty-state">
         <span class="empty-icon">🔍</span>
         <p><strong>Nothing here yet.</strong></p>
         <p>Try a different search or category — or be the first to list one.</p>
+        ${createCta}
       </div>`;
     return;
   }
@@ -916,7 +923,7 @@ function renderListings() {
   grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('') + loadMoreHTML;
 
   grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, browseState.listings));
+    card.addEventListener('click', () => openListingModal(card.dataset.id, browseState.listings, card));
   });
   const loadMoreBtn = grid.querySelector('.load-more-btn');
   if (loadMoreBtn) {
@@ -993,7 +1000,7 @@ function setupModal() {
   });
 }
 
-function openListingModal(id, source) {
+function openListingModal(id, source, openerEl) {
   const listing = (source || allListings).find(l => l._id === id);
   if (!listing) return;
 
@@ -1004,7 +1011,7 @@ function openListingModal(id, source) {
     : (listing.icon || categoryIcon(listing.category));
   const card = document.getElementById('modalCard');
   card.innerHTML = `
-    <button class="modal-close" data-action="close-modal">✕</button>
+    <button class="modal-close" data-action="close-modal" aria-label="Close">✕</button>
     <div class="modal-image">${modalImageContent}</div>
     <span class="condition-badge ${escapeAttr(condClass)}">${escapeHTML(listing.condition)}</span>
     <h3 style="font-family:var(--font-display); font-size:20px; margin:10px 0 4px;">${escapeHTML(listing.title)}</h3>
@@ -1028,10 +1035,196 @@ function openListingModal(id, source) {
     ${listing.featured || usingDemoData || !hasOwnerToken(listing._id) ? '' : boostSectionHTML(listing._id)}
   `;
   document.getElementById('modalOverlay').classList.add('open');
+  // Card bodies are non-focusable divs, so document.activeElement is rarely
+  // the opener here; the card click handlers pass the card itself explicitly.
+  _modalFocusOnOpen('modalOverlay', openerEl || document.activeElement);
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
+  _modalFocusRestore('modalOverlay');
+}
+
+let _modalFocusState = { opener: null, overlayId: null, chainedFrom: null };
+// Test-harness reset hook (no-op in normal use; used when a test force-closes
+// an overlay whose controls were disabled by the test itself).
+if (typeof window !== 'undefined') {
+  window.__resetModalFocusStateForTests = () => { _modalFocusState = { opener: null, overlayId: null, chainedFrom: null }; };
+  // Test hook: the toast dismissal-timer regression suite drives showToast
+  // directly. Function declaration in this module scope has no global binding
+  // when bundled/imported as ESM, so tests get the live reference here
+  // (no-op-less; strictly an alias — normal users are unaffected).
+  window.__showToastForTests = showToast;
+  // Test hook: the clipboard-fallback regression suite drives
+  // copyTextToClipboard directly (same alias pattern as __showToastForTests;
+  // module-scope function declarations have no global ESM binding).
+  window.__copyTextToClipboardForTests = copyTextToClipboard;
+}
+
+// ─── Modal focus management ───────────────────────────────────────
+// One small, app-shared system for all four overlay shells (listing, report,
+// store, grant). On open: record the opener, then move focus to the overlay's
+// heading (or first suitable control when the heading is hidden/disabled).
+// On close: restore focus to the opener if it is still focusable; otherwise
+// leave focus where the browser puts it (no throw). While an overlay is open,
+// the single global keydown handler (wired once, below) keeps Tab/Shift+Tab
+// cycling inside that overlay. Hidden/off-screen overlays are inert because
+// the handler no-ops when no overlay carries the .open class.
+function _modalFocusables(overlay) {
+  // The visually hidden honeypot wrapper (left:-9999px) is not a keyboard
+  // stop, so aria-hidden/tabindex=-1 subtrees are excluded like inert HTML.
+  return Array.from(overlay.querySelectorAll('button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])')).filter((el) => {
+    if (el.disabled || el.getAttribute('aria-hidden') === 'true') return false;
+    if (el.closest('[aria-hidden="true"]')) return false;
+    const rects = el.getClientRects();
+    return rects.length > 0;
+  });
+}
+
+function _modalFocusOnOpen(overlayId, opener) {
+  const overlay = document.getElementById(overlayId);
+  if (!overlay || !overlay.classList.contains('open')) return;
+  // Opening B while A is open: B becomes the governed modal, but B's opener
+  // must not be A's commonly-stale `document.activeElement` (typically A's
+  // heading). Chain back to the opener that was recorded for A so a close of
+  // B returns focus to A's context; A's OWN restore then returns to the
+  // original page trigger. (A's trigger may sit behind a now-hidden view in
+  // degraded harnesses — the restore guards handle that.)
+  if (_modalFocusState.overlayId && _modalFocusState.overlayId !== overlayId) {
+    opener = _modalFocusState.opener || opener;
+  }
+  _modalFocusState = { opener: opener && opener.isConnected ? opener : null, overlayId, chainedFrom: _modalFocusState.overlayId && _modalFocusState.overlayId !== overlayId ? _modalFocusState.overlayId : null };
+  const card = overlay.querySelector('.modal-card') || overlay;
+  // Meaningful initial focus: the card's heading. Programmatic focus on a
+  // non-interactive heading needs tabindex=-1; keep it temporary and remove
+  // it on close so the DOM is unchanged while the modal is shut.
+  let target = card.querySelector('h3, h2');
+  if (target) {
+    target.setAttribute('data-modal-focus-heading', '1');
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.focus({ preventScroll: true });
+    const focusTook = target.matches(':focus') || document.activeElement === target;
+    if (!focusTook) {
+      // Heading not focusable in this environment — fall through
+      // to the first interactive control.
+      target.removeAttribute('tabindex');
+      target = null;
+    }
+  } else {
+    target = null;
+  }
+  if (!target) {
+    const focusables = _modalFocusables(overlay);
+    if (focusables.length) {
+      focusables[0].focus({ preventScroll: true });
+      target = focusables[0];
+    }
+  }
+  // No heading and no focusable control: focus stays put. Tab containment
+  // below covers the rare modal with nothing interactive (it simply never
+  // runs because _modalFocusables is empty every keypress).
+  void target;
+}
+
+
+function _modalFocusRestore(overlayId) {
+  if (_modalFocusState.overlayId !== overlayId) return;
+  const { opener, chainedFrom } = _modalFocusState;
+  _modalFocusState = { opener: null, overlayId: null, chainedFrom: null };
+  // Strip the temporary tabindex inside THIS overlay only — a still-open
+  // overlay behind this one keeps its heading focusable/focused.
+  const overlay = document.getElementById(overlayId);
+  if (overlay) {
+    overlay.querySelectorAll('[data-modal-focus-heading]').forEach((h) => {
+      h.removeAttribute('tabindex');
+      h.removeAttribute('data-modal-focus-heading');
+    });
+  }
+  // Also strip any opener tabindex this overlay's close cycle installed.
+  document.querySelectorAll('[data-modal-focus-opener]').forEach((h) => {
+    h.removeAttribute('tabindex');
+    h.removeAttribute('data-modal-focus-opener');
+  });
+  // Chained open (B over A): focus returns to the parent overlay's context
+  // (its heading), NOT through it to the page behind — A is still the active
+  // surface for the user; its opener is protected for A's own eventual close.
+  if (chainedFrom) {
+    const parent = document.getElementById(chainedFrom);
+    if (parent && parent.classList.contains('open') && !parent.querySelector('[aria-hidden="true"].modal-card')) {
+      _modalFocusState = { opener, overlayId: chainedFrom, chainedFrom: null };
+      const heading = (parent.querySelector('.modal-card') || parent).querySelector('h3, h2');
+      if (heading) {
+        heading.setAttribute('tabindex', '-1');
+        heading.setAttribute('data-modal-focus-heading', '1');
+      }
+      heading ? heading.focus({ preventScroll: true }) : null;
+      return;
+    }
+  }
+  if (!opener || !opener.isConnected) return;
+  // Suitable only if still rendered (hidden views/overlays are not) and not
+  // disabled/aria-hidden. Openers may be non-focusable containers (listing
+  // card bodies open their detail modal via click), so a DOM check with the
+  // same exclusion rules — not a focusables-list membership test — is used.
+  if (opener.disabled || opener.getAttribute('aria-hidden') === 'true' || opener.closest('[aria-hidden="true"]')) return;
+  if (opener.getClientRects().length === 0) return;
+  // BODY/HTML can end up recorded as a stale global "opener" after an earlier
+  // close-of-removal; they are not meaningful positions to restore to.
+  if (opener === document.body || opener === document.documentElement) return;
+  // Non-focusable openers (listing card bodies) need a temporary tabindex=-1
+  // for programmatic focus; installed on open, removed on close so the DOM is
+  // unchanged while the modal is shut.
+  if (!opener.matches('button, [href], input, select, textarea, [tabindex]')) {
+    opener.setAttribute('tabindex', '-1');
+    opener.setAttribute('data-modal-focus-opener', '1');
+  }
+  opener.focus({ preventScroll: true });
+  // The temporary tabindex stays until the next open/restore cycle strips it:
+  // removing it synchronously after focus() drops the focus in some engines.
+  // It is harmless in the interim: tabindex="-1" is never a Tab stop.
+}
+
+function _modalTabTrap(e) {
+  const state = _modalFocusState;
+  if (!state.overlayId || e.key !== 'Tab') return false;
+  const overlay = document.getElementById(state.overlayId);
+  if (!overlay || !overlay.classList.contains('open')) return false;
+  const focusables = _modalFocusables(overlay);
+  if (!focusables.length) {
+    // Nothing interactive inside: keep focus pinned on the overlay/card
+    // heading rather than letting Tab escape to the page behind it.
+    e.preventDefault();
+    return true;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey) {
+    if (!overlay.contains(active) || active === first) {
+      last.focus({ preventScroll: true });
+      e.preventDefault();
+      return true;
+    }
+    // Focus is on a heading (tabindex=-1) or other non-listed element:
+    // natural backwards Tab would skip to the page behind — clamp to last.
+    if (!focusables.includes(active)) {
+      last.focus({ preventScroll: true });
+      e.preventDefault();
+      return true;
+    }
+    return false;
+  }
+  if (!overlay.contains(active) || active === last) {
+    first.focus({ preventScroll: true });
+    e.preventDefault();
+    return true;
+  }
+  if (!focusables.includes(active)) {
+    first.focus({ preventScroll: true });
+    e.preventDefault();
+    return true;
+  }
+  return false;
 }
 
 function setupStoreModal() {
@@ -1077,10 +1270,12 @@ function openReportModal(targetType, targetId) {
   if (btn) btn.textContent = 'Submit Report';
 
   document.getElementById('reportModalOverlay').classList.add('open');
+  _modalFocusOnOpen('reportModalOverlay', document.activeElement);
 }
 
 function closeReportModal() {
   document.getElementById('reportModalOverlay').classList.remove('open');
+  _modalFocusRestore('reportModalOverlay');
 }
 
 async function handleReportSubmit(e) {
@@ -1139,6 +1334,19 @@ function setupActionDelegation() {
     const retry = e.target.closest('.grid-retry-btn');
     if (retry) { loadListings(); return; }
 
+    // data-view elements rendered dynamically (the browse empty-state's
+    // "Create a listing" CTA): setupNav binds only boot-time controls, so
+    // re-issued data-view clicks route through the app's one switchView path.
+    const vEl = e.target.closest('[data-view]');
+    if (vEl && !vEl.classList.contains('nav-link')) {
+      if (sellViewContext) {
+        sellViewContext = null;
+        applySellViewContext();
+      }
+      switchView(vEl.dataset.view);
+      return;
+    }
+
     const el = e.target.closest('[data-action]');
     if (!el) return;
     if (el.dataset.stop) e.stopPropagation();
@@ -1179,14 +1387,19 @@ function setupActionDelegation() {
     }
   }, true);
 
-  // Escape closes the topmost dismissible modal. The store modal is
-  // deliberately excluded: closing it aborts a pending payment poll, which an
-  // accidental keypress must not do.
+  // Modal Tab containment (only while an overlay is open; see the
+  // _modalFocus* system above) plus the pre-existing Escape behavior below.
   document.addEventListener('keydown', (e) => {
+    if (_modalTabTrap(e)) return;
     if (e.key !== 'Escape') return;
     const reportOverlay = document.getElementById('reportModalOverlay');
     if (reportOverlay && reportOverlay.classList.contains('open')) {
       closeReportModal();
+      return;
+    }
+    const grantOverlay = document.getElementById('grantModalOverlay');
+    if (grantOverlay && grantOverlay.classList.contains('open')) {
+      closeGrantModal();
       return;
     }
     const listingOverlay = document.getElementById('modalOverlay');
@@ -1223,7 +1436,7 @@ function contactSeller(title, listingId) {
   _buyerGateSavedListingId = listingId;
 
   card.innerHTML = `
-    <button class="modal-close" data-action="buyer-gate-cancel">✕</button>
+    <button class="modal-close" data-action="buyer-gate-cancel" aria-label="Cancel">✕</button>
     <h3 style="font-family:var(--font-display); font-size:18px; margin:0 0 12px;">Contact Seller</h3>
     ${buyerContactAcceptanceHTML()}
     <div id="buyerGateActions" style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
@@ -1292,7 +1505,7 @@ function boostSectionHTML(listingId) {
       <div class="boost-options" id="boostOptions">${optionsHTML}</div>
       <input type="text" class="boost-phone-input" id="boostPhone" placeholder="M-Pesa number e.g. 0712345678">
       <button class="boost-pay-btn" id="boostPayBtn" data-action="initiate-boost" data-listing-id="${listingId}">Pay with M-Pesa</button>
-      <div class="boost-status" id="boostStatus"></div>
+      <div class="boost-status" id="boostStatus" role="status"></div>
     </div>
   `;
 }
@@ -1329,7 +1542,7 @@ function packageSectionHTML() {
           <div class="boost-option-price">KSh 150</div>
         </div>
       </div>
-      <label style="display:block; margin-top:12px; font-size:14px; font-weight:600;">M-Pesa number to pay with</label>
+      <label for="listingPhone" style="display:block; margin-top:12px; font-size:14px; font-weight:600;">M-Pesa number to pay with</label>
       <input type="text" class="boost-phone-input" id="listingPhone" placeholder="e.g. 0712345678">
       <span style="font-size:12px; color:var(--ink-soft); display:block; margin-top:4px;">Can be different from your WhatsApp contact number above</span>
     </div>
@@ -1612,6 +1825,14 @@ function updatePreview() {
 async function handleSubmit(e) {
   e.preventDefault();
 
+  // Validate the form's required seller/listing fields FIRST: an M-Pesa
+  // number error must never mask a missing title/price/description. The
+  // required attributes on the real inputs are the single source of truth
+  // (matches the server-side initiate-listing field checks); when every
+  // required field is valid, reportValidity() has no visible effect and
+  // payment validation continues below exactly as before.
+  if (typeof e.target.reportValidity === 'function' && !e.target.reportValidity()) return;
+
   const listingData = {
     title: document.getElementById('f-title').value.trim(),
     category: document.getElementById('f-category').value,
@@ -1884,15 +2105,20 @@ function renderDashboard() {
 
   grid.innerHTML = myListings.map(l => listingCardHTML(l)).join('');
   grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, myListings));
+    card.addEventListener('click', () => openListingModal(card.dataset.id, myListings, card));
   });
 }
 
+let toastDismissTimer = null;
 function showToast(msg) {
   const toast = document.getElementById('toast');
+  if (toastDismissTimer) clearTimeout(toastDismissTimer);
   toast.textContent = msg;
   toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
+  toastDismissTimer = setTimeout(() => {
+    toast.classList.remove('show');
+    toastDismissTimer = null;
+  }, 3000);
 }
 
 function escapeHTML(str) {
@@ -2029,7 +2255,7 @@ function renderStoreManagementPanel(store, listingCount) {
     : `<span style="color:var(--danger); font-weight:600;">● ${store.status.charAt(0).toUpperCase() + store.status.slice(1)}</span>`;
 
   return `
-    <div style="background:var(--card); border-radius:var(--radius-lg); padding:24px; margin-bottom:20px; box-shadow:var(--shadow-soft);">
+    <div class="store-card" style="padding:24px; margin-bottom:20px;">
       <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
         ${store.logo_url
           ? `<img src="${escapeAttr(cloudinaryResize(store.logo_url, 'w_80,h_80,c_fill,q_auto,f_auto'))}" loading="lazy" style="width:80px; height:80px; border-radius:var(--radius-lg); object-fit:cover;">`
@@ -2087,37 +2313,37 @@ function openStoreCreationModal() {
   `).join('');
 
   card.innerHTML = `
-    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 16px;">Open a Store</h3>
     <form id="storeCreationForm">
       <div class="field-group">
-        <label>Store name</label>
+        <label for="sc-name">Store name</label>
         <input type="text" id="sc-name" placeholder="e.g. Teryl's Tech Shop" required>
       </div>
       <div class="field-group">
-        <label>Store category</label>
+        <label for="sc-category">Store category</label>
         <select id="sc-category" required>${categoriesHTML}</select>
       </div>
       <div class="field-group">
-        <label>Description</label>
+        <label for="sc-description">Description</label>
         <textarea id="sc-description" placeholder="What does your store sell?" rows="3"></textarea>
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label>Contact phone</label>
+          <label for="sc-phone">Contact phone</label>
           <input type="text" id="sc-phone" placeholder="0712345678" required>
         </div>
         <div class="field-group">
-          <label>WhatsApp number</label>
+          <label for="sc-whatsapp">WhatsApp number</label>
           <input type="text" id="sc-whatsapp" placeholder="0712345678" required>
         </div>
       </div>
       <div class="field-group">
-        <label>Email (optional)</label>
+        <label for="sc-email">Email (optional)</label>
         <input type="email" id="sc-email" placeholder="you@email.com">
       </div>
       <div class="field-group">
-        <label>Location / campus area</label>
+        <label for="sc-location">Location / campus area</label>
         <input type="text" id="sc-location" placeholder="e.g. Njoro, near Main Gate">
       </div>
 
@@ -2129,17 +2355,18 @@ function openStoreCreationModal() {
       </div>
 
       <div class="field-group" style="margin-top:12px;">
-        <label>M-Pesa number to pay with</label>
+        <label for="sc-phoneNumber">M-Pesa number to pay with</label>
         <input type="text" id="sc-phoneNumber" placeholder="e.g. 0712345678" required>
       </div>
 
       ${storeCreationAcceptanceHTML()}
 
       <button type="submit" class="btn btn-primary btn-block" id="storeSubmitBtn" style="margin-top:12px;">Pay & Open Store</button>
-      <div class="form-status" id="storeFormStatus"></div>
+      <div class="form-status" id="storeFormStatus" role="status"></div>
     </form>
   `;
   document.getElementById('storeModalOverlay').classList.add('open');
+  _modalFocusOnOpen('storeModalOverlay', document.activeElement);
 }
 
 function selectStorePlan(el) {
@@ -2152,6 +2379,7 @@ function closeStoreModal() {
   // The modal hosts the store-payment flow; abort its pending poll so a closed
   // modal cannot keep scheduling background timers.
   clearStorePoll();
+  _modalFocusRestore('storeModalOverlay');
 }
 
 async function handleStorePlanSubmit(e) {
@@ -2319,33 +2547,34 @@ async function openStoreEditForm(storeId) {
 
     const card = document.getElementById('storeModalCard');
     card.innerHTML = `
-      <button class="modal-close" data-action="close-store-modal">✕</button>
+      <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
       <h3 style="font-family:var(--font-display); margin:0 0 16px;">Edit Store</h3>
       <div class="field-group">
-        <label>Store name</label>
+        <label for="se-name">Store name</label>
         <input type="text" id="se-name" value="${escapeAttr(store.name)}">
       </div>
       <div class="field-group">
-        <label>Description</label>
+        <label for="se-description">Description</label>
         <textarea id="se-description" rows="3">${escapeHTML(store.description)}</textarea>
       </div>
       <div class="field-row">
         <div class="field-group">
-          <label>Phone</label>
+          <label for="se-phone">Phone</label>
           <input type="text" id="se-phone" value="${escapeAttr(store.phone)}">
         </div>
         <div class="field-group">
-          <label>WhatsApp</label>
+          <label for="se-whatsapp">WhatsApp</label>
           <input type="text" id="se-whatsapp" value="${escapeAttr(store.whatsapp)}">
         </div>
       </div>
       <div class="field-group">
-        <label>Location</label>
+        <label for="se-location">Location</label>
         <input type="text" id="se-location" value="${escapeAttr(store.location)}">
       </div>
       <button class="btn btn-primary btn-block" data-action="save-store-edit" data-store-id="${storeId}" style="margin-top:12px;">Save Changes</button>
     `;
     document.getElementById('storeModalOverlay').classList.add('open');
+  _modalFocusOnOpen('storeModalOverlay', document.activeElement);
   } catch (err) {
     showToast(friendlyFetchError(err));
   }
@@ -2420,7 +2649,7 @@ async function openAttachListingModal(storeId) {
 
   const card = document.getElementById('storeModalCard');
   const listHTML = owned.map(l => `
-    <div class="boost-option" data-action="attach-listing-to-store" data-store-id="${storeId}" data-listing-id="${l._id}" style="cursor:pointer;">
+    <div class="boost-option" data-action="attach-listing-to-store" data-store-id="${storeId}" data-listing-id="${l._id}">
       <div class="boost-option-info">
         <strong>${escapeHTML(l.title)}</strong>
         <span>KSh ${Number(l.price).toLocaleString()} · ${escapeHTML(categoryName(l.category))}</span>
@@ -2429,12 +2658,13 @@ async function openAttachListingModal(storeId) {
   `).join('');
 
   card.innerHTML = `
-    <button class="modal-close" data-action="close-store-modal">✕</button>
+    <button class="modal-close" data-action="close-store-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 16px;">Attach a Listing</h3>
     <p style="color:var(--ink-soft); margin-bottom:12px;">Select a listing to add to your store:</p>
     ${listHTML}
   `;
   document.getElementById('storeModalOverlay').classList.add('open');
+  _modalFocusOnOpen('storeModalOverlay', document.activeElement);
 }
 
 async function attachListingToStore(storeId, listingId) {
@@ -2481,7 +2711,7 @@ async function openStoreListings(storeId) {
     section.innerHTML = `<h3 style="font-family:var(--font-display); margin-bottom:12px;">Store Listings (${data.listings.length})</h3>
       <div class="listing-grid">${data.listings.map(l => listingCardHTML(l)).join('')}</div>`;
     section.querySelectorAll('.listing-card').forEach(card => {
-      card.addEventListener('click', () => openListingModal(card.dataset.id, data.listings));
+      card.addEventListener('click', () => openListingModal(card.dataset.id, data.listings, card));
     });
   } catch (err) {
     section.innerHTML = `<div class="empty-state"><p>${escapeHTML(friendlyFetchError(err))}</p></div>`;
@@ -2548,7 +2778,7 @@ async function openStorePage(slug) {
 
     const store = data.store;
     container.innerHTML = `
-      <div style="background:var(--card); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-soft); margin-bottom:24px;">
+      <div class="store-card" style="overflow:hidden; margin-bottom:24px;">
         ${store.cover_url
           ? `<div class="lazy-bg" style="height:200px; background-position:center; background-size:cover;" data-bg="${escapeAttr(cloudinaryResize(store.cover_url, 'w_1200,h_400,c_fill,q_auto,f_auto'))}"></div>`
           : '<div style="height:120px; background:linear-gradient(135deg, var(--marigold), var(--teal));"></div>'}
@@ -2571,6 +2801,7 @@ async function openStorePage(slug) {
             ${store.pickup_available ? '<span>📦 Pickup</span>' : ''}
             ${store.whatsapp ? `<span>💬 WhatsApp</span>` : ''}
           </div>
+          <button class="btn btn-ghost btn-sm" data-view="browse" style="margin-top:16px;">← Browse listings</button>
           <button class="btn btn-ghost btn-sm" data-action="report-store" data-target-id="${escapeAttr(store._id)}" style="margin-top:16px;">🚩 Report this store</button>
         </div>
       </div>
@@ -2590,7 +2821,7 @@ async function openStorePage(slug) {
     if (listData.success && listData.listings.length) {
       grid.innerHTML = listData.listings.map(l => listingCardHTML(l)).join('');
       grid.querySelectorAll('.listing-card').forEach(card => {
-        card.addEventListener('click', () => openListingModal(card.dataset.id, listData.listings));
+        card.addEventListener('click', () => openListingModal(card.dataset.id, listData.listings, card));
       });
     } else {
       grid.innerHTML = '<div class="empty-state"><p>No active listings in this store.</p></div>';
@@ -2681,13 +2912,14 @@ function renderGrantRejectedState(claimId) {
   const card = document.getElementById('grantModalCard');
   if (!card) return;
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 8px;">Grant request not approved</h3>
     <div class="form-status error" style="margin-bottom:16px;">
       Your request wasn't approved at this time. Please contact the GikoMart admin if you need clarification.
     </div>
     <button type="button" class="btn btn-ghost" data-action="close-grant-modal">Close</button>`;
   document.getElementById('grantModalOverlay').classList.add('open');
+  _modalFocusOnOpen('grantModalOverlay', document.activeElement);
 }
 
 function setupGrantModal() {
@@ -2715,6 +2947,7 @@ function closeGrantModal() {
   clearGrantPoll();
   grantImageUrl = null;
   isGrantImageUploading = false;
+  _modalFocusRestore('grantModalOverlay');
 }
 
 // ─── Cross-device continuation ──────────────────────────────────────────
@@ -2752,6 +2985,12 @@ async function copyTextToClipboard(text) {
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
+    // Explicit viewport origin: a fixed element with no coordinates falls back
+    // to its static position, which can sit deep in the page and makes
+    // select() scroll to it (try-focus). top:0/left:0 pins it to the viewport
+    // so the copy never scrolls the user.
+    ta.style.top = '0';
+    ta.style.left = '0';
     ta.style.opacity = '0';
     document.body.appendChild(ta);
     ta.select();
@@ -2816,7 +3055,7 @@ function showGrantContinuationDialog(claimId) {
         <button type="button" class="btn btn-primary btn-sm" id="grCopyLinkBtn">Copy link</button>
         <button type="button" class="btn btn-ghost btn-sm" id="grHideLinkBtn">Hide</button>
       </div>
-      <div class="form-status" id="grLinkStatus" style="margin-top:8px;"></div>
+      <div class="form-status" id="grLinkStatus" role="status" style="margin-top:8px;"></div>
     </div>`;
   const copyBtn = document.getElementById('grCopyLinkBtn');
   copyBtn.addEventListener('click', async () => {
@@ -2915,7 +3154,7 @@ function openGrantModal() {
   if (!card) return;
   activeGrant = null;
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 8px;">Request a Free Grant</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Ask the GikoMart admin for a free package. First message the admin on WhatsApp, then submit this request.
@@ -2923,18 +3162,18 @@ function openGrantModal() {
     </p>
     <form id="grantRequestForm" novalidate>
       <div class="field-group">
-        <label>What do you need?</label>
+        <label for="gr-type">What do you need?</label>
         <select id="gr-type">
           <option value="listing">A listing package</option>
           <option value="store">A store plan</option>
         </select>
       </div>
       <div class="field-group">
-        <label>Package</label>
+        <label for="gr-package">Package</label>
         <select id="gr-package"></select>
       </div>
       <div class="field-group">
-        <label>Your WhatsApp number</label>
+        <label for="gr-whatsapp">Your WhatsApp number</label>
         <input type="text" id="gr-whatsapp" placeholder="e.g. 0712345678" required>
       </div>
       <div style="position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden;">
@@ -2942,13 +3181,14 @@ function openGrantModal() {
         <input type="text" id="gr-website" tabindex="-1" autocomplete="off" aria-hidden="true">
       </div>
       <button type="submit" class="btn btn-primary btn-block" id="grSubmitBtn" style="margin-top:8px;">Submit request</button>
-      <div class="form-status" id="grStatus"></div>
+      <div class="form-status" id="grStatus" role="status"></div>
     </form>
     <div id="grContinuation"></div>
   `;
   updateGrantPackageOptions();
   renderGrantResumeBanner();
   document.getElementById('grantModalOverlay').classList.add('open');
+  _modalFocusOnOpen('grantModalOverlay', document.activeElement);
 }
 
 // After a reload the request form is back (idle), which invites a duplicate
@@ -3069,7 +3309,7 @@ function showGrantPendingState(claimId, meta) {
   const resolvedType = (meta && meta.type) || 'listing';
   activeGrant = { claimId, type: resolvedType };
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 4px;">Request submitted ✓</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Your free grant request has been sent to the GikoMart admin for review.
@@ -3094,7 +3334,7 @@ function showGrantPendingState(claimId, meta) {
       <button type="button" class="btn btn-ghost btn-sm" id="grContinueBtn">Continue on another device</button>
       <button type="button" class="btn btn-ghost btn-sm" data-action="close-grant-modal">Close</button>
     </div>
-    <div class="form-status" id="grPendingStatus" style="margin-top:10px;"></div>
+    <div class="form-status" id="grPendingStatus" role="status" style="margin-top:10px;"></div>
     <div id="grDevicePanel"></div>`;
   const checkBtn = document.getElementById('grCheckBtn');
   if (checkBtn) {
@@ -3130,6 +3370,7 @@ function showGrantPendingState(claimId, meta) {
   }
   grantPollStatus(claimId, resolvedType, 0);
   document.getElementById('grantModalOverlay').classList.add('open');
+  _modalFocusOnOpen('grantModalOverlay', document.activeElement);
 }
 
 // Single poller for the grant status (auto-poll AND the manual Check status
@@ -3172,16 +3413,16 @@ function showGrantRedeemStep(claimId, type) {
     .map((c) => `<option value="${escapeAttr(c)}"${c === 'Excellent' ? ' selected' : ''}>${escapeHTML(c)}</option>`).join('');
 
   const listingFields = `
-    <div class="field-group"><label>What are you selling?</label><input type="text" id="g-title" placeholder="e.g. Samsung Galaxy S22" required></div>
+    <div class="field-group"><label for="g-title">What are you selling?</label><input type="text" id="g-title" placeholder="e.g. Samsung Galaxy S22" required></div>
     <div class="field-row">
-      <div class="field-group"><label>Category</label><select id="g-category" required><option value="">Choose a category</option>${listingCategories}</select></div>
-      <div class="field-group"><label>Condition</label><select id="g-condition" required>${conditions}</select></div>
+      <div class="field-group"><label for="g-category">Category</label><select id="g-category" required><option value="">Choose a category</option>${listingCategories}</select></div>
+      <div class="field-group"><label for="g-condition">Condition</label><select id="g-condition" required>${conditions}</select></div>
     </div>
     <div class="field-row">
-      <div class="field-group"><label>Price (KSh)</label><input type="number" id="g-price" min="0" required></div>
-      <div class="field-group"><label>Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
+      <div class="field-group"><label for="g-price">Price (KSh)</label><input type="number" id="g-price" min="0" required></div>
+      <div class="field-group"><label for="g-location">Location</label><input type="text" id="g-location" placeholder="e.g. Njoro"></div>
     </div>
-    <div class="field-group"><label>Description</label><textarea id="g-description" required></textarea></div>
+    <div class="field-group"><label for="g-description">Description</label><textarea id="g-description" required></textarea></div>
     <div class="field-group"><label>Photo (optional)</label>
       <div class="image-upload" id="g-imageUploadBox">
         <input type="file" id="g-image" accept="image/*" hidden>
@@ -3191,29 +3432,29 @@ function showGrantRedeemStep(claimId, type) {
           <span class="image-upload-hint">JPG, PNG, WebP or GIF — up to 3MB per photo</span>
         </div>
         <img id="g-imagePreviewImg" class="image-preview-img" alt="" loading="lazy">
-        <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" hidden>✕</button>
+        <button type="button" class="image-remove-btn" id="g-imageRemoveBtn" aria-label="Remove photo" hidden>✕</button>
       </div>
       <div class="image-upload-status" id="g-imageUploadStatus"></div>
     </div>
     <div class="field-row">
-      <div class="field-group"><label>Your name</label><input type="text" id="g-seller" required></div>
-      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
+      <div class="field-group"><label for="g-seller">Your name</label><input type="text" id="g-seller" required></div>
+      <div class="field-group"><label for="g-whatsapp">WhatsApp number</label><input type="text" id="g-whatsapp" required></div>
     </div>`;
 
   const storeFields = `
-    <div class="field-group"><label>Store name</label><input type="text" id="g-store-name" required></div>
-    <div class="field-group"><label>Store category</label><select id="g-store-category" required>${storeCategories}</select></div>
-    <div class="field-group"><label>Description</label><textarea id="g-store-description" rows="3"></textarea></div>
+    <div class="field-group"><label for="g-store-name">Store name</label><input type="text" id="g-store-name" required></div>
+    <div class="field-group"><label for="g-store-category">Store category</label><select id="g-store-category" required>${storeCategories}</select></div>
+    <div class="field-group"><label for="g-store-description">Description</label><textarea id="g-store-description" rows="3"></textarea></div>
     <div class="field-row">
-      <div class="field-group"><label>Contact phone</label><input type="text" id="g-store-phone" required></div>
-      <div class="field-group"><label>WhatsApp number</label><input type="text" id="g-store-whatsapp" required></div>
+      <div class="field-group"><label for="g-store-phone">Contact phone</label><input type="text" id="g-store-phone" required></div>
+      <div class="field-group"><label for="g-store-whatsapp">WhatsApp number</label><input type="text" id="g-store-whatsapp" required></div>
     </div>
-    <div class="field-group"><label>Email (optional)</label><input type="email" id="g-store-email"></div>
-    <div class="field-group"><label>Location</label><input type="text" id="g-store-location" placeholder="e.g. Njoro, near Main Gate"></div>`;
+    <div class="field-group"><label for="g-store-email">Email (optional)</label><input type="email" id="g-store-email"></div>
+    <div class="field-group"><label for="g-store-location">Location</label><input type="text" id="g-store-location" placeholder="e.g. Njoro, near Main Gate"></div>`;
 
   const acceptance = resolvedType === 'store' ? storeCreationAcceptanceHTML() : sellerListingAcceptanceHTML();
   card.innerHTML = `
-    <button class="modal-close" data-action="close-grant-modal">✕</button>
+    <button class="modal-close" data-action="close-grant-modal" aria-label="Close">✕</button>
     <h3 style="font-family:var(--font-display); margin:0 0 4px;">Your free grant was approved 🎉</h3>
     <p style="color:var(--ink-soft); font-size:14px; margin:0 0 16px;">
       Your grant is approved and ready. Complete the form below to publish your ${escapeHTML(resolvedType === 'store' ? 'store' : 'listing')} — no payment needed.
@@ -3222,7 +3463,7 @@ function showGrantRedeemStep(claimId, type) {
       ${resolvedType === 'store' ? storeFields : listingFields}
       ${acceptance}
       <button type="submit" class="btn btn-primary btn-block" id="grRedeemBtn" style="margin-top:8px;">Publish with Free Grant</button>
-      <div class="form-status" id="grRedeemStatus"></div>
+      <div class="form-status" id="grRedeemStatus" role="status"></div>
     </form>`;
   // Fresh photo state per render, and wire the optional image upload
   // (listing grants only — stores have no image field).
@@ -3230,6 +3471,7 @@ function showGrantRedeemStep(claimId, type) {
   isGrantImageUploading = false;
   if (resolvedType === 'listing') setupGrantImageUpload();
   document.getElementById('grantModalOverlay').classList.add('open');
+  _modalFocusOnOpen('grantModalOverlay', document.activeElement);
 }
 
 async function handleGrantRedeemSubmit(e) {

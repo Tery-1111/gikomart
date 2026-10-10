@@ -40,6 +40,41 @@ module.exports = [
     },
   },
 
+  // Verification tools (tools/ui-rig): same CommonJS + Node globals and the
+  // same security-plugin ruleset as src/ so the rig lints under identical rules.
+  {
+    files: ['tools/**/*.js'],
+    plugins: { security },
+    rules: {
+      ...security.configs.recommended.rules,
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_|next', caughtErrors: 'none', ignoreRestSiblings: true }],
+      'security/detect-object-injection': 'off', // false positive on req.body[key] idiom; NoSQL sanitize middleware + Mongoose schemas are the actual guards
+      'security/detect-child-process': 'off', // no child processes in this codebase; rule can't tell exec from spawn
+    },
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'commonjs',
+      globals: { ...globals.node },
+    },
+  },
+
+  // Standalone ESM verification tools executed inside Node but driving a
+  // real browser via playwright-core (tools/responsive-check.mjs): their
+  // source speaks in browser-API names (window/document/localStorage/fetch)
+  // and runs page.evaluate callbacks, so the BROWSER globals apply — the
+  // script's own imports (node:fs, createRequire, path) remain explicit.
+  {
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_|next', caughtErrors: 'none', ignoreRestSiblings: true }],
+    },
+  },
+
   // Frontend: browser globals for the vanilla-JS app
   {
     files: ['public/assets/js/**/*.js'],
