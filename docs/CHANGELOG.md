@@ -1188,6 +1188,74 @@ runs `7654a0e`.)
 
 ## UI verification rig
 
+### fix(ui): modal focus management (Package A, Phase 4A)
+- **Behavior:** All four modals (listing, report, store, grant) now manage
+  focus meaningfully and safely. On open, the overlay's card heading receives
+  initial focus (heading gets a temporary `tabindex="-1"` removed on close; a
+  non-focusable heading falls back to the first interactive control). While a
+  modal is open a single global Tab handler (`_modalTabTrap`, wired at the top
+  of the existing keydown handler) keeps keyboard focus cycling inside the
+  topmost open overlay in both directions; a modal with no focusable controls
+  pins focus rather than letting Tab escape. Shift+Tab and wrapping from
+  first/last control are handled. Opening a second modal (report over listing,
+  both supported user flows) records its parent's opener; closing the child
+  returns focus to the parent's heading, and closing the parent then restores
+  the original page trigger. On close, focus restores to the opener element
+  when it is still connected, rendered, not disabled/aria-hidden, and neither
+  body/html; listing cards (non-focusable divs) receive a temporary
+  `tabindex="-1"` marked `data-modal-focus-opener` so they can be focused,
+  left in place until the next cycle. Removed/disabled/hidden openers degrade
+  to leaving focus in place — never a thrown error. Escape behavior preserved
+  exactly (report → grant → listing; store modal deliberately excluded as
+  before); non-Tab keys pass through (`_modalTabTrap` returns false). Opener
+  plumbing: the four listing-card render sites pass the clicked card to
+  `openListingModal` explicitly. App cache tag `20261009d` → `20261010a`
+  (style.css unchanged).
+- **Tests added:** `tests/modalFocus.test.mjs` — 15 assertions driving the
+  real app.js against real index.html: heading-first focus per overlay, Tab
+  wrap both directions, no-escape asserts incl. the search input behind the
+  modal, non-Tab key passthrough, zero-focusable non-throw/pin, restore via
+  Escape/control/removed opener, reopen re-trap, and the previous-phase
+  chained B-over-A semantic with both close orders.
+- **Files changed:** `public/assets/js/app.js` (focus system + opener plumbing),
+  `tests/modalFocus.test.mjs` (new), `public/index.html` (cache tag),
+  `.asset-hashes.json`.
+
+### fix(ux): require sell-form fields before payment errors; browse empty-state CTA; public store browse link (Phase 4B)
+- **Sell form:** `handleSubmit` now calls the native `reportValidity()` on the
+  form at entry, so required listing/seller field errors (title, category,
+  condition, price, description, name, WhatsApp) surface before the
+  payment-phone error could mask them; when all required fields are valid it
+  is a silent no-op and the existing payment validation runs unchanged.
+  There are no new plotted requirements: the required attributes already on
+  the form inputs are the single source of truth, matching the server-side
+  initiate-listing field checks.
+- **Browse empty state:** a genuine empty result (no listings after
+  successful search/category fetch) now renders a primary
+  "Create a listing" button; activation routes through the app's existing
+  `switchView('sell')` path. The CTA is suppressed when the grid shows the
+  demo/sample listings after a failed fetch, so a network failure never looks
+  like a clean empty state; loading skeletons, error banners, and populated
+  grids are unchanged.
+- **Public store page:** the store header block gains a `← Browse listings`
+  ghost button (same style row as the existing "Report this store" control)
+  routing via `switchView('browse')`; it works for direct store opens and
+  inherits the existing button focus treatment.
+- Delegated `data-view` clicks rendered after boot (the CTA and store browse
+  link) are handled centrally in `setupActionDelegation` so no per-render
+  listener duplication is introduced. App cache tag `20261010a` →
+  `20261010b` (style.css unchanged).
+- **Tests added:** `tests/journeyFriction.test.mjs` — 9 assertions driving the
+  real app.js: form-vs-payment ordering (paid branch blocked before an M-Pesa
+  error fires when a required field plus the fallback number are missing),
+  payment-phone flow still caught after required fields valid, fully valid
+  submission still initiates payment, empty-grid CTA renders and reaches the
+  sell view, failed-fetch/demo state shows no CTA, populated grids show none,
+  and the public store page exposes the browse link that reaches the browse
+  view.
+- **Files changed:** `public/assets/js/app.js`, `tests/journeyFriction.test.mjs`
+  (new), `public/index.html` (cache tag), `.asset-hashes.json`.
+
 ### fix(ui): associate grant request and store edit form labels
 - **Behavior:** Completes the Phase 2D/2F label-association work for the two
   remaining forms. In the grant-request modal (`openGrantModal()`), visible

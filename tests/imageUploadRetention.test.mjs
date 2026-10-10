@@ -51,6 +51,11 @@ function pickPhoto() {
 
 function fillSellForm() {
   document.getElementById('f-title').value = 'Test listing';
+  // The category select is populated by loadCategories() at app init; jsdom
+  // constraint validation reports "Constraints not satisfied" when a required
+  // select has a value with NO matching option. Pick the real first category.
+  const cat = document.getElementById('f-category');
+  if (cat.options.length > 1) cat.value = cat.options[1].value;
   document.getElementById('f-price').value = '1000';
   document.getElementById('f-description').value = 'A description.';
   document.getElementById('f-seller').value = 'Jane';
@@ -121,6 +126,10 @@ async function bootApp() {
     }
     if (u.includes('/payments/status/')) return jsonResponse({ success: true, listingId: 'lst-new' });
     if (u.includes('/listings') && !u.includes('/listings/categories')) return jsonResponse({ success: true, listings: [] });
+    // Canonical category metadata (loadCategories needs a non-empty array or
+    // the category select stays empty and the required-field native check
+    // introduced in Phase 4B blocks submission in constraints-valid engines).
+    if (u.includes('/listings/categories')) return jsonResponse({ success: true, categories: [{ id: 'electronics', name: 'Electronics', icon: '📱' }] });
     if (u.includes('/upload')) {
       const next = uploadQueue.length ? uploadQueue.shift() : lastUpload;
       return typeof next === 'function' ? next() : next;

@@ -173,15 +173,19 @@ app.post('/api/payments/initiate-listing', (req, res) => {
   // Shape from paymentController.initiateListing (:337).
   const invoiceId = `rig-inv-${++paymentSeq}`;
   if (['pay-success', 'pay-pending', 'pay-failed', 'pay-cancelled'].includes(state.scenario)) {
-    pendingPayments.set(invoiceId, { polls: 0 });
+    pendingPayments.set(invoiceId, { polls: 0, type: 'listing' });
   }
   res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount: 50, ownerToken: 'rig-token' });
 });
 
 app.post('/api/payments/initiate-store-plan', (req, res) => {
+  // Route contract from src/controllers/paymentController.js:345
+  // (initiateStorePlan): the route itself is store-plan-specific, so the
+  // payment TYPE is the route, not a request-body field — the frontend sends
+  // { phoneNumber, storePlan, storeData, acceptance } and no explicit type.
   const invoiceId = `rig-inv-${++paymentSeq}`;
   if (['pay-success', 'pay-pending', 'pay-failed', 'pay-cancelled'].includes(state.scenario)) {
-    pendingPayments.set(invoiceId, { polls: 0 });
+    pendingPayments.set(invoiceId, { polls: 0, type: 'store' });
   }
   res.json({ success: true, message: 'STK push sent. Check your phone.', invoiceId, amount: 150, ownerToken: 'rig-token' });
 });
@@ -191,9 +195,15 @@ app.post('/api/payments/boost', (req, res) => {
 });
 
 app.get('/api/payments/status/:invoiceId', (req, res) => {
-  // Shape from paymentController.checkPaymentStatus (:921-930).
+  // Shape from paymentController.checkPaymentStatus (:921-930). The frontend
+  // adoption gate (app.js:2457) keys on `data.storeId` alone — pollStoreStatus
+  // saves the Store owner token against THAT storeId, closes the modal, and
+  // renders the dashboard — so the completed response for a STORE-plan payment
+  // must carry the store's id (the real controller returns
+  // `storeId: payment.storeId || null`, stamped by the webhook at :806).
   const pending = pendingPayments.get(req.params.invoiceId);
-  const base = { success: true, type: 'listing', storeId: null, failedCode: null };
+  const isStore = pending && pending.type === 'store';
+  const base = { success: true, type: isStore ? 'store' : 'listing', storeId: null, failedCode: null };
 
   if (state.scenario === 'pay-pending') {
     return res.json({ ...base, status: 'pending', listingId: null });
@@ -207,9 +217,20 @@ app.get('/api/payments/status/:invoiceId', (req, res) => {
   if (state.scenario === 'pay-success' && pending) {
     pending.polls += 1;
     if (pending.polls === 1) {
+      // First poll: realistic STK-pending state — still storeId-less·.
       return res.json({ ...base, status: 'pending', listingId: null });
     }
-    return res.json({ ...base, status: 'completed', listingId: 'rig-l-01' });
+    if (isStore) {
+      // Completed STORE-plan payment: the webhook created the store and
+      // stamped its id on the payment; the listing id stays null (which is
+      // what differentiates a completed store payment from a completed
+      // listing payment in the real controller's response).
+      const store = fixtures.STORES[0];
+      const storeId = store && store._id ? store._id : 'rig-s-store';
+      return res.json({ ...base, status: 'completed', listingId: null, storeId });
+    }
+    // Completed LISTING payment (unchanged behavior).
+    return res.json({ ...base, status: 'completed', listingId: 'rig-l-01', storeId: null });
   }
   // normal: a standalone status probe without a tracked payment is just pending.
   res.json({ ...base, status: 'pending', listingId: null });

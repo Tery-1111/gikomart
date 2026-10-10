@@ -112,7 +112,7 @@ function check() {
     fail('public/assets/css/style.css changed but .asset-hashes.json is stale. If its cache-buster was bumped, run: node scripts/check-asset-version.js --update — otherwise bump ?v= on the style.css link first.');
   }
 
-  process.stdout.write(`asset-version-guard: OK (v=${currentV})\n`);
+  process.stdout.write(`asset-version-guard: OK (app.js v=${currentV}, style.css v=${style.v || 'none'})\n`);
 }
 
 if (process.argv.includes('--update')) {

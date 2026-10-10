@@ -608,6 +608,7 @@ img { max-width: 100%; display: block; }
   background: var(--white);
   padding: 9px 18px;
   border-radius: 100px;
+  font-family: var(--font-body);
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
@@ -680,11 +681,21 @@ img { max-width: 100%; display: block; }
 }
 
 .cond-New, .cond-Like-New { background: var(--teal-light); color: var(--teal); }
-.cond-Excellent { background: var(--success-bg); color: var(--success); }
+.cond-Excellent { background: var(--success-bg); color: var(--wa-green-strong-dark); }
 .cond-Good { background: var(--warning-bg); color: var(--marigold-dark); }
 .cond-Fair, .cond-Poor { background: var(--danger-bg); color: var(--coral); }
 
 .listing-body { padding: 14px 16px 16px; }
+
+.store-card {
+  /* Shared card shell for the My Store management panel and the public store
+     page container. Extracted from duplicated inline styling (P1-64); the
+     genuinely different per-container properties (padding, margin, overflow)
+     stay inline in the markup that needs them. */
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
 
 .store-badge {
   display: inline-block;
@@ -896,7 +907,7 @@ img { max-width: 100%; display: block; }
   min-height: 16px;
 }
 
-.image-upload-status.success { color: var(--wa-green-dark); }
+.image-upload-status.success { color: var(--wa-green-strong-dark); }
 .image-upload-status.error { color: var(--coral); }
 
 /* WhatsApp bubble preview image */
@@ -981,7 +992,7 @@ img { max-width: 100%; display: block; }
   min-height: 20px;
 }
 
-.form-status.success { color: var(--wa-green-dark); }
+.form-status.success { color: var(--wa-green-strong-dark); }
 .form-status.error { color: var(--coral); }
 
 /* Preview card */
@@ -1369,7 +1380,7 @@ img { max-width: 100%; display: block; }
 }
 
 .boost-status.pending { color: var(--marigold-dark); }
-.boost-status.success { color: var(--wa-green-dark); }
+.boost-status.success { color: var(--wa-green-strong-dark); }
 .boost-status.error { color: var(--coral); }
 
 /* Featured badge on cards */
@@ -1437,10 +1448,49 @@ img { max-width: 100%; display: block; }
   .nav-link { padding: 9px 12px; }
   .campus-tag { display: none; }
   .hero { padding: 40px 20px 56px; }
-  .hero-title { font-size: 32px; }
+  .hero-title { font-size: 32px; margin-bottom: 12px; }
   .hero-stats { flex-wrap: wrap; gap: 24px; }
   .field-row { flex-direction: column; gap: 0; }
   .app-shell { padding: 36px 16px 80px; }
+  /* Mobile hero compaction: the stacked hero (phone mock + copy + stats)
+     plus the 80px hero bottom padding pushed the first listing to ~1400px.
+     These reductions reclaim vertical space without hiding or resizing
+     content; horizontal spacing, the pill row and its focus clearance are
+     untouched. */
+  .hero { padding: 32px 20px 24px; }
+  .hero-inner { gap: 24px; }
+  .hero-eyebrow { margin-bottom: 8px; }
+  .hero-sub { margin-bottom: 16px; }
+  .hero-actions { margin-bottom: 0; }
+  .app-shell { padding-top: 20px; }
+  /* Category pills wrap into ~10 rows at 360px, pushing listings ~1500px
+     down the page. One scrollable row restores a usable above-the-fold
+     position while every pill stays a full-height touch target and the
+     fade makes the overflow signposted without new colors. */
+  .cat-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+  }
+  .cat-pills::-webkit-scrollbar { display: none; }
+  /* outline sits 2px outside the pill edge with a 3px stroke, so the ring
+     overhangs each pill by 5px. The 12px/6px padding + mirrored negative
+     margins give that overhang room on all sides inside the scroll container
+     (no clipping at the initial scroll position) while the negative margins
+     keep the first pill's content flush with the search field (vertical
+     spacing unchanged) and the box stays inside the 16px page gutter. */
+  .cat-pills { padding: 12px 6px; margin: -12px -6px; }
+  .cat-pill { flex: 0 0 auto; }
+  /* Search → filters gap: was (.filters gap 16px + .search-box wrapper marg-
+     in) stacking with the hero's old margin; tightened so the search input's
+     focus affordance and pill row remain separate but compact. The pills
+     row's own vertical padding/margins (12px/-12px, ring clearance) are
+     NOT touched. */
+  .filters { gap: 12px; margin-bottom: 20px; }
 }
 
 /* Focus visibility for accessibility */
@@ -1448,7 +1498,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid var(--marigold);
+  outline: 3px solid var(--marigold-dark);
   outline-offset: 2px;
 }
 
@@ -1463,6 +1513,9 @@ textarea:focus-visible {
 
 .owner-btn {
   flex: 1;
+  /* 44px minimum rendered touch target (WCAG 2.5.8 AAA-level guidance);
+     content is vertically centered by the user-agent button rules. */
+  min-height: 44px;
   padding: 10px 12px;
   border: none;
   border-radius: 10px;
@@ -1638,6 +1691,27 @@ textarea:focus-visible {
   .image-upload.uploading::after,
   .view.active,
   .modal-card { animation: none; }
+}
+
+/* Reduced-motion: global override. Standard pattern — every animation renders
+   its end state (iteration-count 1) and every transition completes
+   effectively instantly, so class-toggled states (modal open/close, toast
+   show/hide, preview fade) land on their final visuals with no JS-side
+   animation-event dependency (verified: app.js binds no animationend/
+   transitionend). Looping loaders (spinner/skeleton/upload sweep) are ALSO
+   forced to animation:none below so reduce users keep a visible, static
+   in-progress state instead of a motionless end-state frame. The three
+   earlier partial reduce blocks above remain for their selectors; this block
+   is a superset, not a conflict. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ============================================
