@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const fs = require('node:fs');
+const path = require('node:path');
 const Listing = require('../models/Listing');
 const Store = require('../models/Store');
 const cloudinary = require('../config/cloudinary');
@@ -11,6 +13,7 @@ const inputLimits = require('../config/inputLimits');
 const { listingView } = require('../utils/publicView');
 const { checkListing } = require('../services/moderationService');
 const { listingsCache, invalidateListingsCache } = require('../utils/ttlCache');
+const { categoryDisplayName } = require('../config/listingOptions');
 
 // Escape special regex characters in user input so it can be safely embedded
 // in a $regex query (prevents crashes on invalid patterns and ReDoS abuse).
@@ -113,6 +116,106 @@ exports.getListings = async (req, res, next) => {
         listings: sanitized,
       });
     }
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ─── Crawlable public listing page (GET /listing/:id) ─────────────────────
+// Server-rendered fallback page for a single listing, at the stable URL
+// /listing/{_id} that listing cards link to. It exists for crawlers and for
+// users who land on the URL directly (shared link / refresh): the SPA always
+// shows the homepage shell, never per-listing content, so the plain HTML
+// response must carry the listing's own fields. Vendor-neutral by design — no
+// view engine, no dependency; a minimal template with %PLACEHOLDER% slots.
+// A hidden-but-valid listing (invalid id, deleted, sold, flagged, removed)
+// returns the same standalone 404 page: hiding the listing and hiding its
+// existence both map to 404, so no other listing can ever be displayed here.
+
+// Minimal XML/HTML text escaping for template interpolation into text and
+// double-quoted attribute contexts.
+function escapeHtmlText(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Lazily read the template once per process (mutability on disk is not a
+// correctness constraint here: server.js never hot-reloads this module).
+let listingPageTemplate = null;
+function getListingPageTemplate() {
+  if (listingPageTemplate === null) {
+    const file = path.join(process.cwd(), 'public', 'legal', 'listing-page.template.html');
+    listingPageTemplate = fs.readFileSync(file, 'utf8');
+  }
+  return listingPageTemplate;
+}
+
+function renderListingNotFound(res) {
+  const html = getListingPageTemplate();
+  const notFoundBody = [
+    '<div class="legal-page">',
+    '<a href="/" class="back-link">← Back to GikoMart</a>',
+    '<h1>Listing not found</h1>',
+    '<p>This listing does not exist, is no longer active, or is not publicly visible.</p>',
+    '</div>',
+  ].join('');
+  res
+    .status(404)
+    .set('Content-Type', 'text/html; charset=utf-8')
+    .send(html.replace('%LISTING_CONTENT%', notFoundBody).replace(/%[A-Z_]+%/g, ''));
+}
+
+exports.getListingPage = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Same guard as the store visibility contract: a malformed id skips the DB
+    // and returns 404 directly — Mongoose never sees it, so a cast error can
+    // never become a 500.
+    if (typeof id !== 'string' || !mongoose.isValidObjectId(id) || !/^[0-9a-fA-F]{24}$/.test(id)) {
+      return renderListingNotFound(res);
+    }
+    const listing = await Listing.findOne({
+      _id: id,
+      status: 'active',
+      moderationStatus: 'approved',
+    }).lean();
+    if (!listing) return renderListingNotFound(res);
+
+    // PII guard (same policy as /api/listings/:id): sellerWhatsapp is never
+    // exposed on a public page — the buyer signals intent through the SPA's
+    // contact flow.
+    const view = listingView(listing, { includeContact: false });
+    const condClass = 'cond-' + String(view.condition || 'New').replace(/\s+/g, '-');
+    const categoryNameFallback = categoryDisplayName(view.category);
+    const imageContent = view.images && view.images.length > 0
+      ? `<img src="${escapeHtmlText(view.images[0])}" alt="${escapeHtmlText(view.title)}">`
+      : '';
+    const content = [
+      '<div class="legal-page">',
+      '<a href="/" class="back-link">← Back to GikoMart</a>',
+      '<article class="listing-page-detail">',
+      `<h1>${escapeHtmlText(view.title)}</h1>`,
+      imageContent,
+      `<p class="listing-page-price">KSh ${Number(view.price || 0).toLocaleString('en-KE')}</p>`,
+      `<p><span class="condition-badge ${escapeHtmlText(condClass)}">${escapeHtmlText(view.condition)}</span><span class="listing-page-category">${escapeHtmlText(categoryNameFallback)}</span></p>`,
+      `<p class="listing-page-meta"><span>📍 ${escapeHtmlText(view.location || 'Njoro')}</span><span>👤 ${escapeHtmlText(view.sellerName)}</span><span>👁️ ${Number(view.views || 0)} views</span></p>`,
+      `<p class="listing-page-desc">${escapeHtmlText(view.description)}</p>`,
+      '</article>',
+      '</div>',
+    ].join('');
+
+    const html = getListingPageTemplate()
+      .replace('%LISTING_TITLE%', escapeHtmlText(view.title))
+      .replace('%LISTING_DESCRIPTION%', escapeHtmlText(view.description || ''))
+      .replace('%LISTING_CONTENT%', content);
+    res
+      .set('Content-Type', 'text/html; charset=utf-8')
+      .set('Cache-Control', 'public, max-age=0')
+      .send(html);
   } catch (err) {
     return next(err);
   }

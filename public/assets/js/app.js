@@ -923,7 +923,12 @@ function renderListings() {
   grid.innerHTML = errorBanner + filtered.map(l => listingCardHTML(l)).join('') + loadMoreHTML;
 
   grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, browseState.listings, card));
+    card.addEventListener('click', (e) => {
+      // Clicking the crawlable per-listing anchor navigates — the modal must
+      // not also open behind the navigation.
+      if (e.target.closest('.listing-link')) return;
+      openListingModal(card.dataset.id, browseState.listings, card);
+    });
   });
   const loadMoreBtn = grid.querySelector('.load-more-btn');
   if (loadMoreBtn) {
@@ -953,16 +958,21 @@ function listingCardHTML(l) {
           <button class="owner-btn edit" data-action="edit-listing" data-listing-id="${l._id}" data-stop="1">✏️ Edit</button>
           <button class="owner-btn delete" data-action="delete-listing" data-listing-id="${l._id}" data-stop="1">🗑️ Delete</button>
         </div>` : '';
+  // Crawlable stable URL: crawlers and non-JS agents see a genuine <a href>,
+  // while the delegated card click (renderListings) still opens the SPA's
+  // detail modal in-JS. The default navigation is what a browser does only if
+  // the click is modified (Ctrl/Cmd+click, middle-click) or when JS is absent.
+  const listingHref = `/listing/${encodeURIComponent(String(l._id))}`;
   return `
     <div class="listing-card" data-id="${escapeAttr(l._id)}">
       <div class="listing-image">
-        ${imageContent}
+        <a href="${escapeAttr(listingHref)}" class="listing-link" data-stop="1">${imageContent}</a>
         ${badgeHTML}
         <span class="condition-badge ${escapeAttr(condClass)}">${escapeHTML(l.condition)}</span>
       </div>
       <div class="listing-body">
         ${storeBadgeHTML}
-        <div class="listing-title">${escapeHTML(l.title)}</div>
+        <a href="${escapeAttr(listingHref)}" class="listing-link listing-title-link" data-stop="1">${escapeHTML(l.title)}</a>
         <div class="listing-category">${escapeHTML(categoryName(l.category))}</div>
         <div class="listing-price">KSh ${Number(l.price).toLocaleString()}</div>
         <div class="listing-meta">
@@ -2711,7 +2721,11 @@ async function openStoreListings(storeId) {
     section.innerHTML = `<h3 style="font-family:var(--font-display); margin-bottom:12px;">Store Listings (${data.listings.length})</h3>
       <div class="listing-grid">${data.listings.map(l => listingCardHTML(l)).join('')}</div>`;
     section.querySelectorAll('.listing-card').forEach(card => {
-      card.addEventListener('click', () => openListingModal(card.dataset.id, data.listings, card));
+      card.addEventListener('click', (e) => {
+        // Anchor clicks navigate to the stable URL — no modal behind them.
+        if (e.target.closest('.listing-link')) return;
+        openListingModal(card.dataset.id, data.listings, card);
+      });
     });
   } catch (err) {
     section.innerHTML = `<div class="empty-state"><p>${escapeHTML(friendlyFetchError(err))}</p></div>`;
@@ -2821,7 +2835,11 @@ async function openStorePage(slug) {
     if (listData.success && listData.listings.length) {
       grid.innerHTML = listData.listings.map(l => listingCardHTML(l)).join('');
       grid.querySelectorAll('.listing-card').forEach(card => {
-        card.addEventListener('click', () => openListingModal(card.dataset.id, listData.listings, card));
+        card.addEventListener('click', (e) => {
+          // Anchor clicks navigate to the stable URL — no modal behind them.
+          if (e.target.closest('.listing-link')) return;
+          openListingModal(card.dataset.id, listData.listings, card);
+        });
       });
     } else {
       grid.innerHTML = '<div class="empty-state"><p>No active listings in this store.</p></div>';

@@ -106,6 +106,10 @@ app.use(express.static('public', require('./src/config/staticOptions')));
 
 // Routes
 app.use('/api/listings', require('./src/routes/listings'));
+// Crawlable public listing pages at stable URLs (/listing/{_id}); also what a
+// user receives when they open or refresh a shared listing link directly —
+// the static SPA serves only the homepage shell, never per-listing content.
+app.get('/listing/:id', require('./src/controllers/listingController').getListingPage);
 app.use('/api/upload', require('./src/routes/upload'));
 app.use('/api/payments', require('./src/routes/payments'));
 app.use('/api/admin', require('./src/routes/adminAuth'));

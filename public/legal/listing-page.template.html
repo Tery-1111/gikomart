@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>%LISTING_TITLE% — GikoMart</title>
+<!-- Inline SVG favicon: same as public/index.html. No extra requests. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%F0%9F%9B%92%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+  /* Same legal-page shell as the legal docs so this page inherits the site's
+     look without duplicating the stylesheet; the listing detail adds only its
+     own specifics. */
+  .legal-page { max-width: 820px; margin: 0 auto; padding: 64px 24px 96px; }
+  .legal-page h1 { font-family: var(--font-display); font-size: 36px; margin: 0 0 8px; }
+  .legal-page p, .legal-page li { color: var(--ink-soft); line-height: 1.75; margin-bottom: 12px; font-size: 15px; }
+  .legal-page .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--teal); font-weight: 600; text-decoration: none; margin-bottom: 28px; }
+  .legal-page .back-link:hover { text-decoration: underline; }
+  .listing-page-detail img { max-width: 100%; border-radius: var(--radius-lg); margin-bottom: 16px; }
+  .listing-page-price { font-size: 26px; font-weight: 700; color: var(--teal-strong, var(--ink)); font-family: var(--font-display); }
+  .listing-page-category { margin-left: 10px; color: var(--ink-soft); }
+  .listing-page-meta { display: flex; flex-wrap: wrap; gap: 16px; }
+  .listing-page-desc { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a href="/" class="logo"><span class="logo-mark">G</span><span class="logo-text">Giko<span class="logo-accent">Mart</span></span></a>
+    <div class="topbar-cta"><span class="campus-tag">📍 Njoro</span></div>
+  </div>
+</header>
+<main>
+%LISTING_CONTENT%
+</main>
+<!-- Same footer shape as the legal pages: keeps the page a genuine site page,
+     not an orphan. No analytics, no app.js — crawlers get pure static HTML. -->
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <a href="/" class="logo">
+        <span class="logo-mark">G</span>
+        <span class="logo-text">Giko<span class="logo-accent">Mart</span></span>
+      </a>
+      <p class="footer-tag">Local distribution network for Njoro and surrounding communities. Post once. Reach the whole community.</p>
+    </div>
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h4>Marketplace</h4>
+        <a href="/">Browse listings</a>
+        <a href="/legal/terms-of-service.html">Terms of Service</a>
+        <a href="/legal/privacy-policy.html">Privacy Policy</a>
+      </div>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
