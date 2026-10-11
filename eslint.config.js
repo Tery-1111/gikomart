@@ -25,7 +25,7 @@ module.exports = [
   // classic Node attack surface: ReDoS-prone regexes, injection-prone
   // string building, unsafe crypto, fs path traversal, prototype pollution.
   {
-    files: ['src/**/*.js', 'scripts/**/*.js', 'server.js'],
+    files: ['src/**/*.js', 'scripts/**/*.js', 'server.js', 'instrument.js'],
     plugins: { security },
     rules: {
       ...security.configs.recommended.rules,
