@@ -1,3 +1,11 @@
+// Sentry SDK initialization MUST happen before Express and other application
+// modules load. instrument.js is a no-op when SENTRY_DSN is unset or
+// NODE_ENV === 'test' (see instrument.js). The Sentry Express ERROR-HANDLER
+// middleware is registered separately, after all routes and before the final
+// error handler — see setupSentryErrorHandler below.
+const { setupSentry, setupSentryErrorHandler } = require('./instrument');
+// SDK event-pipeline init — must run before Express and app modules load.
+setupSentry();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -125,6 +133,10 @@ app.use('/health', require('./src/routes/health'));
 
 // Central error handler — must be the LAST middleware so every thrown/
 // next(err)'d error is funnelled here and gated on NODE_ENV.
+// Sentry's Express error handler is registered just BEFORE this call so any
+// route/middleware error is observed by Sentry first, then forwarded here
+// (next(err)) for Winston logging and the existing prod-safe body.
+setupSentryErrorHandler(app);
 app.use(require('./src/middleware/errorHandler'));
 
 if (require.main === module) {
