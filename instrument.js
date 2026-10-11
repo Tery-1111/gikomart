@@ -40,11 +40,21 @@ function setupSentry() {
     // they are returned normally, not thrown/next(err)'d as unhandled errors.
     tracesSampleRate: undefined,
     // Defense-in-depth against accidentally leaking sensitive payloads through
-    // event data: drop any request body and never send cookies.
+    // event data: drop any request body, cookies, and URL query parameters.
+    // The URL's path component is preserved so the route remains useful for
+    // grouping, but ?query=value is removed — SDK v11 captures query strings
+    // by default and token-bearing parameters (payment callbacks, grants)
+    // must never leave the process.
     beforeSend(event) {
       if (event.request) {
         delete event.request.data;
         delete event.request.cookies;
+        delete event.request.query_string;
+        if (typeof event.request.url === 'string') {
+          // Strip the query component, preserving the path (and hash-free form).
+          const qIdx = event.request.url.indexOf('?');
+          if (qIdx !== -1) event.request.url = event.request.url.slice(0, qIdx);
+        }
       }
       return event;
     },

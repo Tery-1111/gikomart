@@ -148,6 +148,31 @@ describe('instrument.js (Sentry integration)', () => {
     expect(out.request.url).toBe('/api/payments/initiate-listing');
   });
 
+  it('5b. beforeSend removes query_string and strips the query component from request.url (path preserved)', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.SENTRY_DSN = 'https://mock-key@mock.ingest.sentry.io/000';
+    const instrument = freshInstrument();
+    instrument.setupSentry();
+    const options = sentryCalls.initOptions;
+
+    // v11 SDK captures query strings by default; token-bearing params (payment
+    // callbacks, grant claims) must never leave the process.
+    const event = {
+      request: {
+        url: 'https://staging.example.com/api/payments/status/INV-123?challenge=secret-webhook-challenge&token=claim-token',
+        query_string: 'challenge=secret-webhook-challenge&token=claim-token',
+      },
+    };
+    const out = options.beforeSend(event);
+    expect(out).toBe(event);
+    expect(out.request.query_string).toBeUndefined();
+    expect(out.request.url).toBe('https://staging.example.com/api/payments/status/INV-123');
+
+    // A query-less URL must be passed through untouched.
+    const clean = { request: { url: '/api/listings' } };
+    expect(options.beforeSend(clean).request.url).toBe('/api/listings');
+  });
+
   it('6. SENTRY_ENVIRONMENT / SENTRY_RELEASE are passed through when configured', () => {
     process.env.NODE_ENV = 'production';
     process.env.SENTRY_DSN = 'https://mock-key@mock.ingest.sentry.io/000';
