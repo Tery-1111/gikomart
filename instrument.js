@@ -9,6 +9,9 @@
  *                           a DSN, and CI run with zero side effects).
  *   SENTRY_ENVIRONMENT    — optional tag (e.g. production / staging).
  *   SENTRY_RELEASE        — optional tag tying events to a deploy.
+ *   SENTRY_TRACES_SAMPLE_RATE — optional; number in [0, 1]. Absent/unparsable
+ *                               keeps tracing disabled. 0.1 is the intended
+ *                               production setting; /health is never sampled.
  *
  * Test safety: initialization is skipped entirely when NODE_ENV === 'test'
  * (same gate the winston logger uses, src/config/logger.js).
@@ -81,6 +84,39 @@ async function runDeliveryCheck({ sentry, logger, initialized, env = process.env
   return outcome;
 }
 
+// ── Performance tracing (opt-in via SENTRY_TRACES_SAMPLE_RATE) ───────────────
+// Tracing options are added to init() ONLY when the variable parses as a number
+// in [0, 1]; otherwise they are omitted entirely and tracing stays disabled —
+// identical init options to the pre-tracing configuration.
+function tracesSampleRateFrom(env) {
+  const raw = env.SENTRY_TRACES_SAMPLE_RATE;
+  if (typeof raw !== 'string' || !/^[0-9]*\.?[0-9]+$/.test(raw.trim())) return null;
+  const rate = Number(raw.trim());
+  return rate >= 0 && rate <= 1 ? rate : null;
+}
+
+// Sampler: 0 for /health (Render probes it constantly; spans there are all
+// noise), otherwise the configured rate.
+//
+// Match on the `url.path` span attribute, NOT the span name: verified in the
+// installed SDK (v11.6.0) that in default stream mode an incoming-request span
+// starts named just after the HTTP method ("GET") and Express renames it to
+// "GET <route>" later — a name-based check would never match. The sampling
+// context carries the span's initial attributes, which include url.path
+// (node_modules/@sentry/core tracing/trace.js + integrations/http/server-subscription.js).
+function tracesSamplerFor(rate) {
+  return ({ attributes } = {}) => {
+    const path = attributes && attributes['url.path'];
+    return typeof path === 'string' && /^\/health(\/|$)/.test(path) ? 0 : rate;
+  };
+}
+
+function tracingInitOptions(env) {
+  const rate = tracesSampleRateFrom(env);
+  if (rate === null) return {}; // keep tracing fully disabled
+  return { tracesSampleRate: rate, tracesSampler: tracesSamplerFor(rate) };
+}
+
 /**
  * SDK initialization only — no Express wiring. Called from server.js before
  * Express is created. Returns true when initialization happened, false when
@@ -95,11 +131,19 @@ function setupSentry() {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.SENTRY_ENVIRONMENT || undefined,
     release: process.env.SENTRY_RELEASE || undefined,
-    // Error monitoring only (no tracing). The SDK's expressIntegration
-    // captures errors from routes/middleware automatically; expected
-    // validation failures are 4xx and are NOT reported as crashes because
-    // they are returned normally, not thrown/next(err)'d as unhandled errors.
-    tracesSampleRate: undefined,
+    // Error capture is automatic (expressIntegration); expected 4xx validation
+    // failures are returned normally, not thrown/next(err)'d, so they are NOT
+    // reported as crashes. Tracing stays off unless SENTRY_TRACES_SAMPLE_RATE
+    // parses (see tracingInitOptions above).
+    ...tracingInitOptions(process.env),
+    // Privacy for spans, mirroring the beforeSend policy below. Verified in the
+    // installed SDK: v11 streams spans by default and beforeSend NEVER runs on
+    // them, so query params (which can carry claim tokens / webhook challenge
+    // values) must be disabled at the data-collection layer — this also strips
+    // the query string from span URLs. databaseQueryData:false drops bound
+    // parameters and result data; the parameterized query text itself is not a
+    // switchable field in this SDK and contains no user data at collection time.
+    dataCollection: { urlQueryParams: false, databaseQueryData: false },
     // SDK debug output only while a valid delivery-check flag is set.
     debug: deliveryCheckId(process.env) !== null,
     // Defense-in-depth against accidentally leaking sensitive payloads through
