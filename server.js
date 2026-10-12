@@ -3,9 +3,9 @@
 // NODE_ENV === 'test' (see instrument.js). The Sentry Express ERROR-HANDLER
 // middleware is registered separately, after all routes and before the final
 // error handler — see setupSentryErrorHandler below.
-const { setupSentry, setupSentryErrorHandler } = require('./instrument');
+const { setupSentry, setupSentryErrorHandler, runDeliveryCheck } = require('./instrument');
 // SDK event-pipeline init — must run before Express and app modules load.
-setupSentry();
+const sentryInitialized = setupSentry();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -14,6 +14,10 @@ const helmet = require('helmet');
 const sanitize = require('./src/middleware/sanitize');
 const { globalLimiter } = require('./src/middleware/rateLimiter');
 const logger = require('./src/config/logger');
+// Temporary delivery diagnostic: a no-op unless SENTRY_DELIVERY_CHECK is set to a
+// valid identifier. See runDeliveryCheck in instrument.js.
+runDeliveryCheck({ sentry: require('@sentry/node'), logger, initialized: sentryInitialized })
+  .catch((err) => logger.error('sentry_delivery_check_failed', { error: err.message }));
 require('dotenv').config();
 
 // Fail fast on insecure production secrets BEFORE any route module is required
