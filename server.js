@@ -42,11 +42,11 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "gc.zgo.at"],
+      scriptSrc: ["'self'", "gc.zgo.at", "https://eu-assets.i.posthog.com", "https://eu.i.posthog.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],
       fontSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://gikomart.goatcounter.com"],
-      connectSrc: ["'self'", "https://gikomart.goatcounter.com"],
+      connectSrc: ["'self'", "https://gikomart.goatcounter.com", "https://eu.i.posthog.com", "https://eu-assets.i.posthog.com"],
     },
   },
   crossOriginEmbedderPolicy: false,

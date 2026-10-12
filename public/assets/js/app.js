@@ -593,6 +593,7 @@ function pollListingStatus(invoiceId, attempt = 0) {
     .then(data => {
       if (data && data.success && data.listingId) {
         adoptPendingToken(invoiceId, data.listingId);
+        window.gikoAnalytics && window.gikoAnalytics.listingCreated(data.listingId, 'paid', invoiceId);
         showToast('✅ Payment confirmed — your listing is live!');
         if (isPaymentInFlight) endPaymentWait(true, '✅ Payment confirmed — your listing is live!');
         loadListings();
@@ -670,6 +671,7 @@ async function checkListingStatusManually(invoiceId) {
 
   if (data && data.success && data.listingId) {
     adoptPendingToken(invoiceId, data.listingId);
+    window.gikoAnalytics && window.gikoAnalytics.listingCreated(data.listingId, 'paid', invoiceId);
     showToast('✅ Payment confirmed — your listing is live!');
     endPaymentWait(true, '✅ Payment confirmed — your listing is live!');
     loadListings();
@@ -927,7 +929,7 @@ function renderListings() {
       // Clicking the crawlable per-listing anchor navigates — the modal must
       // not also open behind the navigation.
       if (e.target.closest('.listing-link')) return;
-      openListingModal(card.dataset.id, browseState.listings, card);
+      openListingModal(card.dataset.id, browseState.listings, card, 'browse');
     });
   });
   const loadMoreBtn = grid.querySelector('.load-more-btn');
@@ -1006,13 +1008,15 @@ function setupModal() {
     }
     const btn = e.target.closest('.contact-btn');
     if (!btn) return;
+    window.gikoAnalytics && window.gikoAnalytics.contactClicked(btn.dataset.listingId);
     contactSeller(btn.dataset.title || '', btn.dataset.listingId || '');
   });
 }
 
-function openListingModal(id, source, openerEl) {
+function openListingModal(id, source, openerEl, surface) {
   const listing = (source || allListings).find(l => l._id === id);
   if (!listing) return;
+  window.gikoAnalytics && window.gikoAnalytics.listingViewed(listing, surface);
 
   const condClass = 'cond-' + String(listing.condition).replace(/\s+/g, '-');
   const hasImage = listing.images && listing.images.length > 0;
@@ -1911,6 +1915,7 @@ async function handleSubmit(e) {
     // id the client has at this point). Once the status poll reports the
     // created listing's id, the token is re-keyed to that listing.
     if (data.ownerToken && data.invoiceId) {
+      window.gikoAnalytics && window.gikoAnalytics.cachePending(data.invoiceId, listingData.category, listingData.price);
       try { localStorage.setItem(PENDING_TOKEN_PREFIX + data.invoiceId, data.ownerToken); } catch (err) { console.warn('Could not save owner token:', err); }
       pollListingStatus(data.invoiceId);
     }
@@ -1961,6 +1966,7 @@ async function handleStoreListingSubmit(e, listingData, statusEl, submitBtn) {
     const data = await res.json();
     if (!res.ok || !data.success) throw httpError(res, data);
 
+    window.gikoAnalytics && data.listing && window.gikoAnalytics.listingCreated(data.listing._id, 'store', null, data.listing.category, data.listing.price);
     statusEl.textContent = '✅ Published in your store — covered by your plan.';
     statusEl.classList.add('success');
     showToast('🏪 Listing published in your store');
@@ -2115,7 +2121,7 @@ function renderDashboard() {
 
   grid.innerHTML = myListings.map(l => listingCardHTML(l)).join('');
   grid.querySelectorAll('.listing-card').forEach(card => {
-    card.addEventListener('click', () => openListingModal(card.dataset.id, myListings, card));
+    card.addEventListener('click', () => openListingModal(card.dataset.id, myListings, card, 'dashboard'));
   });
 }
 
@@ -2724,7 +2730,7 @@ async function openStoreListings(storeId) {
       card.addEventListener('click', (e) => {
         // Anchor clicks navigate to the stable URL — no modal behind them.
         if (e.target.closest('.listing-link')) return;
-        openListingModal(card.dataset.id, data.listings, card);
+        openListingModal(card.dataset.id, data.listings, card, 'store_section');
       });
     });
   } catch (err) {
@@ -2838,7 +2844,7 @@ async function openStorePage(slug) {
         card.addEventListener('click', (e) => {
           // Anchor clicks navigate to the stable URL — no modal behind them.
           if (e.target.closest('.listing-link')) return;
-          openListingModal(card.dataset.id, listData.listings, card);
+          openListingModal(card.dataset.id, listData.listings, card, 'store_page');
         });
       });
     } else {

@@ -114,7 +114,7 @@ function cards() {
   return [...document.querySelectorAll('#listingGrid .listing-card')];
 }
 function cardFor(titleFragment) {
-  return cards().find((c) => c.querySelector('.listing-title').textContent.includes(titleFragment));
+  return cards().find((c) => c.querySelector('.listing-title-link').textContent.includes(titleFragment));
 }
 
 describe('Stored-XSS regression — listing fields render inert', () => {
@@ -131,7 +131,7 @@ describe('Stored-XSS regression — listing fields render inert', () => {
   it('malicious HTML in text fields stays inert (rendered as text, not parsed)', () => {
     const card = cardFor('Evil');
     // Title is literal text containing the payload source, not an element.
-    expect(card.querySelector('.listing-title').textContent).toContain('<img');
+    expect(card.querySelector('.listing-title-link').textContent).toContain('<img');
     const badge = card.querySelector('.condition-badge');
     expect(badge.textContent).toBe(PAYLOAD);
     // The payload never becomes a child element.

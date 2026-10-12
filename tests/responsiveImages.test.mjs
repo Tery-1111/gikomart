@@ -76,7 +76,7 @@ beforeAll(async () => {
 
 function cardFor(titleFragment) {
   return [...document.querySelectorAll('#listingGrid .listing-card')]
-    .find((c) => c.querySelector('.listing-title').textContent.includes(titleFragment));
+    .find((c) => c.querySelector('.listing-title-link').textContent.includes(titleFragment));
 }
 
 describe('Responsive images — card render (listingCardHTML)', () => {
