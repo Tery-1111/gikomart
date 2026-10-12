@@ -110,7 +110,7 @@ const cardFor = (id) => [...document.querySelectorAll('.listing-card')].find((c)
 // is outside Step 1's scope, so a hostile id cannot be located by its raw value.
 // Find the card by its visible title instead (used only for the tricky-id case).
 const cardByTitle = (title) => [...document.querySelectorAll('.listing-card')]
-  .find((c) => c.querySelector('.listing-title') && c.querySelector('.listing-title').textContent === title);
+  .find((c) => c.querySelector('.listing-title-link') && c.querySelector('.listing-title-link').textContent === title);
 const overlay = (id) => document.getElementById(id);
 const reportBtnInModal = () => document.getElementById('modalCard').querySelector('[data-action="report-listing"]');
 const dispatchEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
