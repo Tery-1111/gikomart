@@ -5,8 +5,8 @@
   'use strict';
 
   // ---- Switches: edit here only ----
-  const ANALYTICS_ENABLED = false;
-  const POSTHOG_TOKEN = 'phc_REPLACE_WITH_EU_PROJECT_TOKEN';
+  const ANALYTICS_ENABLED = true;
+  const POSTHOG_TOKEN = 'phc_Cod6SxD4PHBXy288J4C5FRRrHSNU9ufDo33UmfukMhqD';
   const POSTHOG_API_HOST = 'https://eu.i.posthog.com';
   const PLACEHOLDER_TOKEN = 'phc_REPLACE_WITH_EU_PROJECT_TOKEN';
 

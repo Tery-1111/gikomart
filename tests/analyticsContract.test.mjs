@@ -1,10 +1,11 @@
 /* eslint-disable no-undef -- document/window/localStorage/sessionStorage/Event are provided by the JSDOM instance constructed below, matching the domTerms/journeyFriction harness pattern */
-// Analytics shipped-dark contract (PostHog EU). Drives the REAL app.js and the
+// Analytics contract (PostHog EU, activated). Drives the REAL app.js and the
 // REAL analytics.js in a manual JSDOM instance (vitest's jsdom fork was flaky
 // here for the other DOM suites) against the REAL public/index.html. All
 // network traffic to /api is stubbed through fetch; PostHog itself is stubbed
 // offline with `window.posthog = { capture }` — no request ever leaves the
-// process and analytics.js's own loader is dark (ANALYTICS_ENABLED=false).
+// process. The loader gate IS exercised (see analyticsGate.test.mjs for the
+// disabled/placeholder/localhost variants via a vm sandbox).
 //
 // Payment-status responses are keyed by invoiceId and remain staged after
 // their test ends, because the app's poll timers legitimately keep retrying
@@ -493,17 +494,20 @@ describe('before_send URL scrubbing', () => {
   });
 });
 
-// ─── Test 8: shipped dark (no network, no script node) ──────────────────
-describe('shipped dark by default', () => {
-  it('analytics.js replaces nothing and fetches nothing', () => {
-    // Loader is a no-op: window.posthog must not have been replaced by a
-    // real instance — it is the test stub we installed per test.
+// ─── Test 8: activated loader (one in-page EU script, still no fetch) ────
+describe('activated loader (PostHog EU)', () => {
+  it('analytics.js arms exactly one PostHog EU script element and starts no fetch itself', () => {
+    // The activated loader runs the official snippet: it inserts its script
+    // element (EU asset host) exactly once. The SDK instance lives in-page,
+    // so the required guarantees are: exactly one script insert, the EU
+    // asset host only, and zero fetch() calls carrying a posthog URL.
     const ph = globalThis.window.posthog;
-    if (ph) {
-      expect(typeof ph.capture).toBe('function');
-      expect(Object.keys(ph)).toEqual(['capture']);
+    if (ph && typeof ph.capture === 'function') {
+      expect(Object.keys(ph)).toContain('capture');
     }
-    expect(document.querySelectorAll('script[src*="posthog"]').length).toBe(0);
+    const scripts = document.querySelectorAll('script[src*="posthog"]');
+    expect(scripts.length).toBe(1);
+    expect(scripts[0].src).toContain('https://eu-assets.i.posthog.com/static/');
     const calls = globalThis.fetch.mock.calls;
     expect(calls.filter(([u]) => String(u).includes('posthog')).length).toBe(0);
   });
