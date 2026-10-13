@@ -22,3 +22,22 @@ regexes = [
     '''^0123456789abcdefghij$''',
     '''^9876543210zyxwvutsrq$''',
 ]
+#
+# PostHog public ingestion token (the audited activation design, PRs #2/#3)
+# embeds the browser-side project token in the frontend bootstrap. It is a
+# PUBLIC PostHog project token by design — not a private credential — and
+# gitleaks' generic-api-key rule flags the assignment regardless. The
+# per-rule allowlist below, attached to generic-api-key only, exempts the
+# exact POSTHOG_TOKEN = 'phc_…' bootstrap line shape and nothing else:
+# all other rules, files, lines, and value shapes stay fully enforced
+# empirically (negative controls: an AWS-style key, a phx_ token, and a
+# phc_ value under a non-PostHog variable name were still reported).
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Public PostHog ingestion token bootstrap (public phc_ client token by audited design)"
+regexTarget = "line"
+regexes = [
+    '''(?i)POSTHOG_TOKEN\s*=\s*['\"]phc_'''
+]
