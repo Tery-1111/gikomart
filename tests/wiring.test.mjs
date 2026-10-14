@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import speakeasy from 'speakeasy';
 import mongoose from 'mongoose';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 // Env fixtures — set BEFORE any server import so the suite is self-contained
 // (CI has no .env; server code reads ADMIN_KEY / INTASEND_WEBHOOK_CHALLENGE at
@@ -2105,6 +2106,30 @@ describe('CSP analytics origins', () => {
     // Primary path: the script itself, and the POST beacon it sends.
     expect(directive(csp, 'script-src')).toContain('gc.zgo.at');
     expect(directive(csp, 'connect-src')).toContain('https://gikomart.goatcounter.com');
+  });
+});
+
+// ─── Search Console verification: the owner-supplied tag is load-bearing ────
+describe('Google Search Console verification tag (public/index.html)', () => {
+  it('ships the owner-supplied verification token exactly once, inside <head>, in the served shell', () => {
+    const html = readFileSync(require.resolve('../public/index.html'), 'utf8');
+
+    // Exact supplied value. If this test fails, one of three things regressed:
+    // the tag was dropped, its content was altered/renamed, or it was
+    // duplicated — all of which break Google Search Console ownership
+    // verification. The exact-level assertions are deliberate: they catch
+    // attribute drift (e.g. changing `name`), value edits, and duplicates,
+    // which a weak `.toContain(content)` would silently let through.
+    const content = 'BCwPwViMKj6T5U6_lXmVLmHCO55JwZEN__cV1E_sON4';
+    const tag = `<meta name="google-site-verification" content="${content}" />`;
+    expect(html.split(tag).length - 1).toBe(1); // full tag: exactly once
+    expect(html.split(content).length - 1).toBe(1); // bare value: exactly once
+
+    // Google parses the served page's <head>; the tag must live inside it.
+    const tagAt = html.indexOf(tag);
+    expect(tagAt).toBeGreaterThan(-1);
+    expect(tagAt).toBeGreaterThan(html.indexOf('<head>'));
+    expect(tagAt).toBeLessThan(html.indexOf('</head>'));
   });
 });
 
