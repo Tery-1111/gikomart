@@ -1,0 +1,18 @@
+# GikoMart
+
+> GikoMart is a local marketplace that broadcasts listings to WhatsApp groups and channels so buyers see them fast.
+
+## What GikoMart does
+- Users post an item once.
+- GikoMart shares the listing to local WhatsApp groups and channels.
+- Buyers contact sellers directly on WhatsApp.
+
+## Key pages
+- Homepage: https://gikomart.onrender.com/
+- Post a listing: https://gikomart.onrender.com/ (Sell view)
+- Individual listing: https://gikomart.onrender.com/listing/<id>
+
+## Notes
+- Listings are local, not tied to any single institution.
+- Prices are in Kenyan Shillings (KES).
+- Storefronts are available for sellers who want an organized shop page.

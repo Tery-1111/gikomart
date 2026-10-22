@@ -143,6 +143,45 @@ function escapeHtmlText(str) {
     .replace(/'/g, '&#39;');
 }
 
+// Build schema.org Product structured data for a server-rendered listing page.
+// The result is embedded in <script type="application/ld+json">, so '<', '>'
+// and '&' are emitted as unicode escapes: the payload stays valid JSON while
+// a "</script>" breakout via a hostile title/description becomes impossible.
+function buildListingJsonLd(view) {
+  const url = `https://gikomart.onrender.com/listing/${view._id}`;
+  const offers = {
+    '@type': 'Offer',
+    url,
+    priceCurrency: 'KES',
+    availability: view.status === 'active'
+      ? 'https://schema.org/InStock'
+      : 'https://schema.org/OutOfStock',
+    itemCondition: String(view.condition).toLowerCase() === 'new'
+      ? 'https://schema.org/NewCondition'
+      : 'https://schema.org/UsedCondition',
+  };
+  const price = Number(view.price);
+  if (Number.isFinite(price) && price > 0) offers.price = String(price);
+
+  const images = (view.images || []).filter((u) => /^https?:\/\//i.test(u));
+
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    '@id': `${url}#product`,
+    name: String(view.title || '').slice(0, 120),
+    description: String(view.description || '').slice(0, 2000),
+    category: view.category,
+    offers,
+  };
+  if (images.length) data.image = images;
+
+  return JSON.stringify(data)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
 // Lazily read the template once per process (mutability on disk is not a
 // correctness constraint here: server.js never hot-reloads this module).
 let listingPageTemplate = null;
@@ -211,6 +250,7 @@ exports.getListingPage = async (req, res, next) => {
     const html = getListingPageTemplate()
       .replace('%LISTING_TITLE%', escapeHtmlText(view.title))
       .replace('%LISTING_DESCRIPTION%', escapeHtmlText(view.description || ''))
+      .replace('%LISTING_JSONLD%', buildListingJsonLd(view))
       .replace('%LISTING_CONTENT%', content);
     res
       .set('Content-Type', 'text/html; charset=utf-8')

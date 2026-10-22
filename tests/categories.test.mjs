@@ -47,7 +47,7 @@ const EXPECTED_IDS = [
 ];
 const EXPECTED_NAMES = [
   'Food & Drinks', 'Electronics', 'Clothing & Fashion', 'Furniture & Home',
-  'Student Essentials', 'Hostel Living', 'Jobs & Services', 'Vehicles',
+  'Everyday Essentials', 'Home & Living', 'Jobs & Services', 'Vehicles',
   'Accommodation', 'Agriculture', 'Beauty & Personal Care', 'Entertainment & Hobbies',
 ];
 
