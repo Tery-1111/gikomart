@@ -156,6 +156,31 @@ describe('GET /listing/:id — crawlable HTML listing page', () => {
     expect(res.text).toContain('&quot;quotes&quot;');
   });
 
+  it('200: serves schema.org Product JSON-LD that matches the rendered listing', async () => {
+    seedListings();
+    const res = await request(app).get(`/listing/${SEEDED_ID}`);
+    expect(res.status).toBe(200);
+    const m = res.text.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(m, 'listing page must emit a JSON-LD script block').not.toBeNull();
+    const data = JSON.parse(m[1]);
+    expect(data['@context']).toBe('https://schema.org');
+    expect(data['@type']).toBe('Product');
+    expect(data['@id']).toBe(`https://gikomart.onrender.com/listing/${SEEDED_ID}#product`);
+    expect(data.name).toBe('Kinesiology Textbook');
+    expect(data.description).toBe('MATH 111 textbook, no notes inside.');
+    expect(data.category).toBe('academic');
+    expect(data.image).toContain('https://res.cloudinary.com/demo/image/upload/cover.jpg');
+    // Offer mirrors what the page shows: KSh price, active/available, used item.
+    expect(data.offers).toMatchObject({
+      '@type': 'Offer',
+      url: `https://gikomart.onrender.com/listing/${SEEDED_ID}`,
+      price: '1200',
+      priceCurrency: 'KES',
+      availability: 'https://schema.org/InStock',
+      itemCondition: 'https://schema.org/UsedCondition',
+    });
+  });
+
   it('404: nonexistent but well-formed listing id returns the standalone 404 page', async () => {
     seedListings();
     const res = await request(app).get(`/listing/${VALID_MISSING_ID}`);

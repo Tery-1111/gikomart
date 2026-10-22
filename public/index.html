@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="referrer" content="no-referrer">
 <title>GikoMart — Sell locally. Reach instantly.</title>
-<meta name="description" content="GikoMart is a local marketplace for buying and selling in Njoro — list textbooks, phones, furniture and more, reach buyers through campus WhatsApp channels, and browse what's available near you.">
+<meta name="description" content="GikoMart is a local marketplace for buying and selling in Njoro — list textbooks, phones, furniture and more, reach buyers through local WhatsApp groups and channels, and browse what's available near you.">
 <!-- Google Search Console ownership verification (HTML meta-tag method). -->
 <meta name="google-site-verification" content="DHHSQS61yAOWNKhSOWGwvFsp58h5CROjMZj_UqnM9dk" />
 <!-- Google Search Console ownership verification (HTML meta-tag method),
@@ -33,7 +33,29 @@
      whose delegated actions silently ignored new buttons. Bump v on every
      app.js change. -->
 <script src="assets/js/analytics.js?v=20261013a" defer></script>
-<script src="assets/js/app.js?v=20261012a" defer></script>
+<script src="assets/js/app.js?v=20261022a" defer></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://gikomart.onrender.com/#organization",
+      "name": "GikoMart",
+      "url": "https://gikomart.onrender.com/",
+      "description": "A local marketplace that broadcasts listings to WhatsApp groups and channels so buyers see them fast."
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://gikomart.onrender.com/#website",
+      "url": "https://gikomart.onrender.com/",
+      "name": "GikoMart",
+      "publisher": { "@id": "https://gikomart.onrender.com/#organization" },
+      "inLanguage": "en"
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -67,8 +89,8 @@
 <section class="hero" id="heroSection">
   <div class="hero-inner">
     <div class="hero-copy">
-      <p class="hero-eyebrow">Campus Distribution Network</p>
-      <h1 class="hero-title">Post once.<br>Reach the <span class="underline-pop">whole campus.</span></h1>
+      <p class="hero-eyebrow">Local Distribution Network</p>
+      <h1 class="hero-title">Post once.<br>Reach <span class="underline-pop">local buyers fast.</span></h1>
       <p class="hero-sub">Every listing on GikoMart broadcasts straight to local WhatsApp groups and channels — buyers see it before they even open the app.</p>
       <div class="hero-actions">
         <button class="btn btn-primary" data-view="sell">List something →</button>
@@ -86,7 +108,7 @@
         <div class="wa-header-mock">
           <div class="wa-avatar">G</div>
           <div class="wa-name">
-            <strong>GikoMart Campus</strong>
+            <strong>GikoMart</strong>
             <small>Channel · 1,204 followers</small>
           </div>
         </div>
@@ -114,7 +136,7 @@
   <section class="view active" id="view-browse">
     <div class="view-header">
       <h2>Browse listings</h2>
-      <p class="view-sub">Fresh from campus — updated the moment someone posts.</p>
+      <p class="view-sub">Fresh from the community — updated the moment someone posts.</p>
     </div>
 
     <div class="filters">
@@ -198,7 +220,7 @@
           </div>
           <div class="field-group">
             <label for="f-location">Location</label>
-            <input type="text" id="f-location" placeholder="e.g. Njoro, Hostel C">
+            <input type="text" id="f-location" placeholder="e.g. Njoro, Town Centre">
           </div>
         </div>
 
@@ -227,13 +249,13 @@
 
       <!-- Live WhatsApp preview -->
       <div class="preview-card">
-        <p class="preview-label">Live preview — what campus will see</p>
+        <p class="preview-label">Live preview — what locals will see</p>
         <div class="phone-mock phone-mock-small">
           <div class="phone-notch"></div>
           <div class="wa-header-mock">
             <div class="wa-avatar">G</div>
             <div class="wa-name">
-              <strong>GikoMart Campus</strong>
+              <strong>GikoMart</strong>
               <small>Channel · 1,204 followers</small>
             </div>
           </div>
@@ -283,7 +305,7 @@
   <section class="view" id="view-mystore">
     <div class="view-header">
       <h2>My Store</h2>
-      <p class="view-sub">Manage your campus storefront.</p>
+      <p class="view-sub">Manage your storefront.</p>
     </div>
     <div id="mystoreContent">
       <!-- populated by JS -->

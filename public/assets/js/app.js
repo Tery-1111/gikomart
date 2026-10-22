@@ -72,7 +72,7 @@ const DEMO_LISTINGS = [
   { _id: 'demo1', title: 'Samsung Galaxy S22', category: 'electronics', condition: 'Excellent', price: 38000, description: '128GB, no cracks, charger included.', location: 'Njoro', sellerName: 'Brian', sellerWhatsapp: '+254712345678', views: 42, icon: '📱', broadcastSent: true },
   { _id: 'demo2', title: 'Study Desk + Chair', category: 'furniture-home', condition: 'Good', price: 6500, description: 'Wooden desk, adjustable chair. Minor scratches.', location: 'Nakuru CBD', sellerName: 'Grace', sellerWhatsapp: '+254723456789', views: 19, icon: '🛋️', broadcastSent: true },
   { _id: 'demo3', title: 'Calculus Textbook Bundle', category: 'student-essentials', condition: 'Good', price: 1200, description: 'MATH 111 + 112 textbooks plus past papers.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '📚', broadcastSent: true },
-  { _id: 'demo4', title: 'Mattress — 4x6', category: 'hostel-living', condition: 'Like New', price: 3500, description: 'Used one semester only, no stains.', location: 'Hostel C', sellerName: 'James', sellerWhatsapp: '+254745678901', views: 88, icon: '🛏️', broadcastSent: true },
+  { _id: 'demo4', title: 'Mattress — 4x6', category: 'hostel-living', condition: 'Like New', price: 3500, description: 'Used briefly, no stains.', location: 'Njoro', sellerName: 'James', sellerWhatsapp: '+254745678901', views: 88, icon: '🛏️', broadcastSent: true },
   { _id: 'demo5', title: 'Maize — 2 bags 90kg', category: 'agriculture', condition: 'New', price: 9000, description: 'Freshly harvested, dry. Ready for collection.', location: 'Njoro', sellerName: 'Wanjiru', sellerWhatsapp: '+254756789012', views: 14, icon: '🌾', broadcastSent: false },
   { _id: 'demo6', title: 'Leather Jacket', category: 'clothing-fashion', condition: 'Like New', price: 2800, description: 'Medium size, worn twice only.', location: 'Njoro', sellerName: 'Kevin', sellerWhatsapp: '+254734567890', views: 31, icon: '👕', broadcastSent: true },
 ];
@@ -508,10 +508,10 @@ function filterByCategory(catId, el) {
 
 function buildPulseTicker() {
   const items = [
-    { item: 'Samsung Galaxy S22', dest: 'Electronics group + Campus Channel' },
-    { item: 'Mattress — 4x6', dest: 'Hostel Living group' },
-    { item: 'Calculus Textbook Bundle', dest: 'Student Essentials group' },
-    { item: 'Study Desk + Chair', dest: 'Furniture & Home group + Campus Channel' },
+    { item: 'Samsung Galaxy S22', dest: 'Electronics group + Local Channel' },
+    { item: 'Mattress — 4x6', dest: 'Home & Living group' },
+    { item: 'Calculus Textbook Bundle', dest: 'Everyday Essentials group' },
+    { item: 'Study Desk + Chair', dest: 'Furniture & Home group + Local Channel' },
     { item: 'Leather Jacket', dest: 'Clothing & Fashion group' },
   ];
   const track = document.getElementById('pulseTrack');
@@ -1544,14 +1544,14 @@ function packageSectionHTML() {
         <div class="boost-option" data-package="standard" data-action="select-package">
           <div class="boost-option-info">
             <strong>Standard (7 days)</strong>
-            <span>Most student-to-student sales</span>
+            <span>Most peer-to-peer sales</span>
           </div>
           <div class="boost-option-price">KSh 50</div>
         </div>
         <div class="boost-option" data-package="premium" data-action="select-package">
           <div class="boost-option-info">
             <strong>Premium (30 days)</strong>
-            <span>Hostel rooms, electronics, long-term</span>
+            <span>Rooms, electronics, long-term</span>
           </div>
           <div class="boost-option-price">KSh 150</div>
         </div>
@@ -2225,7 +2225,7 @@ async function renderMyStore() {
       <div class="empty-state">
         <span class="empty-icon">🏪</span>
         <p><strong>You don't have a store yet.</strong></p>
-        <p>Open a storefront on GikoMart to organize your listings and build your brand on campus.</p>
+        <p>Open a storefront on GikoMart to organize your listings and build your brand locally.</p>
         <button class="btn btn-primary" data-action="open-store-creation" style="margin-top:16px;">Open a Store →</button>
         <div style="margin-top:14px;">
           <button type="button" class="btn btn-ghost btn-sm" data-action="toggle-store-faq" aria-expanded="false" aria-controls="storeFaq">ⓘ How does the Store work?</button>
@@ -2359,7 +2359,7 @@ function openStoreCreationModal() {
         <input type="email" id="sc-email" placeholder="you@email.com">
       </div>
       <div class="field-group">
-        <label for="sc-location">Location / campus area</label>
+        <label for="sc-location">Location / area</label>
         <input type="text" id="sc-location" placeholder="e.g. Njoro, near Main Gate">
       </div>
 
